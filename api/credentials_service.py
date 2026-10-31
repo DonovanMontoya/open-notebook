@@ -777,6 +777,12 @@ async def register_models(credential_id: str, models_data: list) -> dict:
     existing = 0
 
     for model_data in models_data:
+        # Credential discovery presents names without types. Correct known
+        # OpenAI non-chat models when the registration dialog defaults to chat.
+        if cred.provider == "openai" and model_data.model_type == "language":
+            inferred = classify_model_type(model_data.name, "openai")
+            if inferred != "language":
+                model_data.model_type = inferred
         key = (model_data.name.lower(), model_data.model_type.lower())
         if key in existing_keys:
             existing += 1

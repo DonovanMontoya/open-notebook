@@ -57,7 +57,7 @@ OPENAI_MODEL_TYPES = {
         "ada",
     ],
     "embedding": ["text-embedding", "embedding"],
-    "speech_to_text": ["whisper"],
+    "speech_to_text": ["whisper", "transcribe"],
     "text_to_speech": ["tts"],
 }
 

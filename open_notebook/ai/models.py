@@ -257,6 +257,10 @@ class ModelManager:
 
         # Create model based on type (Esperanto will cache the instance)
         if model.type == "language":
+            if provider == "openai" and model.name.startswith("gpt-6"):
+                from open_notebook.ai.openai_compat import GPT6LanguageModel
+
+                return GPT6LanguageModel(model_name=model.name, config=config)
             return AIFactory.create_language(
                 model_name=model.name,
                 provider=provider,
