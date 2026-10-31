@@ -1,6 +1,13 @@
 import type { TranslationShape } from '../en-US';
 
 export const zhTW = {
+  mobile: {
+    "usageCoverage": "What’s included",
+    "openMenu": "Open menu",
+    "navigation": "Navigation",
+    "speechHint": "Saved podcasts use a text-to-speech model. GPT Live conversations are available in Study Studio; Live is not a speech-generation model for this selector."
+},
+
   usage: {
     "title": "Usage",
     "description": "Estimated API spend for activity recorded by this installation. Tracking starts when enabled; this is not your provider invoice or subscription balance.",

@@ -154,13 +154,13 @@ export default function NotebookPage() {
 
   return (
     <AppShell>
-      <div className="flex flex-col flex-1 min-h-0">
-        <div className="flex-shrink-0 p-6 pb-0">
+      <div className="flex flex-col flex-1 min-h-0 min-w-0">
+        <div className="flex-shrink-0 p-4 pb-0 sm:p-6 sm:pb-0">
           <NotebookHeader notebook={notebook} />
           <Studio key={notebookId} notebookId={notebookId} sources={sources ?? []} />
         </div>
 
-        <div className="flex-1 p-6 pt-6 overflow-x-auto flex flex-col">
+        <div className="min-h-0 min-w-0 flex-1 p-4 sm:p-6 overflow-hidden flex flex-col">
           {/* Mobile: Tabbed interface - only render on mobile to avoid double-mounting */}
           {!isDesktop && (
             <>
@@ -184,7 +184,7 @@ export default function NotebookPage() {
               </div>
 
               {/* Mobile: Show only active tab */}
-              <div className="flex-1 overflow-hidden lg:hidden">
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden lg:hidden">
                 {mobileActiveTab === 'sources' && (
                   <SourcesColumn
                     sources={sources}

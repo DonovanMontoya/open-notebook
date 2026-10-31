@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Give phones full-width content with a mobile navigation drawer, wrapping notebook headers and model fields, readable touch controls, and viewport-safe dialogs.
+
+
 - Keep Live voice available with an OpenAI transformation backend when the default chat model uses another provider.
 
 - Recognize GPT-6 reasoning parameters and use Responses for LangChain calls; classify OpenAI transcription models correctly and prevent known embedding/speech models from being registered as language models by default.

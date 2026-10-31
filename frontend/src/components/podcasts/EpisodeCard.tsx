@@ -186,9 +186,9 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
     <Card>
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
+          <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">
+              <h3 className="text-base font-semibold text-foreground [overflow-wrap:anywhere]">
                 {episode.name}
               </h3>
               <StatusBadge status={episode.job_status} />
@@ -198,7 +198,7 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
               {createdLabel ? ` • ${createdLabel}` : ''}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">

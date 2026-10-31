@@ -156,7 +156,7 @@ export function CredentialItem({
             {MODEL_TYPES
               .filter(type => linkedModels.some(m => m.type === type))
               .map(type => (
-                <div key={type} className="flex items-start gap-1.5">
+                <div key={type} className="flex min-w-0 flex-col items-start gap-2 sm:flex-row">
                   <Badge
                     variant="outline"
                     className={`text-[10px] gap-0.5 px-1 py-0 shrink-0 mt-0.5 ${getTypeColor(type)}`}
@@ -164,19 +164,19 @@ export function CredentialItem({
                     {getTypeIcon(type)}
                     {getTypeLabel(type)}
                   </Badge>
-                  <div className="flex flex-wrap gap-1">
+                  <div className="flex min-w-0 max-w-full flex-wrap gap-2">
                     {linkedModels.filter(m => m.type === type).map(model => {
                       const defaultSlot = defaultSlots[model.id]
                       return (
                         <Badge
                           key={model.id}
                           variant={defaultSlot ? 'default' : 'secondary'}
-                          className="font-mono text-[11px] gap-1 pr-0.5 group/model"
+                          className="min-w-0 max-w-full whitespace-normal text-xs gap-1 pr-1 group/model"
                         >
-                          {model.name}
+                          <span className="min-w-0 [overflow-wrap:anywhere]">{model.name}</span>
                           {defaultSlot && <span className="ml-0.5 opacity-75">({defaultSlot})</span>}
                           <button
-                            className="ml-0.5 opacity-0 group-hover/model:opacity-60 hover:!opacity-100 transition-opacity"
+                            className="ml-0.5 inline-flex size-8 shrink-0 items-center justify-center opacity-60 hover:opacity-100 focus:opacity-100 transition-opacity"
                             onClick={() => testModel(model.id, model.name)}
                             disabled={isModelTestPending && testingModelId === model.id}
                             title={t('models.testModel')}
@@ -187,7 +187,7 @@ export function CredentialItem({
                             }
                           </button>
                           <button
-                            className="opacity-0 group-hover/model:opacity-60 hover:!opacity-100 hover:text-destructive transition-opacity"
+                            className="inline-flex size-8 shrink-0 items-center justify-center opacity-60 hover:opacity-100 focus:opacity-100 hover:text-destructive transition-opacity"
                             onClick={() => deleteModel.mutate(model.id)}
                             title={t('models.deleteModel')}
                           >
