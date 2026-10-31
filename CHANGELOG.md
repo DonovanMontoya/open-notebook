@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Voice-only GPT Live sessions in Study Studio with server-side credential handling, Responses backend delegation, microphone controls, and session cleanup. Notebook source sharing is not enabled.
 - Study Studio in notebooks: source-selected flashcard and quiz generation, difficulty and question-count controls, answer reveal, scoring, missed-item review, and decks saved as notebook notes. Generated output is schema-validated and rejects unknown source references. Initial Studio labels are English across locales; generated study content follows the selected UI language.
 
 ### Changed

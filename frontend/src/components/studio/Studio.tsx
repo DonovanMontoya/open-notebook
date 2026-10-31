@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { useStudio, type StudyDeck, type StudyRequest } from '@/lib/hooks/use-studio'
 import { StudyPlayer } from './StudyPlayer'
+import { LiveTalk } from './LiveTalk'
 
 export function Studio({ notebookId, sources }: { notebookId: string; sources: { id: string; title?: string | null }[] }) {
   const { t, language } = useTranslation()
@@ -44,6 +45,7 @@ export function Studio({ notebookId, sources }: { notebookId: string; sources: {
               <Button type="submit" disabled={!selected.length || !Number.isInteger(count) || count < 1 || count > 20}>{t(generate.isPending ? 'studio.generating' : 'studio.generate')}</Button>
             </fieldset>
           </form>
+          <LiveTalk />
           <h3 className="font-semibold">{t('studio.savedDecks')}</h3>
           {decks.isLoading && <p>{t('common.loading')}</p>}
           {decks.isError && <Button variant="outline" onClick={() => decks.refetch()}>{t('studio.retry')}</Button>}

@@ -2,6 +2,24 @@ import type { TranslationShape } from '../en-US';
 
 export const zhTW = {
 
+  live: {
+    "title": "Talk with GPT Live",
+    "description": "AI voice conversation using GPT Live and your OpenAI chat backend. Sends microphone audio to OpenAI; notebook sources are not attached. API charges apply while connected. Sessions end after 30 minutes.",
+    "voice": "Voice",
+    "start": "Start voice conversation",
+    "stop": "End conversation",
+    "mute": "Mute microphone",
+    "unmute": "Unmute microphone",
+    "idle": "Ready",
+    "connecting": "Connecting…",
+    "connected": "Listening — you can interrupt",
+    "closing": "Ending…",
+    "ended": "Conversation ended",
+    "failed": "Unable to connect. Check microphone permission, OpenAI Live access, and API credits.",
+    "providerError": "OpenAI reported a session error. Check model access and try again.",
+    "playHint": "Press play below to hear the assistant.",
+    "audio": "AI voice playback"
+},
   studio: {
     "title": "Study Studio",
     "description": "Create source-grounded flashcards and quizzes. Uses your configured transformation model. Saved decks are also available in Notes.",
