@@ -1,6 +1,47 @@
 import type { TranslationShape } from '../en-US';
 
 export const zhCN = {
+  usage: {
+    "title": "Usage",
+    "description": "Estimated API spend for activity recorded by this installation. Tracking starts when enabled; this is not your provider invoice or subscription balance.",
+    "period": "Time period",
+    "days": "Last {{count}} days",
+    "refresh": "Refresh",
+    "failed": "Usage could not be loaded. Try Refresh.",
+    "spend": "Estimated USD",
+    "calls": "Recorded operations",
+    "unpriced": "Unpriced / incomplete",
+    "coverage": "Tracks notebook language calls, podcast writing, completed podcast audio, and embeddings. Audio and embedding quantities are estimated. Failed calls without usage, transcription, Live sessions, external activity, tools, cache-write duration premiums, regional and long-context surcharges are not included. Unknown models remain unpriced.",
+    "pricingDate": "Standard list rates checked {{date}}.",
+    "breakdown": "By model and feature",
+    "model": "Model",
+    "feature": "Feature",
+    "input": "Input tokens",
+    "output": "Output tokens",
+    "minutes": "Audio minutes",
+    "partial": "Includes unpriced activity",
+    "empty": "No usage recorded in this period. Your next model calls will appear here.",
+    "recent": "Recent activity (latest 100)",
+    "date": "When",
+    "basis": "Measurement"
+},
+
+  player: {
+    "title": "Podcast player",
+    "audio": "Podcast audio",
+    "play": "Play",
+    "pause": "Pause",
+    "download": "Download MP3",
+    "close": "Close player",
+    "seek": "Seek through episode",
+    "back": "Back 15 seconds",
+    "forward": "Forward 15 seconds",
+    "speed": "Playback speed",
+    "failed": "Could not load audio. Press play to retry.",
+    "buffering": "Buffering…",
+    "keepListening": "Keep listening while you browse"
+},
+
 
   live: {
     "title": "Talk with GPT Live",

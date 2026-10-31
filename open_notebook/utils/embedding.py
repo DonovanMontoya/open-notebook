@@ -174,6 +174,14 @@ async def generate_embeddings(
         for attempt in range(1, EMBEDDING_MAX_RETRIES + 1):
             try:
                 batch_embeddings = await embedding_model.aembed(batch)
+                from open_notebook.ai.usage import record_usage
+
+                await record_usage(
+                    model=model_name,
+                    feature="embedding",
+                    input_tokens=sum(token_count(text) for text in batch),
+                    basis="token_count_estimate",
+                )
                 all_embeddings.extend(batch_embeddings)
                 break
             except Exception as e:

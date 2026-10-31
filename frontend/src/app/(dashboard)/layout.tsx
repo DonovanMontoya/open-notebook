@@ -8,6 +8,7 @@ import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { ModalProvider } from '@/components/providers/ModalProvider'
 import { CreateDialogsProvider } from '@/lib/hooks/use-create-dialogs'
+import { PodcastPlayerProvider } from '@/components/podcasts/PodcastPlayer'
 import { CommandPalette } from '@/components/common/CommandPalette'
 
 export default function DashboardLayout({
@@ -53,11 +54,13 @@ export default function DashboardLayout({
 
   return (
     <ErrorBoundary>
+      <PodcastPlayerProvider>
       <CreateDialogsProvider>
         {children}
         <ModalProvider />
         <CommandPalette />
       </CreateDialogsProvider>
+      </PodcastPlayerProvider>
     </ErrorBoundary>
   )
 }

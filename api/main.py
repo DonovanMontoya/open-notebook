@@ -1,6 +1,8 @@
 # Load environment variables
 from dotenv import load_dotenv
 
+from api.routers import usage
+
 load_dotenv()
 
 # Keep the internal SurrealDB websocket out of any configured HTTP proxy
@@ -418,3 +420,6 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+app.include_router(usage.router, prefix="/api", tags=["usage"])

@@ -58,4 +58,8 @@ async def provision_langchain_model(
             f"Please check that the model configured for '{default_type}' is a language model, not an embedding or speech model."
         )
 
-    return model.to_langchain()
+    from open_notebook.ai.usage import UsageCallback
+
+    client = model.to_langchain()
+    client.callbacks = [UsageCallback(str(default_type), model.model_name or "unknown")]
+    return client

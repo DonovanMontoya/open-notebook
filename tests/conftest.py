@@ -29,3 +29,16 @@ else:
 # Add the project root to the Python path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolate_usage_ledger(monkeypatch):
+    """Unit tests must not write usage events into the configured local database."""
+    monkeypatch.setattr(
+        "open_notebook.ai.usage.repo_upsert", AsyncMock(return_value=[])
+    )

@@ -371,14 +371,17 @@ async def generate_podcast_command(
         # 8. Generate podcast using podcast-creator
         logger.info("Starting podcast generation with podcast-creator...")
 
-        result = await create_podcast(
-            content=input_data.content,
-            briefing=briefing,
-            episode_name=episode_dir_name,
-            output_dir=str(output_dir),
-            speaker_config=speaker_profile.name,
-            episode_profile=episode_profile.name,
-        )
+        from open_notebook.ai.usage import record_podcast_audio, track_podcast_usage
+
+        with track_podcast_usage():
+            result = await create_podcast(
+                content=input_data.content,
+                briefing=briefing,
+                episode_name=episode_dir_name,
+                output_dir=str(output_dir),
+                speaker_config=speaker_profile.name,
+                episode_profile=episode_profile.name,
+            )
 
         # podcast-creator reports audio-combination failures IN-BAND: on
         # ffmpeg/clip errors combine_audio_files() returns an "ERROR: ..."
@@ -411,6 +414,9 @@ async def generate_podcast_command(
             # audio-combination error instead of reporting a silent success
             # for an episode with no playable audio.
             raise RuntimeError(f"Podcast audio generation failed: {audio_error}")
+
+        if raw_audio_path:
+            await record_podcast_audio(raw_audio_path, tts_model_name, str(episode.id))
 
         processing_time = time.time() - start_time
         logger.info(
