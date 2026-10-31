@@ -60,7 +60,11 @@ async def test_exchange_never_returns_secret_or_provider_error(status):
     with (
         patch(
             "api.routers.live.DefaultModels.get_instance",
-            AsyncMock(return_value=SimpleNamespace(default_chat_model="model:test")),
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    default_chat_model="model:test", default_transformation_model=None
+                )
+            ),
         ),
         patch("api.routers.live.Model.get", AsyncMock(return_value=backend)),
         patch("httpx.AsyncClient.post", AsyncMock(return_value=response)),
@@ -77,3 +81,31 @@ async def test_exchange_never_returns_secret_or_provider_error(status):
                     LiveOffer(sdp="v=0\r\n" + "x" * 30), request()
                 )
             assert secret not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_live_uses_openai_transformation_when_chat_is_anthropic():
+    from open_notebook.exceptions import ConfigurationError
+
+    chat = SimpleNamespace(provider="anthropic", type="language", name="claude")
+    backend = SimpleNamespace(
+        provider="openai",
+        type="language",
+        name="gpt-6.1-sol",
+        get_credential_obj=AsyncMock(return_value=None),
+    )
+    with (
+        patch(
+            "api.routers.live.DefaultModels.get_instance",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    default_chat_model="model:chat",
+                    default_transformation_model="model:sol",
+                )
+            ),
+        ),
+        patch("api.routers.live.Model.get", AsyncMock(side_effect=[chat, backend])),
+    ):
+        with pytest.raises(ConfigurationError, match="Link the OpenAI"):
+            await create_live_session(LiveOffer(sdp="v=0\r\n" + "x" * 30), request())
+    backend.get_credential_obj.assert_awaited_once()

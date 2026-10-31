@@ -49,12 +49,23 @@ async def create_live_session(offer: LiveOffer, request: Request):
     if not offer.sdp.startswith("v=0"):
         raise InvalidInputError("Invalid WebRTC offer")
     defaults = await DefaultModels.get_instance()
-    if not defaults.default_chat_model:
-        raise ConfigurationError("Configure an OpenAI chat model first")
-    backend = await Model.get(defaults.default_chat_model)
-    if backend.provider != "openai" or backend.type != "language":
+    backend = None
+    for model_id in dict.fromkeys(
+        [defaults.default_chat_model, defaults.default_transformation_model]
+    ):
+        if not model_id:
+            continue
+        candidate = await Model.get(model_id)
+        if (
+            candidate.provider == "openai"
+            and candidate.type == "language"
+            and candidate.name.startswith(("gpt-6", "gpt-5", "gpt-4"))
+        ):
+            backend = candidate
+            break
+    if backend is None:
         raise ConfigurationError(
-            "Live requires an OpenAI chat backend, such as GPT-6.1 Sol"
+            "Live requires an OpenAI chat or transformation backend, such as GPT-6.1 Sol"
         )
     credential = await backend.get_credential_obj()
     if not credential:
