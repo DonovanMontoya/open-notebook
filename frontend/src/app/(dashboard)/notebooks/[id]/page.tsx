@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Studio } from '@/components/studio/Studio'
 import { useParams } from 'next/navigation'
 import { AppShell } from '@/components/layout/AppShell'
 import { NotebookHeader } from '../components/NotebookHeader'
@@ -156,6 +157,7 @@ export default function NotebookPage() {
       <div className="flex flex-col flex-1 min-h-0">
         <div className="flex-shrink-0 p-6 pb-0">
           <NotebookHeader notebook={notebook} />
+          <Studio key={notebookId} notebookId={notebookId} sources={sources ?? []} />
         </div>
 
         <div className="flex-1 p-6 pt-6 overflow-x-auto flex flex-col">

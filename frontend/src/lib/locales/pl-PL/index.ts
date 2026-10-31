@@ -1,7 +1,43 @@
 import type { TranslationShape } from '../en-US';
 
 export const plPL = {
-  common: {
+
+  studio: {
+    "title": "Study Studio",
+    "description": "Create source-grounded flashcards and quizzes. Uses your configured transformation model. Saved decks are also available in Notes.",
+    "create": "Create a study deck",
+    "format": "Format",
+    "flashcards": "Flashcards",
+    "quiz": "Quiz",
+    "count": "Questions",
+    "difficulty": "Difficulty",
+    "easy": "Easy",
+    "medium": "Medium",
+    "hard": "Hard",
+    "sources": "Sources",
+    "noSources": "Add and process sources first.",
+    "focus": "Learning focus (optional)",
+    "generate": "Generate and save",
+    "generating": "Generating…",
+    "saved": "Study deck saved",
+    "failed": "Could not generate the deck. Check source processing and your model settings, then try again.",
+    "savedDecks": "Saved decks",
+    "empty": "Your study decks will appear here.",
+    "back": "Back to Studio",
+    "retry": "Retry loading decks",
+    "results": "Session complete",
+    "score": "{{correct}} / {{total}} correct",
+    "restart": "Review all",
+    "reviewMissed": "Review missed items",
+    "progress": "Question {{current}} of {{total}}",
+    "progressLabel": "Study progress",
+    "reveal": "Reveal answer",
+    "correct": "Correct",
+    "incorrect": "Review this answer",
+    "next": "Next",
+    "gotIt": "Got it",
+    "missed": "Missed it"
+},  common: {
     search: "Szukaj...",
     create: "Nowy",
     new: "Nowy",
