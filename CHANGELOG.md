@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- GPT Live speech rendering for saved podcasts and default TTS, with selectable speaker profiles, script coverage checks, MP3 downloads, and session-based usage estimates.
+
 - Persistent podcast player with streaming seeks, speed controls, media keys, and browser MP3 downloads.
 - Usage page with a durable local ledger, model and feature breakdowns, and labeled spend estimates.
 

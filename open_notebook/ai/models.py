@@ -279,6 +279,10 @@ class ModelManager:
                 config=config,
             )
         elif model.type == "text_to_speech":
+            if provider == "openai" and model.name == "gpt-live-1":
+                from open_notebook.ai.live_tts import LiveTextToSpeechModel
+
+                return LiveTextToSpeechModel(model_name=model.name, config=config)
             return AIFactory.create_text_to_speech(
                 model_name=model.name,
                 provider=provider,

@@ -58,7 +58,7 @@ OPENAI_MODEL_TYPES = {
     ],
     "embedding": ["text-embedding", "embedding"],
     "speech_to_text": ["whisper", "transcribe"],
-    "text_to_speech": ["tts"],
+    "text_to_speech": ["tts", "gpt-live-1"],
 }
 
 # Fallback list used only when Anthropic's model listing API

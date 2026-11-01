@@ -5,7 +5,7 @@ export const zhTW = {
     "usageCoverage": "What’s included",
     "openMenu": "Open menu",
     "navigation": "Navigation",
-    "speechHint": "Saved podcasts use a text-to-speech model. GPT Live conversations are available in Study Studio; Live is not a speech-generation model for this selector."
+    "speechHint": "GPT Live can voice saved podcasts. It may paraphrase; incomplete narration fails instead of switching voices. Live voices: alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar."
 },
 
   usage: {
@@ -18,7 +18,7 @@ export const zhTW = {
     "spend": "Estimated USD",
     "calls": "Recorded operations",
     "unpriced": "Unpriced / incomplete",
-    "coverage": "Tracks notebook language calls, podcast writing, completed podcast audio, and embeddings. Audio and embedding quantities are estimated. Failed calls without usage, transcription, Live sessions, external activity, tools, cache-write duration premiums, regional and long-context surcharges are not included. Unknown models remain unpriced.",
+    "coverage": "Tracks notebook language calls, podcast writing, completed podcast audio, and embeddings. Podcast Live audio uses session duration, including silence and startup time. Other audio and embedding quantities are estimated. Failed calls without usage, transcription, interactive Live conversations, external activity, tools, cache-write duration premiums, regional and long-context surcharges are not included. Unknown models remain unpriced.",
     "pricingDate": "Standard list rates checked {{date}}.",
     "breakdown": "By model and feature",
     "model": "Model",

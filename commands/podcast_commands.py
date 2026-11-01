@@ -18,7 +18,9 @@ from open_notebook.podcasts.models import (
 from open_notebook.utils.model_utils import full_model_dump
 
 try:
-    from podcast_creator import configure, create_podcast
+    from podcast_creator import configure
+
+    from open_notebook.podcasts.live_generation import create_podcast
 except ImportError as e:
     logger.error(f"Failed to import podcast_creator: {e}")
     raise ValueError("podcast_creator library not available")
@@ -415,7 +417,7 @@ async def generate_podcast_command(
             # for an episode with no playable audio.
             raise RuntimeError(f"Podcast audio generation failed: {audio_error}")
 
-        if raw_audio_path:
+        if raw_audio_path and not result.get("audio_usage_recorded"):
             await record_podcast_audio(raw_audio_path, tts_model_name, str(episode.id))
 
         processing_time = time.time() - start_time
