@@ -133,7 +133,7 @@ test('chat sends small notebooks whole, streams the reply and saves the session'
   assert.equal(sessions[0].message_count, 4)
 })
 
-test('chat on a large notebook sends only the most relevant excerpts', async () => {
+test('chat on a large notebook sends short sources whole and excerpts of long ones', async () => {
   const { backend, provider } = await setup()
   const nb = await backend.createNotebook('Big')
   const filler = 'lorem ipsum dolor sit amet '.repeat(Math.ceil(FULL_CONTEXT_CHARS / 27) + 10)
@@ -143,9 +143,24 @@ test('chat on a large notebook sends only the most relevant excerpts', async () 
 
   await backend.sendChatMessage({ notebookId: nb.id, message: 'xylophone wizards' })
   const system = provider.chats[0].system
-  assert.match(system, /# Source excerpts/)
-  assert.doesNotMatch(system, /<source title=/)
-  assert.ok(system.length < FULL_CONTEXT_CHARS, 'prompt stays under the full-context budget')
+  assert.match(system, /<source title="Needle">\nXylophones quickly vex wizards\./)
+  assert.match(system, /<source title="Filler" excerpts="true">/)
+  assert.ok(system.length < FULL_CONTEXT_CHARS + 2_000, 'prompt stays near the full-context budget')
+})
+
+test('chat on a large notebook includes every source, not only the closest matches', async () => {
+  const { backend, provider } = await setup()
+  const nb = await backend.createNotebook('Eight')
+  const long = (n: number) => `Source ${n} opening line.\n\n` + `paragraph about topic ${n} with details. `.repeat(Math.ceil(FULL_CONTEXT_CHARS / 8 / 40) + 200)
+  for (let n = 1; n <= 8; n++) await backend.addSource(nb.id, { type: 'text', content: long(n), title: `Paper ${n}` })
+  await backend.idle()
+
+  await backend.sendChatMessage({ notebookId: nb.id, message: 'Give me a two-sentence summary of each source' })
+  const system = provider.chats[0].system
+  for (let n = 1; n <= 8; n++) {
+    assert.match(system, new RegExp(`<source title="Paper ${n}" excerpts="true">\\nSource ${n} opening line`), `Paper ${n} is represented by its opening`)
+  }
+  assert.ok(system.length < FULL_CONTEXT_CHARS + 4_000, 'prompt stays near the full-context budget')
 })
 
 test('a failed chat request saves nothing', async () => {

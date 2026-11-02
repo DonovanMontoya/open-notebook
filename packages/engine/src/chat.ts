@@ -37,12 +37,18 @@ export function buildChatPrompt(input: {
   if (input.sources.length) {
     parts.push('# Sources')
     for (const s of input.sources) parts.push(`<source title="${escapeAttr(s.title)}">\n${s.text.trim()}\n</source>`)
-  } else if (input.chunks.length) {
-    parts.push('# Source excerpts (the passages most relevant to the question)')
-    for (const c of input.chunks) parts.push(`<excerpt source="${escapeAttr(c.title)}">\n${c.text.trim()}\n</excerpt>`)
-  } else {
-    parts.push('This notebook has no processed sources yet.')
   }
+  if (input.chunks.length) {
+    parts.push(
+      input.sources.length
+        ? '# Excerpts from longer sources (each is too long to include whole, so it is represented by its opening and the passages most relevant to the question)'
+        : '# Source excerpts (each source is represented by its opening and the passages most relevant to the question)',
+    )
+    for (const [title, texts] of groupByTitle(input.chunks)) {
+      parts.push(`<source title="${escapeAttr(title)}" excerpts="true">\n${texts.map((t) => t.trim()).join('\n[…]\n')}\n</source>`)
+    }
+  }
+  if (!input.sources.length && !input.chunks.length) parts.push('This notebook has no processed sources yet.')
 
   const notes = input.notes.filter((n) => n.content.trim())
   if (notes.length) {
@@ -61,4 +67,25 @@ export function buildChatPrompt(input: {
 
 function escapeAttr(value: string): string {
   return value.replace(/"/g, "'").replace(/[\r\n]+/g, ' ')
+}
+
+function groupByTitle(chunks: ContextChunk[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>()
+  for (const c of chunks) groups.set(c.title, [...(groups.get(c.title) ?? []), c.text])
+  return groups
+}
+
+/**
+ * Splits a character budget across sources so each gets an equal share, and short sources hand
+ * what they don't use to the longer ones. Returns each source's allowance, in input order.
+ */
+export function fairShare(lengths: number[], budget: number): number[] {
+  const order = lengths.map((_, i) => i).sort((a, b) => lengths[a] - lengths[b])
+  const out = lengths.map(() => 0)
+  let left = Math.max(0, budget)
+  order.forEach((i, k) => {
+    out[i] = Math.min(lengths[i], Math.floor(left / (order.length - k)))
+    left -= out[i]
+  })
+  return out
 }

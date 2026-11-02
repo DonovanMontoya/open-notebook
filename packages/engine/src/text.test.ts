@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { buildChatPrompt } from './chat.ts'
+import { buildChatPrompt, fairShare } from './chat.ts'
 import { chunkText, cosineSimilarity, decodeVector, encodeVector, parseLinks, titleFrom } from './text.ts'
 
 test('chunkText keeps short text whole and splits long text with overlap', () => {
@@ -51,4 +51,24 @@ test('parseLinks finds every address in pasted text, once each', () => {
 https://a.com/x
 arxiv.org/abs/2203.02155 and not-a-link`
   assert.deepEqual(parseLinks(text), ['https://a.com/x', 'https://b.org/paper.pdf', 'https://arxiv.org/abs/2203.02155'])
+})
+
+test('fairShare gives short sources what they need and splits the rest evenly', () => {
+  assert.deepEqual(fairShare([10, 1000, 1000], 610), [10, 300, 300])
+  assert.deepEqual(fairShare([5, 5], 100), [5, 5])
+  assert.deepEqual(fairShare([], 100), [])
+})
+
+test('chat prompt keeps whole sources and excerpts together', () => {
+  const prompt = buildChatPrompt({
+    notebook: { name: 'N', description: '' },
+    sources: [{ title: 'Short (insights)', text: 'summary' }],
+    chunks: [
+      { title: 'Long', text: 'opening' },
+      { title: 'Long', text: 'later' },
+    ],
+    notes: [],
+  })
+  assert.match(prompt, /<source title="Short \(insights\)">/)
+  assert.match(prompt, /<source title="Long" excerpts="true">\nopening\n\[…\]\nlater\n<\/source>/)
 })

@@ -34,7 +34,7 @@ import { WORDS_PER_SEGMENT, type EpisodeProfile, type SpeakerProfile } from './p
 import { parseScript, scriptPrompt } from './podcast/script.ts'
 import { createVoiceProvider, VOICE_LABELS, type VoiceConfig, type VoiceKind, type VoiceProvider } from './podcast/voices.ts'
 import { finalAnswerPrompt, parseStrategy, searchAnswerPrompt, strategyPrompt, type AskOptions, type AskResult } from './ask.ts'
-import { buildChatPrompt, type ContextChunk, type ContextSource } from './chat.ts'
+import { buildChatPrompt, fairShare, type ContextChunk, type ContextSource } from './chat.ts'
 import { migrate, type SqlDriver } from './db.ts'
 import { createProvider } from './providers/index.ts'
 import { decksFromNotes, parseDeck, STUDY_INPUT_LIMIT, STUDY_PREFIX, studyInput, studyPrompt, type StoredDeck, type StudyDeck, type StudyRequest } from './studio.ts'
@@ -801,12 +801,44 @@ export class LocalBackend implements Backend {
       }
     }
     const total = full.reduce((sum, r) => sum + r.full_text.length, 0)
-    if (total <= FULL_CONTEXT_CHARS) {
-      return { sources: [...full.map((r) => ({ title: r.title ?? 'Untitled', text: r.full_text })), ...sources], chunks: [] }
+    const insightChars = sources.reduce((sum, s) => sum + s.text.length, 0)
+    const budget = Math.max(FULL_CONTEXT_CHARS - insightChars, FULL_CONTEXT_CHARS / 2)
+    const whole = (r: (typeof rows)[number]) => ({ title: r.title ?? 'Untitled', text: r.full_text })
+    if (total <= budget) return { sources: [...full.map(whole), ...sources], chunks: [] }
+
+    // Too much to send whole. Every source gets a fair share of the budget, so a question about all of
+    // them sees all of them; a source longer than its share sends its opening plus its most relevant passages.
+    const shares = fairShare(
+      full.map((r) => r.full_text.length),
+      budget,
+    )
+    const clipped = full.map((r, i) => ({ r, share: shares[i] })).filter((x) => x.share < x.r.full_text.length)
+    const ids = clipped.map((x) => x.r.id)
+    const scores = new Map((await this.rankChunks(question, config, notebookId, Infinity, signal, new Set(ids))).map((h) => [h.id, h.score]))
+    const chunkRows = await this.db.select<{ id: string; source_id: string; position: number; text: string }>(
+      `SELECT id, source_id, position, text FROM chunk WHERE source_id IN (${ids.map((_, i) => `$${i + 1}`).join(', ')}) ORDER BY position`,
+      ids,
+    )
+    const chunks: ContextChunk[] = []
+    for (const { r, share } of clipped) {
+      const own = chunkRows.filter((c) => c.source_id === r.id)
+      const title = r.title ?? 'Untitled'
+      if (!own.length) {
+        chunks.push({ title, text: r.full_text.slice(0, share) })
+        continue
+      }
+      const [opening, ...rest] = own
+      const ranked = [opening, ...rest.sort((a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0))]
+      const picked = new Set<string>()
+      let used = 0
+      for (const c of ranked) {
+        if (used + c.text.length > share) continue
+        picked.add(c.id)
+        used += c.text.length
+      }
+      for (const c of own) if (picked.has(c.id)) chunks.push({ title, text: c.text })
     }
-    const allowed = new Set(full.map((r) => r.id))
-    const hits = await this.rankChunks(question, config, notebookId, RETRIEVAL_CHUNKS, signal, allowed)
-    return { sources, chunks: hits.map((h) => ({ title: h.title, text: h.text })) }
+    return { sources: [...full.filter((_, i) => shares[i] >= full[i].full_text.length).map(whole), ...sources], chunks }
   }
 
   private async rankChunks(
@@ -816,7 +848,7 @@ export class LocalBackend implements Backend {
     limit: number,
     signal?: AbortSignal,
     onlySources?: Set<string>,
-  ): Promise<Array<{ sourceId: string; title: string; text: string; score: number }>> {
+  ): Promise<Array<{ id: string; sourceId: string; title: string; text: string; score: number }>> {
     const keep = (r: { source_id: string }) => !onlySources || onlySources.has(r.source_id)
     if (config.embedding) {
       const model = config.embedding.model
@@ -830,6 +862,7 @@ export class LocalBackend implements Backend {
         return rows
           .filter(keep)
           .map((r) => ({
+            id: r.id,
             sourceId: r.source_id,
             title: r.title ?? 'Untitled',
             text: r.text,
@@ -850,7 +883,7 @@ export class LocalBackend implements Backend {
     )
     return rows
       .filter(keep)
-      .map((r) => ({ sourceId: r.source_id, title: r.title ?? 'Untitled', text: r.text, score: keywordScore(r.text, terms) }))
+      .map((r) => ({ id: r.id, sourceId: r.source_id, title: r.title ?? 'Untitled', text: r.text, score: keywordScore(r.text, terms) }))
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
@@ -1393,9 +1426,7 @@ export class LocalBackend implements Backend {
   private async podcastMaterial(notebookId: string, query: string, config: AiConfig, signal: AbortSignal): Promise<string> {
     const { sources, chunks } = await this.contextFor(notebookId, query, config, signal)
     const notes = await this.listNotes(notebookId)
-    const parts = sources.length
-      ? sources.map((s) => `## ${s.title}\n${s.text}`)
-      : chunks.map((c) => `## Excerpt from ${c.title}\n${c.text}`)
+    const parts = [...sources.map((s) => `## ${s.title}\n${s.text}`), ...chunks.map((c) => `## Excerpt from ${c.title}\n${c.text}`)]
     for (const n of notes) if (n.content?.trim()) parts.push(`## Note: ${n.title ?? 'Untitled'}\n${n.content}`)
     return parts.join('\n\n')
   }
