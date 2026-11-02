@@ -15,10 +15,12 @@ const FEATURE_LABEL: Record<string, string> = {
   transformation: 'Insights',
   study: 'Study decks',
   podcast_writing: 'Podcast scripts',
+  podcast_research: 'Podcast study notes',
+  podcast_check: 'Podcast claim checks',
   podcast_audio: 'Podcast voices',
   podcast_live_audio: 'Podcast voices (Live)',
   transcription: 'Transcription',
-  live_talk: 'Live talk',
+  live_talk: 'Live talk, voice minutes',
 }
 
 const n = new Intl.NumberFormat()

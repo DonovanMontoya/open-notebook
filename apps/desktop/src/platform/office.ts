@@ -6,8 +6,6 @@ export interface OfficeText {
   text: string
 }
 
-export const OFFICE_FILE = /\.(docx|pptx|xlsx|epub)$/i
-
 export function readOffice(name: string, data: ArrayBuffer): OfficeText {
   let files: Record<string, Uint8Array>
   try {

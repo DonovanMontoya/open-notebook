@@ -359,3 +359,34 @@ test('a Live talk session is created with the server’s settings and an OpenAI 
   assert.equal(calls[0].body.transport.sdp, 'v=0 offer')
   await assert.rejects(backend.createLiveSession('nope', 'marin'), /Invalid WebRTC offer/)
 })
+
+test('a Live talk session started from a notebook knows its sources and notes', async () => {
+  const calls: Array<{ session: { instructions: string; delegation: { responses: { instructions: string } } } }> = []
+  const db = memoryDb()
+  const provider = fakeProvider()
+  const backend = await LocalBackend.open({
+    db,
+    fetch: (async (_url: string, init: RequestInit) => {
+      calls.push(JSON.parse(init.body as string))
+      return Response.json({ transport: { type: 'webrtc', sdp: 'v=0 answer' } })
+    }) as unknown as typeof fetch,
+    extractUrl: async () => ({ title: '', text: '' }),
+    createProvider: () => provider,
+    getAiConfig: async () => ({
+      chat: { provider: { kind: 'openai', apiKey: 'sk' }, model: 'gpt-6.1-sol' },
+      providers: { openai: { kind: 'openai', apiKey: 'sk' } },
+    }),
+  })
+  const nb = await backend.createNotebook('Dark patterns')
+  await backend.addSource(nb.id, { type: 'text', title: 'FTC report', content: 'Roach motels make leaving hard.' })
+  await backend.createNote(nb.id, { title: 'My take', content: 'Cancellation is the worst offender.' })
+  await backend.idle()
+
+  await backend.createLiveSession('v=0 offer', 'marin', nb.id)
+  const session = calls.at(-1)!.session
+  assert.match(session.instructions, /notebook "Dark patterns"/)
+  assert.match(session.instructions, /Source: FTC report/)
+  assert.doesNotMatch(session.instructions, /no access to notebook sources/)
+  assert.match(session.delegation.responses.instructions, /Roach motels make leaving hard\./)
+  assert.match(session.delegation.responses.instructions, /Cancellation is the worst offender\./)
+})

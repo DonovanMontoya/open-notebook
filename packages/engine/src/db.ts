@@ -87,6 +87,21 @@ const MIGRATIONS: string[] = [
      updated TEXT NOT NULL
    )`,
   `CREATE INDEX IF NOT EXISTS podcast_episode_notebook ON podcast_episode(notebook_id, created)`,
+  `CREATE TABLE IF NOT EXISTS podcast_check (
+     episode_id TEXT PRIMARY KEY REFERENCES podcast_episode(id) ON DELETE CASCADE,
+     status TEXT NOT NULL,
+     model TEXT NOT NULL,
+     result TEXT,
+     error TEXT,
+     created TEXT NOT NULL
+   )`,
+  `CREATE TABLE IF NOT EXISTS podcast_prompt (
+     episode_id TEXT PRIMARY KEY REFERENCES podcast_episode(id) ON DELETE CASCADE,
+     model TEXT NOT NULL,
+     system TEXT NOT NULL,
+     prompt TEXT NOT NULL,
+     created TEXT NOT NULL
+   )`,
   `CREATE TABLE IF NOT EXISTS transformation (
      id TEXT PRIMARY KEY,
      name TEXT NOT NULL,
@@ -155,6 +170,8 @@ const COLUMNS: Array<[table: string, column: string, definition: string]> = [
   ['source', 'file_type', 'TEXT'],
   ['podcast_episode', 'episode_profile_id', 'TEXT'],
   ['podcast_episode', 'speaker_profile_id', 'TEXT'],
+  ['podcast_episode', 'effort', 'TEXT'],
+  ['podcast_prompt', 'material', 'TEXT'],
 ]
 
 /** Creates the schema. Safe to run on every launch. */

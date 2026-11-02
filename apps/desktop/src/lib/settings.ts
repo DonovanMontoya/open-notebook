@@ -73,7 +73,7 @@ export function useSettings(): AppSettings {
   )
 }
 
-// Secrets live in the keychain; cache them so chat doesn't hit the keychain on every request.
+// Secrets live in the app's key file; cache them so chat doesn't read it on every request.
 
 export const secretName = {
   /** Chat providers plus voice-only ones such as ElevenLabs. */

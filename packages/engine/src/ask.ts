@@ -1,6 +1,7 @@
 // Ask: research across the whole knowledge base, following the server's
 // three-step method (prompts/ask): plan searches, answer each from what it
 // finds, then write one final answer that cites documents by id.
+import { jsonObject } from './text.ts'
 
 export interface AskSearch {
   term: string
@@ -38,11 +39,8 @@ export function strategyPrompt(question: string, maxSearches = 4): string {
 }
 
 export function parseStrategy(raw: string, maxSearches = 4): { reasoning: string; searches: AskSearch[] } {
-  const text = raw.replace(/```(?:json)?/gi, '')
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
   try {
-    const data = JSON.parse(text.slice(start, end + 1)) as { reasoning?: unknown; searches?: unknown }
+    const data = jsonObject(raw) as { reasoning?: unknown; searches?: unknown }
     const searches = (Array.isArray(data.searches) ? data.searches : [])
       .map((s: { term?: unknown; instructions?: unknown }) => ({
         term: typeof s?.term === 'string' ? s.term.trim() : '',

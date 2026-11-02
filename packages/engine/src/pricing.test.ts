@@ -6,6 +6,7 @@ import { costOf, priceFor } from './pricing.ts'
 test('costOf prices tokens and audio from the list', () => {
   assert.equal(costOf({ model: 'claude-opus-5-5', inputTokens: 1_000_000, outputTokens: 100_000, audioSeconds: 0 }), 4 + 2)
   assert.equal(costOf({ model: 'gpt-4o-mini-tts', inputTokens: 0, outputTokens: 0, audioSeconds: 600 }), 0.15)
+  assert.ok(Math.abs(costOf({ model: 'gpt-live-1', inputTokens: 0, outputTokens: 0, audioSeconds: 90 })! - 0.075) < 1e-9)
 })
 
 test('unknown models have no price until the user sets one', () => {

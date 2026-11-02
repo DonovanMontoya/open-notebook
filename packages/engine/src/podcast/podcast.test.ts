@@ -6,6 +6,7 @@ import { fakeProvider, memoryDb } from '../testing.ts'
 import { bytesToPcm, encodeWav, SAMPLE_RATE, Timeline, trimSilence } from './audio.ts'
 import { narrationMatches, renderLive, splitNarration, type LiveSocket } from './live.ts'
 import { produce } from './produce.ts'
+import { CHECK_SYSTEM, RESEARCH_SYSTEM, REVISE_SYSTEM, findQuote, materialSections, parseCheck, type MaterialPart } from './check.ts'
 import { parseScript } from './script.ts'
 import { createVoiceProvider, type VoiceProvider } from './voices.ts'
 
@@ -317,8 +318,12 @@ test('an on-device episode is written from the profiles, voiced and saved with c
   assert.match(prompt, /The FTC report covers four tactics/)
   assert.ok(voice.calls.includes('cedar:four five'), 'each speaker uses their own voice')
   assert.equal(await backend.episodeAudioUrl(created.id), `blob:mem:${created.id}`)
+  const kept = await backend.episodePrompt(created.id)
+  assert.equal(kept?.prompt, prompt, 'the exact prompt is saved with the episode')
+  assert.equal(kept?.system, chat.chats[0].system)
 
   await backend.deleteEpisode(created.id)
+  assert.equal(await backend.episodePrompt(created.id), null, 'the prompt goes with the episode')
   assert.equal(saved.size, 0)
   assert.equal((await backend.listEpisodes(nb.id)).length, 0)
 })
@@ -354,4 +359,124 @@ test('three speakers are voiced line by line even with a two-voice dialogue prov
   const result = await produce({ script, hosts: ['A', 'B', 'C'], voices: ['v1', 'v2', 'v3'], provider })
   assert.ok(result.exactTiming)
   assert.deepEqual(provider.calls, ['v1:a b', 'v2:c d', 'v3:e f'])
+})
+
+const MATERIAL: MaterialPart[] = [
+  { title: 'FTC report', text: 'Staff found that 76% of subscription sites used at least one dark pattern.\n## Methods\nThe report does not measure how much money users lost.' },
+  { title: 'Design study', excerpt: true, text: 'In a lab study of 120 people, hidden cancel buttons roughly doubled the time to cancel —\nbut the effect on real-world churn was not tested.' },
+  { title: 'My thoughts', note: true, text: 'Ask about enforcement.' },
+]
+
+test('the claim check verifies every quote against the material itself', () => {
+  const raw = JSON.stringify({
+    claims: [
+      { line: 1, claim: '76% of sites used a dark pattern', verdict: 'supported', quote: 'staff found that 76% of subscription sites used at least one dark pattern' },
+      // Punctuation and a line break differ from the source, the words do not.
+      { line: 2, claim: 'Hidden buttons double cancel time', verdict: 'supported', quote: 'hidden cancel buttons roughly doubled the time to cancel, but the effect' },
+      { line: 2, claim: 'Hidden buttons raise churn', verdict: 'overstated', quote: 'the effect on real-world churn was not tested', note: 'Churn was not measured.' },
+      // The model says supported, but the quote is made up.
+      { line: 3, claim: 'Users lost $2 billion', verdict: 'supported', quote: 'users lost an estimated two billion dollars to dark patterns' },
+      { line: 3, claim: 'Regulators will act soon', verdict: 'unsupported', quote: '' },
+    ],
+  })
+  const check = parseCheck(`\`\`\`json\n${raw}\n\`\`\``, SCRIPT, MATERIAL)
+  assert.deepEqual(
+    check.claims.map((c) => c.verdict),
+    ['supported', 'supported', 'overstated', 'unsupported', 'unsupported'],
+  )
+  assert.equal(check.claims[0].source, 'FTC report')
+  assert.equal(check.claims[1].source, 'Design study')
+  assert.equal(check.claims[3].quoteFound, false)
+  assert.match(check.claims[3].note!, /not actually there/)
+  assert.equal(check.claims[2].said, 'four five')
+  assert.deepEqual([check.supported, check.overstated, check.unsupported], [2, 1, 2])
+  assert.deepEqual([check.sourcesUsed, check.sourcesTotal], [2, 2], 'notes are not counted as sources')
+})
+
+test('findQuote tolerates a few PDF slips in a long quote but not a different sentence', () => {
+  const sections = materialSections(MATERIAL)
+  assert.equal(findQuote('In a lab study of 120 people, hidden cancel butons roughly doubled the time to cancel', sections)?.title, 'Design study')
+  assert.equal(findQuote('In a field study of 9000 people, hidden cancel buttons tripled churn', sections), undefined)
+  assert.equal(findQuote('76%', sections), undefined, 'too short to count as evidence')
+})
+
+test('a new episode is checked against the material it was written from', async () => {
+  const { backend, chat, episodeProfile } = await podcastBackend(toneProvider('line'), '')
+  chat.reply = (request) =>
+    request.system === CHECK_SYSTEM
+      ? JSON.stringify({ claims: [{ line: 1, claim: 'Four tactics', verdict: 'supported', quote: 'The FTC report covers four tactics' }] })
+      : JSON.stringify(SCRIPT)
+  const nb = await backend.createNotebook('N')
+  await backend.addSource(nb.id, { type: 'text', content: 'The FTC report covers four tactics.', title: 'FTC report' })
+  await backend.idle()
+  const created = await backend.createEpisode({ notebookId: nb.id, episodeProfile: episodeProfile.id })
+  await backend.idle()
+
+  const { check } = await backend.getEpisode(created.id)
+  assert.equal(check?.status, 'done', check?.error)
+  assert.equal(check?.writer, 'fake-chat')
+  assert.deepEqual([check?.supported, check?.sourcesUsed, check?.sourcesTotal], [1, 1, 1])
+  assert.equal((await backend.listEpisodes(nb.id))[0].check?.supported, 1)
+
+  // A broken check is reported on the episode, which stays playable.
+  chat.reply = (request) => (request.system === CHECK_SYSTEM ? 'no json here' : JSON.stringify(SCRIPT))
+  await backend.checkEpisode(created.id)
+  await backend.idle()
+  const again = await backend.getEpisode(created.id)
+  assert.equal(again.status, 'completed')
+  assert.equal(again.check?.status, 'failed')
+  assert.equal(chat.chats.at(-1)?.messages[0].content.includes('The FTC report covers four tactics'), true, 'rechecks use the saved material')
+})
+
+test('a careful episode fixes flagged lines and checks again before voicing', async () => {
+  const { backend, chat, episodeProfile } = await podcastBackend(toneProvider('line'), '')
+  const fixed = { ...SCRIPT, chapters: [{ title: 'What they are', lines: [{ host: 0, text: 'the report covers four tactics' }] }] }
+  let checks = 0
+  chat.reply = (request) => {
+    if (request.system === REVISE_SYSTEM) return JSON.stringify(fixed)
+    if (request.system !== CHECK_SYSTEM) return JSON.stringify(SCRIPT)
+    checks++
+    return JSON.stringify({
+      claims:
+        checks === 1
+          ? [{ line: 1, claim: 'Ten tactics', verdict: 'overstated', quote: 'The FTC report covers four tactics', note: 'The report lists four.' }]
+          : [{ line: 1, claim: 'Four tactics', verdict: 'supported', quote: 'The FTC report covers four tactics' }],
+    })
+  }
+  const nb = await backend.createNotebook('N')
+  await backend.addSource(nb.id, { type: 'text', content: 'The FTC report covers four tactics.', title: 'FTC report' })
+  await backend.idle()
+  const created = await backend.createEpisode({ notebookId: nb.id, episodeProfile: episodeProfile.id, effort: 'careful' })
+  await backend.idle()
+
+  const episode = await backend.getEpisode(created.id)
+  assert.equal(episode.status, 'completed', episode.error)
+  assert.equal(episode.effort, 'careful')
+  assert.deepEqual(episode.transcript.map((l) => l.text), ['the report covers four tactics'], 'the revised script is the one voiced')
+  assert.equal(episode.check?.supported, 1)
+  assert.deepEqual(episode.check?.history, [{ supported: 0, overstated: 1, unsupported: 0 }])
+  const revise = chat.chats.find((c) => c.system === REVISE_SYSTEM)!
+  assert.match(revise.messages[0].content, /The report lists four\./)
+})
+
+test('a thorough episode writes from study notes; a quick one is not checked', async () => {
+  const { backend, chat, episodeProfile } = await podcastBackend(toneProvider('line'), '')
+  chat.reply = (request) =>
+    request.system === RESEARCH_SYSTEM
+      ? 'FTC report: four tactics. Caveat: no money figures.'
+      : request.system === CHECK_SYSTEM
+        ? JSON.stringify({ claims: [] })
+        : JSON.stringify(SCRIPT)
+  const nb = await backend.createNotebook('N')
+  await backend.createNote(nb.id, { content: 'Something to talk about' })
+  const thorough = await backend.createEpisode({ notebookId: nb.id, episodeProfile: episodeProfile.id, effort: 'thorough' })
+  await backend.idle()
+  assert.match((await backend.episodePrompt(thorough.id))!.prompt, /# Research notes[\s\S]*Caveat: no money figures/)
+  assert.equal((await backend.getEpisode(thorough.id)).check?.status, 'done')
+
+  const before = chat.chats.length
+  const quick = await backend.createEpisode({ notebookId: nb.id, episodeProfile: episodeProfile.id, effort: 'quick' })
+  await backend.idle()
+  assert.equal(chat.chats.length - before, 1, 'only the script is written')
+  assert.equal((await backend.getEpisode(quick.id)).check, undefined)
 })

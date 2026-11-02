@@ -112,3 +112,6 @@ export function useStoredState<T>(key: string, initial: T): [T, (value: T) => vo
   }
   return [value, set]
 }
+
+/** Every source on this device or server, for the library and the add-from-library tab. */
+export const librarySourcesKey = ['library-sources'] as const

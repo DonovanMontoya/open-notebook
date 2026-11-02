@@ -20,6 +20,8 @@ export const MODEL_PRICES: Record<string, Price> = {
   'text-embedding-3-large': { input: 0.13 },
   'text-embedding-3-small': { input: 0.02 },
   'gpt-4o-mini-tts': { perMinute: 0.015 },
+  // The voice layer only; the model it hands questions to is billed by OpenAI on top, and the app can't see those tokens.
+  'gpt-live-1': { perMinute: 0.05 },
   'gemini-embedding-001': { input: 0.15 },
   'gemini-2.5-flash': { input: 0.3, output: 2.5 },
 }

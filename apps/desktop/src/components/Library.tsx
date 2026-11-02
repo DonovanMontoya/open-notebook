@@ -4,10 +4,9 @@ import { useMemo, useState } from 'react'
 
 import { useBackend } from '../lib/backend.tsx'
 import { hostOf, relativeTime } from '../lib/format.ts'
-import { useNotebooks } from '../lib/hooks.ts'
+import { librarySourcesKey, useNotebooks } from '../lib/hooks.ts'
 import { EmptyState, ErrorNote, Icon, Menu, Spinner } from './ui.tsx'
 
-export const librarySourcesKey = ['library-sources'] as const
 
 /** Every source in one place: which notebooks use it, and adding it to more. */
 export function LibraryView({ onOpen, onBack }: { onOpen: (sourceId: string, notebookId: string) => void; onBack?: () => void }) {

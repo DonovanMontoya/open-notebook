@@ -138,7 +138,7 @@ function ServerSettings() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder={hasPassword ? 'Saved in the keychain' : 'Only if the server has one'}
+            placeholder={hasPassword ? 'Saved on this device' : 'Only if the server has one'}
             autoComplete="off"
           />
         </label>
@@ -212,7 +212,7 @@ function LocalSettings() {
 
       <section className="settings-section">
         <h2>API keys</h2>
-        <p>Keys are kept in the keychain and only sent to their provider.</p>
+        <p>Keys are saved on this device and only sent to their provider. They stay when you update or reinstall the app.</p>
         <KeySync />
         {KINDS.map((kind) => (
           <ProviderKey key={kind} kind={kind} saved={!!keys.data?.[kind]} />
@@ -246,7 +246,7 @@ function KeySync() {
       {result && !result.ok && (
         <p className="sync-note">
           {result.reason === 'unsigned'
-            ? 'This build is not signed for iCloud Keychain yet, so keys stay in this Mac’s keychain. Sync turns on once the app is signed with your developer team.'
+            ? 'This build is not signed for iCloud Keychain yet, so keys stay in the app on this Mac. Sync turns on once the app is signed with your developer team.'
             : `Keys could not be moved: ${result.message}`}
         </p>
       )}

@@ -332,6 +332,8 @@ export class RemoteBackend implements Backend {
     return (await this.client.live(offerSdp, voice)).transport.sdp
   }
 
+  async recordLiveTalk() {}
+
   async usage(days: number) {
     const u = await this.client.usage(days)
     return {
@@ -366,6 +368,15 @@ export class RemoteBackend implements Backend {
 
   async deleteEpisode(id: string): Promise<void> {
     await this.client.podcasts.delete(id)
+  }
+
+  async checkEpisode(): Promise<void> {
+    throw new Error('Claim checks run on episodes made on this device.')
+  }
+
+  /** The server does not expose the prompt it used. */
+  async episodePrompt(): Promise<null> {
+    return null
   }
 
   episodeAudioUrl(id: string): Promise<string> {

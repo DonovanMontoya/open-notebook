@@ -21,8 +21,8 @@ export function Sidebar({ route, navigate }: { route: Route; navigate: (r: Route
 
   return (
     <nav className="sidebar" aria-label="Notebooks">
-      <div className="drag" data-tauri-drag-region />
-      <div className="brand" data-tauri-drag-region>
+      <div className="drag" />
+      <div className="brand" data-drag>
         <span className="brand-name">Open Notebook</span>
         <span className="brand-where" title={backend.kind === 'local' ? 'Stored on this device' : settings.serverUrl}>
           <Icon name={backend.kind === 'local' ? 'device' : 'server'} size={12} />

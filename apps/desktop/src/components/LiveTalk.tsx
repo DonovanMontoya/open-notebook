@@ -9,8 +9,8 @@ type Status = 'idle' | 'connecting' | 'connected' | 'closing' | 'ended' | 'faile
 const VOICES: LiveVoice[] = ['marin', 'cedar', 'alloy', 'coral']
 const MAX_MINUTES = 30
 
-/** A spoken conversation with GPT Live, like the web app's Live talk. */
-export function LiveTalk() {
+/** A spoken conversation with GPT Live about the notebook, like the web app's Live talk. */
+export function LiveTalk({ notebookId }: { notebookId: string }) {
   const backend = useBackend()
   const [voice, setVoice] = useState<LiveVoice>('marin')
   const [status, setStatus] = useState<Status>('idle')
@@ -21,9 +21,15 @@ export function LiveTalk() {
   const mic = useRef<MediaStream>(undefined)
   const audio = useRef<HTMLAudioElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // When OpenAI created the session; it bills from then until the call ends.
+  const startedAt = useRef<number>(undefined)
 
   const cleanup = () => {
     clearTimeout(timer.current)
+    if (startedAt.current !== undefined) {
+      void backend.recordLiveTalk((Date.now() - startedAt.current) / 1000).catch(() => undefined)
+      startedAt.current = undefined
+    }
     channel.current?.close()
     peer.current?.close()
     mic.current?.getTracks().forEach((t) => t.stop())
@@ -88,7 +94,8 @@ export function LiveTalk() {
           })
         })
       }
-      const answer = await backend.createLiveSession(connection.localDescription!.sdp, voice)
+      const answer = await backend.createLiveSession(connection.localDescription!.sdp, voice, notebookId)
+      startedAt.current = Date.now()
       timer.current = setTimeout(() => {
         cleanup()
         setStatus('failed')
@@ -132,7 +139,9 @@ export function LiveTalk() {
               ? 'Connecting'
               : status === 'closing'
                 ? 'Ending'
-                : 'A spoken study companion. It does not read your sources.'}
+                : backend.kind === 'remote'
+                  ? 'A spoken study companion. On a server it does not read your sources.'
+                  : 'Talk through this notebook out loud. It knows your sources and notes.'}
         </span>
       </div>
       <div className="live-actions">

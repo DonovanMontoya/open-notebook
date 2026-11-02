@@ -78,3 +78,9 @@ export function parseLinks(text: string): string[] {
     .map((t) => `https://${t}`)
   return [...new Set([...found, ...bare].map((u) => u.replace(/[.,;]+$/, '')))]
 }
+
+/** The JSON object in a model reply, ignoring code fences and text around it. Throws if there is none. */
+export function jsonObject(raw: string): unknown {
+  const text = raw.replace(/```(?:json)?/gi, '')
+  return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
+}

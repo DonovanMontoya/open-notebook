@@ -1,4 +1,5 @@
 import type { AskOptions, AskResult } from './ask.ts'
+import type { ScriptCheck } from './podcast/check.ts'
 import type { StoredDeck, StudyDeck, StudyRequest } from './studio.ts'
 import type { EpisodeProfile, SpeakerProfile } from './podcast/profiles.ts'
 import type {
@@ -94,7 +95,15 @@ export interface SendChatResult {
   messages: ChatMessage[]
 }
 
-export type EpisodeStatus = 'queued' | 'writing' | 'voicing' | 'saving' | 'completed' | 'failed'
+export type EpisodeStatus = 'queued' | 'researching' | 'writing' | 'checking' | 'revising' | 'voicing' | 'saving' | 'completed' | 'failed'
+
+/**
+ * How much checking goes into an episode before it is voiced.
+ * quick: write only. standard: write, then check claims while voicing.
+ * careful: check, fix flagged lines once and check again before voicing.
+ * thorough: study notes on each source first, then up to two rounds of fixes.
+ */
+export type PodcastEffort = 'quick' | 'standard' | 'careful' | 'thorough'
 
 export interface EpisodeLine {
   speaker: string
@@ -107,6 +116,25 @@ export interface EpisodeLine {
 export interface EpisodeChapter {
   title: string
   start: number
+}
+
+/** What the script writer was asked, saved with the episode. */
+export interface EpisodePrompt {
+  model: string
+  system: string
+  prompt: string
+}
+
+/** How closely an episode's claims follow the notebook, from the claim check. */
+export interface EpisodeCheck extends Partial<ScriptCheck> {
+  status: 'checking' | 'done' | 'failed'
+  /** The model that checked the claims. */
+  model: string
+  /** The model that wrote the script. */
+  writer?: string
+  error?: string
+  /** Counts from earlier checks, before each round of fixes. */
+  history?: Array<{ supported: number; overstated: number; unsupported: number }>
 }
 
 export interface Episode {
@@ -124,6 +152,9 @@ export interface Episode {
   /** Whether line start times are measured (true) or estimated from text length. */
   exactTiming: boolean
   voiceLabel?: string
+  effort?: PodcastEffort
+  /** Missing until the claims are checked (local episodes only). */
+  check?: EpisodeCheck
 }
 
 /** A model registered on a server (connected mode). */
@@ -165,6 +196,7 @@ export interface CreateEpisode {
   speakerProfile?: string
   focus?: string
   name?: string
+  effort?: PodcastEffort
 }
 
 /**
@@ -239,7 +271,10 @@ export interface Backend {
   saveInsightAsNote(insightId: string, notebookId: string): Promise<Note>
 
   /** Starts a GPT Live voice conversation: takes a WebRTC offer, returns the answer SDP. */
-  createLiveSession(offerSdp: string, voice: LiveVoice): Promise<string>
+  /** On device, a notebook id gives the session that notebook's material; the server's sessions are voice only. */
+  createLiveSession(offerSdp: string, voice: LiveVoice, notebookId?: string): Promise<string>
+  /** Logs how long a live conversation lasted, for Usage. The server keeps its own record. */
+  recordLiveTalk(seconds: number): Promise<void>
 
   usage(days: number): Promise<UsageReport>
   /** Re-embeds every source with the current embedding model. Returns how many were queued. */
@@ -256,6 +291,10 @@ export interface Backend {
   deleteEpisode(id: string): Promise<void>
   /** A URL the audio element can stream. */
   episodeAudioUrl(id: string): Promise<string>
+  /** The prompt sent to the model that wrote the script, or null if it was not kept. */
+  episodePrompt(id: string): Promise<EpisodePrompt | null>
+  /** Checks the episode's claims against the notebook again. */
+  checkEpisode(id: string): Promise<void>
   /** Makes a failed episode again with the same choices. */
   retryEpisode(id: string): Promise<void>
   podcastProfiles(): Promise<{ episode: EpisodeProfile[]; speaker: SpeakerProfile[] }>

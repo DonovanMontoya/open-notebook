@@ -8,6 +8,7 @@ export { chunkText, cosineSimilarity, decodeVector, encodeVector, parseLinks, ti
 export { bestPassage, linkCitations, matchSource, sentenceAround, type CitableSource } from './citations.ts'
 export { finishedBlocks } from './blocks.ts'
 export { encodeWav, SAMPLE_RATE } from './podcast/audio.ts'
+export type { CheckedClaim, ClaimVerdict, ScriptCheck } from './podcast/check.ts'
 export { narrationMatches, type LiveSocket, type OpenSocket } from './podcast/live.ts'
 export { WORDS_PER_SEGMENT, type EpisodeProfile, type Speaker, type SpeakerProfile } from './podcast/profiles.ts'
 export {

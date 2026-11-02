@@ -89,13 +89,13 @@ export function NotebookView({
         </div>
       )}
       <section className="desk" aria-label={notebook.data?.name}>
-        <div className="drag" data-tauri-drag-region />
-        <header className="desk-header" data-tauri-drag-region>
+        <div className="drag" />
+        <header className="desk-header" data-drag>
           <button className="icon-button back-button" onClick={onBack} aria-label="All notebooks">
             <Icon name="back" />
           </button>
-          <div className="desk-title" data-tauri-drag-region>
-            {notebook.isPending ? <Spinner /> : <h1 onDoubleClick={() => setEditingDetails(true)}>{notebook.data?.name}</h1>}
+          <div className="desk-title">
+            {notebook.isPending ? <Spinner /> : <h1 data-own-dblclick onDoubleClick={() => setEditingDetails(true)}>{notebook.data?.name}</h1>}
             {notebook.data?.description && <p>{notebook.data.description}</p>}
           </div>
           <button className="icon-button" onClick={() => setEditingDetails(true)} aria-label="Notebook settings" title="Notebook settings">

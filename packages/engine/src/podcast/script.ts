@@ -26,6 +26,8 @@ export function scriptPrompt(input: {
   segments: number
   language?: string | null
   focus?: string
+  /** Study notes on the sources, from the research pass. */
+  notes?: string
 }): string {
   const { speakers } = input
   const cast =
@@ -53,6 +55,9 @@ export function scriptPrompt(input: {
     ].join('\n'),
     'Answer with JSON only, in exactly this shape:',
     '{"title": "Episode title", "summary": "One sentence about the episode", "chapters": [{"title": "Chapter title", "lines": [{"host": 0, "text": "Spoken words"}]}]}',
+    input.notes
+      ? `# Research notes\nThese notes were made from the material below. Use them to keep each finding at the strength its source states, with its caveats.\n\n${input.notes}`
+      : '',
     '# Material',
     input.material,
   ]

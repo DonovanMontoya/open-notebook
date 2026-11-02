@@ -148,8 +148,8 @@ export function NowPlaying() {
 
   return (
     <section className="now-playing" aria-label="Now playing">
-      <div className="drag" data-tauri-drag-region />
-      <header className="np-header" data-tauri-drag-region>
+      <div className="drag" />
+      <header className="np-header" data-drag>
         <button className="icon-button" onClick={() => p.setExpanded(false)} aria-label="Minimize player" title="Minimize (Esc)">
           <Icon name="chevron-down" />
         </button>

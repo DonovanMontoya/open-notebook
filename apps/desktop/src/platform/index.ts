@@ -1,5 +1,5 @@
 // Platform services. Inside the Tauri app these use native plugins (SQLite,
-// a CORS-free HTTP client, the system keychain). In a plain browser, which is
+// a CORS-free HTTP client, a key file in the app data folder). In a plain browser, which is
 // only used for UI development, they fall back to sql.js, window.fetch and
 // localStorage so the interface can still be exercised.
 import type { SqlDriver } from '@open-notebook/engine'
@@ -43,7 +43,7 @@ async function openTauriDatabase(): Promise<SqlDriver> {
 
 const BROWSER_SECRET_PREFIX = 'open-notebook-dev-secret:'
 
-/** API keys and server passwords. Keychain in the app; localStorage in browser dev only. */
+/** API keys and server passwords. A file in the app data folder (or iCloud Keychain with sync); localStorage in browser dev only. */
 export const secrets = {
   async get(name: string): Promise<string | null> {
     if (!isTauri) return localStorage.getItem(BROWSER_SECRET_PREFIX + name)

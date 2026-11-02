@@ -15,6 +15,9 @@ import type {
   Insight,
   Transformation,
   Episode,
+  EpisodePrompt,
+  EpisodeCheck,
+  PodcastEffort,
   EpisodeStatus,
   SearchHit,
   SendChatArgs,
@@ -24,14 +27,15 @@ import type {
   UsageReport,
   LiveVoice,
 } from './backend.ts'
-import { isLiveBackend, livePayload } from './live-talk.ts'
+import { isLiveBackend, livePayload, type LiveMaterial } from './live-talk.ts'
 import { DEFAULT_TRANSFORMATION_INSTRUCTIONS, DEFAULT_TRANSFORMATIONS } from './insights/seeds.ts'
 import { encodeWav } from './podcast/audio.ts'
+import { CHECK_SYSTEM, RESEARCH_SYSTEM, REVISE_SYSTEM, checkPrompt, materialText, parseCheck, researchPrompt, revisePrompt, type MaterialPart, type ScriptCheck } from './podcast/check.ts'
 import type { OpenSocket } from './podcast/live.ts'
 import { produce } from './podcast/produce.ts'
 import { DEFAULT_EPISODE_PROFILES, DEFAULT_SPEAKER_PROFILES } from './podcast/profile-seeds.ts'
 import { WORDS_PER_SEGMENT, type EpisodeProfile, type SpeakerProfile } from './podcast/profiles.ts'
-import { parseScript, scriptPrompt } from './podcast/script.ts'
+import { parseScript, scriptPrompt, type PodcastScript } from './podcast/script.ts'
 import { createVoiceProvider, VOICE_LABELS, type VoiceConfig, type VoiceKind, type VoiceProvider } from './podcast/voices.ts'
 import { finalAnswerPrompt, parseStrategy, searchAnswerPrompt, strategyPrompt, type AskOptions, type AskResult } from './ask.ts'
 import { buildChatPrompt, fairShare, type ContextChunk, type ContextSource } from './chat.ts'
@@ -1151,7 +1155,7 @@ export class LocalBackend implements Backend {
     return []
   }
 
-  async createLiveSession(offerSdp: string, voice: LiveVoice): Promise<string> {
+  async createLiveSession(offerSdp: string, voice: LiveVoice, notebookId?: string): Promise<string> {
     if (!offerSdp.startsWith('v=0')) throw new Error('Invalid WebRTC offer')
     const config = await this.deps.getAiConfig()
     const openai = config.providers?.openai
@@ -1161,13 +1165,49 @@ export class LocalBackend implements Backend {
     const response = await this.deps.fetch('https://api.openai.com/v1/live/sessions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openai.apiKey}` },
-      body: JSON.stringify(livePayload(offerSdp, voice, backend.model)),
+      body: JSON.stringify(livePayload(offerSdp, voice, backend.model, notebookId ? await this.liveMaterial(notebookId, config) : undefined)),
     })
     if (!response.ok) throw new Error(`OpenAI Live did not start a session (HTTP ${response.status}). Check Live access and your credit balance.`)
     const data = (await response.json()) as { transport?: { sdp?: string } }
     if (!data.transport?.sdp) throw new Error('OpenAI returned an invalid Live session')
-    await this.recordUsage({ feature: 'live_talk', model: 'gpt-live-1' })
     return data.transport.sdp
+  }
+
+  async recordLiveTalk(seconds: number): Promise<void> {
+    if (seconds > 0) await this.recordUsage({ feature: 'live_talk', model: 'gpt-live-1', audioSeconds: Math.round(seconds) })
+  }
+
+  /** What a live conversation knows: an overview for the voice model, the full chat context for the model it delegates to. */
+  private async liveMaterial(notebookId: string, config: AiConfig): Promise<LiveMaterial> {
+    const notebook = await this.getNotebook(notebookId)
+    const query = [notebook.name, notebook.description].filter(Boolean).join('. ')
+    const { sources, chunks } = await this.contextFor(notebookId, query, config)
+    const notes = (await this.listNotes(notebookId)).map((n) => ({ title: n.title ?? 'Note', content: n.content ?? '' }))
+    const full = buildChatPrompt({ notebook, sources, chunks, notes })
+
+    const rows = await this.db.select<{ id: string; title: string | null; full_text: string }>(
+      `SELECT id, title, full_text FROM source
+        WHERE id IN (SELECT source_id FROM notebook_source WHERE notebook_id = $1) AND status = 'completed' ORDER BY created`,
+      [notebookId],
+    )
+    const insights = await this.db.select<{ source_id: string; content: string }>(
+      `SELECT source_id, content FROM source_insight WHERE status = 'completed' AND source_id IN
+        (SELECT source_id FROM notebook_source WHERE notebook_id = $1) ORDER BY created`,
+      [notebookId],
+    )
+    const each = Math.floor(LIVE_OVERVIEW_CHARS / Math.max(rows.length, 1))
+    const overview = rows
+      .map((r) => {
+        const about = insights.find((i) => i.source_id === r.id)?.content ?? r.full_text
+        return `Source: ${r.title ?? 'Untitled'}\n${clip(about, each)}`
+      })
+      .join('\n\n')
+    const noteTitles = notes.filter((n) => n.content.trim()).map((n) => n.title)
+    return {
+      notebook: notebook.name,
+      overview: [overview || 'The notebook has no processed sources yet.', noteTitles.length ? `Notes: ${noteTitles.join(', ')}` : ''].filter(Boolean).join('\n\n'),
+      full,
+    }
   }
 
   // Podcasts
@@ -1225,15 +1265,12 @@ export class LocalBackend implements Backend {
   }
 
   async listEpisodes(notebookId: string): Promise<Episode[]> {
-    const rows = await this.db.select<EpisodeRow>(
-      `SELECT * FROM podcast_episode WHERE notebook_id = $1 ORDER BY created DESC`,
-      [notebookId],
-    )
+    const rows = await this.db.select<EpisodeRow>(`${EPISODE_SELECT} WHERE e.notebook_id = $1 ORDER BY e.created DESC`, [notebookId])
     return rows.map(toEpisode)
   }
 
   async getEpisode(id: string): Promise<Episode> {
-    const rows = await this.db.select<EpisodeRow>(`SELECT * FROM podcast_episode WHERE id = $1`, [id])
+    const rows = await this.db.select<EpisodeRow>(`${EPISODE_SELECT} WHERE e.id = $1`, [id])
     if (!rows[0]) throw new NotFoundError('Episode')
     return toEpisode(rows[0])
   }
@@ -1256,8 +1293,8 @@ export class LocalBackend implements Backend {
     const id = this.id('episode')
     const now = this.now()
     await this.db.execute(
-      `INSERT INTO podcast_episode (id, notebook_id, name, focus, format, length, status, voice_label, episode_profile_id, speaker_profile_id, created, updated)
-       VALUES ($1, $2, $3, $4, $5, $6, 'writing', $7, $8, $9, $10, $10)`,
+      `INSERT INTO podcast_episode (id, notebook_id, name, focus, format, length, status, voice_label, episode_profile_id, speaker_profile_id, effort, created, updated)
+       VALUES ($1, $2, $3, $4, $5, $6, 'writing', $7, $8, $9, $11, $10, $10)`,
       [
         id,
         input.notebookId,
@@ -1269,14 +1306,15 @@ export class LocalBackend implements Backend {
         ep.id,
         sp.id,
         now,
+        input.effort ?? 'standard',
       ],
     )
-    this.startEpisode(id, { notebookId: input.notebookId, focus: input.focus, name: input.name }, ep, sp, config)
+    this.startEpisode(id, { notebookId: input.notebookId, focus: input.focus, name: input.name, effort: input.effort }, ep, sp, config)
     return this.getEpisode(id)
   }
 
   async retryEpisode(id: string): Promise<void> {
-    const [row] = await this.db.select<EpisodeRow & { focus: string | null; episode_profile_id: string | null; speaker_profile_id: string | null }>(
+    const [row] = await this.db.select<EpisodeRow & { focus: string | null; episode_profile_id: string | null; speaker_profile_id: string | null; effort: PodcastEffort | null }>(
       `SELECT * FROM podcast_episode WHERE id = $1`,
       [id],
     )
@@ -1285,12 +1323,12 @@ export class LocalBackend implements Backend {
     const { ep, sp } = await this.profilesFor(row.episode_profile_id, row.speaker_profile_id ?? undefined)
     const config = await this.deps.getAiConfig()
     await this.setEpisode(id, { status: 'writing', error: null, done: 0, total: 0 })
-    this.startEpisode(id, { notebookId: row.notebook_id, focus: row.focus ?? undefined }, ep, sp, config)
+    this.startEpisode(id, { notebookId: row.notebook_id, focus: row.focus ?? undefined, effort: row.effort ?? undefined }, ep, sp, config)
   }
 
   private startEpisode(
     id: string,
-    input: { notebookId: string; focus?: string; name?: string },
+    input: { notebookId: string; focus?: string; name?: string; effort?: PodcastEffort },
     ep: EpisodeProfile,
     sp: SpeakerProfile,
     config: AiConfig,
@@ -1311,9 +1349,83 @@ export class LocalBackend implements Backend {
 
   async deleteEpisode(id: string): Promise<void> {
     this.running.get(id)?.abort()
+    this.running.get(`check:${id}`)?.abort()
     const rows = await this.db.select<{ audio_ref: string | null }>(`SELECT audio_ref FROM podcast_episode WHERE id = $1`, [id])
     if (rows[0]?.audio_ref) await this.deps.audio?.remove(rows[0].audio_ref).catch(() => undefined)
     await this.db.execute(`DELETE FROM podcast_episode WHERE id = $1`, [id])
+  }
+
+  async checkEpisode(id: string): Promise<void> {
+    const [row] = await this.db.select<{ notebook_id: string; focus: string | null; script: string | null }>(
+      `SELECT notebook_id, focus, script FROM podcast_episode WHERE id = $1`,
+      [id],
+    )
+    if (!row) throw new NotFoundError('Episode')
+    if (!row.script) throw new Error('This episode has no script to check yet.')
+    const config = await this.deps.getAiConfig()
+    if (!config.chat) throw new Error('Choose a chat model in Settings to check episodes.')
+    const [saved] = await this.db.select<{ model: string; material: string | null }>(`SELECT model, material FROM podcast_prompt WHERE episode_id = $1`, [id])
+    // Check against the material the script was written from when it was kept.
+    const material: MaterialPart[] = saved?.material
+      ? JSON.parse(saved.material)
+      : await this.podcastMaterial(row.notebook_id, row.focus || (await this.getNotebook(row.notebook_id)).name, config, new AbortController().signal)
+    this.startCheck(id, JSON.parse(row.script) as PodcastScript, material, config, saved?.model)
+  }
+
+  private saveCheck(id: string, status: EpisodeCheck['status'], model: string, result: object | null, error: string | null) {
+    return this.db.execute(
+      `INSERT INTO podcast_check (episode_id, status, model, result, error, created) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT(episode_id) DO UPDATE SET status = excluded.status, model = excluded.model, result = excluded.result, error = excluded.error, created = excluded.created`,
+      [id, status, model, result && JSON.stringify(result), error, this.now()],
+    )
+  }
+
+  /** Checks a script's claims, saves the result on the episode and returns it. */
+  private async runCheck(
+    id: string,
+    script: PodcastScript,
+    material: MaterialPart[],
+    config: AiConfig,
+    extra: { writer?: string; history?: EpisodeCheck['history'] },
+    signal: AbortSignal,
+  ): Promise<ScriptCheck> {
+    const model = config.chat!.model
+    await this.saveCheck(id, 'checking', model, extra, null)
+    const raw = await this.provider(config.chat!.provider, 'podcast_check').chat({
+      model,
+      system: CHECK_SYSTEM,
+      messages: [{ role: 'user', content: checkPrompt(script, materialText(material)) }],
+      maxTokens: 16_000,
+      signal,
+    })
+    const check = parseCheck(raw, script, material)
+    if (!signal.aborted) await this.saveCheck(id, 'done', model, { ...extra, ...check }, null)
+    return check
+  }
+
+  /** Runs the claim check in the background; a failed check never fails the episode. */
+  private startCheck(id: string, script: PodcastScript, material: MaterialPart[], config: AiConfig, writer?: string): void {
+    const key = `check:${id}`
+    this.running.get(key)?.abort()
+    const controller = new AbortController()
+    this.running.set(key, controller)
+    const job = this.runCheck(id, script, material, config, { writer }, controller.signal)
+      .then(() => undefined)
+      .catch(async (error: unknown) => {
+        if (controller.signal.aborted) return
+        const message = error instanceof Error ? error.message : String(error)
+        await this.saveCheck(id, 'failed', config.chat!.model, writer ? { writer } : null, message).catch(() => undefined)
+      })
+      .finally(() => {
+        if (this.running.get(key) === controller) this.running.delete(key)
+        this.jobs.delete(job)
+      })
+    this.jobs.add(job)
+  }
+
+  async episodePrompt(id: string): Promise<EpisodePrompt | null> {
+    const [row] = await this.db.select<EpisodePrompt>(`SELECT model, system, prompt FROM podcast_prompt WHERE episode_id = $1`, [id])
+    return row ?? null
   }
 
   async episodeAudioUrl(id: string): Promise<string> {
@@ -1346,7 +1458,7 @@ export class LocalBackend implements Backend {
   /** Script, then voices, then one saved recording with chapter and line timing. */
   private async makeEpisode(
     id: string,
-    input: { notebookId: string; focus?: string; name?: string },
+    input: { notebookId: string; focus?: string; name?: string; effort?: PodcastEffort },
     ep: EpisodeProfile,
     sp: SpeakerProfile,
     config: AiConfig,
@@ -1357,30 +1469,90 @@ export class LocalBackend implements Backend {
     const voices = sp.speakers.map((s) => s.voice)
     const notebook = await this.getNotebook(input.notebookId)
 
-    const material = await this.podcastMaterial(input.notebookId, input.focus || notebook.name, config, signal)
+    const parts = await this.podcastMaterial(input.notebookId, input.focus || notebook.name, config, signal)
+    const material = materialText(parts)
     if (!material.trim()) throw new Error('This notebook has no processed sources or notes to talk about yet.')
-    const raw = await this.provider(config.chat!.provider, 'podcast_writing').chat({
+    const effort = input.effort ?? 'standard'
+    const writer = this.provider(config.chat!.provider, 'podcast_writing')
+    const model = config.chat!.model
+
+    let notes: string | undefined
+    if (effort === 'thorough') {
+      await this.setEpisode(id, { status: 'researching' })
+      notes = await this.provider(config.chat!.provider, 'podcast_research').chat({
+        model,
+        system: RESEARCH_SYSTEM,
+        messages: [{ role: 'user', content: researchPrompt(material, input.focus) }],
+        maxTokens: 8_000,
+        signal,
+      })
+      await this.setEpisode(id, { status: 'writing' })
+    }
+
+    const system = 'You are an audio producer who writes accurate, engaging podcast scripts from research material. You reply with JSON only.'
+    const prompt = scriptPrompt({
+      notebookName: notebook.name,
+      material,
+      speakers: sp.speakers,
+      briefing: ep.briefing,
+      segments: ep.segments,
+      language: ep.language,
+      focus: input.focus,
+      notes,
+    })
+    await this.db.execute(
+      `INSERT INTO podcast_prompt (episode_id, model, system, prompt, material, created) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT(episode_id) DO UPDATE SET model = excluded.model, system = excluded.system, prompt = excluded.prompt,
+         material = excluded.material, created = excluded.created`,
+      [id, model, system, prompt, JSON.stringify(parts), this.now()],
+    )
+    await this.db.execute(`DELETE FROM podcast_check WHERE episode_id = $1`, [id])
+    const raw = await writer.chat({
       model: config.chat!.model,
-      system: 'You are an audio producer who writes accurate, engaging podcast scripts from research material. You reply with JSON only.',
-      messages: [
-        {
-          role: 'user',
-          content: scriptPrompt({
-            notebookName: notebook.name,
-            material,
-            speakers: sp.speakers,
-            briefing: ep.briefing,
-            segments: ep.segments,
-            language: ep.language,
-            focus: input.focus,
-          }),
-        },
-      ],
+      system,
+      messages: [{ role: 'user', content: prompt }],
       maxTokens: ep.segments * WORDS_PER_SEGMENT * 4,
       signal,
     })
-    const script = parseScript(raw, hosts.length)
+    let script = parseScript(raw, hosts.length)
+
+    // Careful and thorough episodes are checked, and flagged lines fixed, before any voice is recorded.
+    const rounds = effort === 'thorough' ? 2 : effort === 'careful' ? 1 : 0
+    if (rounds) {
+      const history: NonNullable<EpisodeCheck['history']> = []
+      try {
+        await this.setEpisode(id, { status: 'checking' })
+        let check = await this.runCheck(id, script, parts, config, { writer: model, history }, signal)
+        for (let round = 0; round < rounds && check.overstated + check.unsupported > 0; round++) {
+          await this.setEpisode(id, { status: 'revising' })
+          const revised = await writer.chat({
+            model,
+            system: REVISE_SYSTEM,
+            messages: [{ role: 'user', content: revisePrompt(script, check.claims.filter((c) => c.verdict !== 'supported'), material) }],
+            maxTokens: ep.segments * WORDS_PER_SEGMENT * 4,
+            signal,
+          })
+          let next: PodcastScript
+          try {
+            next = parseScript(revised, hosts.length)
+          } catch {
+            break // Keep the checked script rather than lose the episode to a bad revision.
+          }
+          history.push({ supported: check.supported, overstated: check.overstated, unsupported: check.unsupported })
+          await this.setEpisode(id, { status: 'checking' })
+          const nextCheck = await this.runCheck(id, next, parts, config, { writer: model, history }, signal)
+          script = next
+          check = nextCheck
+        }
+      } catch (error) {
+        if (signal.aborted) throw error
+        // A failed check is shown on the episode; the script is still voiced.
+        const message = error instanceof Error ? error.message : String(error)
+        await this.saveCheck(id, 'failed', model, { writer: model, history }, message)
+      }
+    }
     await this.db.execute(`UPDATE podcast_episode SET script = $1 WHERE id = $2`, [JSON.stringify(script), id])
+    if (effort === 'standard') this.startCheck(id, script, parts, config, model)
     const lineCount = script.chapters.reduce((n, c) => n + c.lines.length, 0)
     await this.setEpisode(id, {
       status: 'voicing',
@@ -1423,17 +1595,33 @@ export class LocalBackend implements Backend {
   }
 
   /** Source text for a script: everything for small notebooks, the most relevant passages otherwise. */
-  private async podcastMaterial(notebookId: string, query: string, config: AiConfig, signal: AbortSignal): Promise<string> {
-    const { sources, chunks } = await this.contextFor(notebookId, query, config, signal)
+  /**
+   * What an episode is written and checked from: each source's own text (not its insights, so claims
+   * can be traced to the paper), the most relevant passages of long sources, and the notes.
+   */
+  private async podcastMaterial(notebookId: string, query: string, config: AiConfig, signal: AbortSignal): Promise<MaterialPart[]> {
+    const ids = await this.db.select<{ source_id: string }>(`SELECT source_id FROM notebook_source WHERE notebook_id = $1`, [notebookId])
+    const selection: ContextSelection = { sources: Object.fromEntries(ids.map((r) => [r.source_id, 'full' as const])) }
+    const { sources, chunks } = await this.contextFor(notebookId, query, config, signal, selection)
     const notes = await this.listNotes(notebookId)
-    const parts = [...sources.map((s) => `## ${s.title}\n${s.text}`), ...chunks.map((c) => `## Excerpt from ${c.title}\n${c.text}`)]
-    for (const n of notes) if (n.content?.trim()) parts.push(`## Note: ${n.title ?? 'Untitled'}\n${n.content}`)
-    return parts.join('\n\n')
+    return [
+      ...sources.map((s) => ({ title: s.title, text: s.text })),
+      ...chunks.map((c) => ({ title: c.title, text: c.text, excerpt: true })),
+      ...notes.filter((n) => n.content?.trim()).map((n) => ({ title: n.title ?? 'Untitled', text: n.content!, note: true })),
+    ]
   }
+
 }
 
 /** Notebooks up to this many characters of source text are sent to the model whole (about 40k tokens). */
 export const FULL_CONTEXT_CHARS = 160_000
+/** The live voice model gets a short overview, about 4k tokens; details go through the model it delegates to. */
+const LIVE_OVERVIEW_CHARS = 16_000
+
+function clip(text: string, max: number): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  return t.length <= max ? t : `${t.slice(0, max).replace(/\s\S*$/, '')}…`
+}
 const RETRIEVAL_CHUNKS = 40
 /** Source text sent to a transformation, about 100k tokens. */
 const TRANSFORMATION_CHARS = 400_000
@@ -1514,7 +1702,17 @@ interface EpisodeRow {
   duration: number | null
   voice_label: string | null
   created: string
+  effort: PodcastEffort | null
+  check_status: EpisodeCheck['status'] | null
+  check_model: string | null
+  check_result: string | null
+  check_error: string | null
 }
+
+/** Episodes with their claim check, if any. */
+const EPISODE_SELECT = `SELECT e.*, c.status AS check_status, c.model AS check_model, c.result AS check_result, c.error AS check_error
+  FROM podcast_episode e LEFT JOIN podcast_check c ON c.episode_id = e.id`
+
 
 function toEpisode(row: EpisodeRow): Episode {
   return {
@@ -1531,6 +1729,15 @@ function toEpisode(row: EpisodeRow): Episode {
     transcript: row.transcript ? JSON.parse(row.transcript) : [],
     exactTiming: Boolean(row.exact_timing),
     voiceLabel: row.voice_label ?? undefined,
+    effort: row.effort ?? undefined,
+    check: row.check_status
+      ? {
+          ...(row.check_result ? JSON.parse(row.check_result) : {}),
+          status: row.check_status,
+          model: row.check_model ?? '',
+          error: row.check_error ?? undefined,
+        }
+      : undefined,
   }
 }
 

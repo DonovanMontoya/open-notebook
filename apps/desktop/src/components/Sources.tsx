@@ -5,12 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useBackend } from '../lib/backend.tsx'
 import { hostOf, relativeTime } from '../lib/format.ts'
-import { isProcessing, keys, useInsights, useRefreshNotebook, useSource, useTransformations } from '../lib/hooks.ts'
+import { isProcessing, keys, librarySourcesKey, useInsights, useRefreshNotebook, useSource, useTransformations } from '../lib/hooks.ts'
 import { readFile } from '../platform/extract.ts'
-import { OFFICE_FILE } from '../platform/office.ts'
+import { OFFICE_FILE } from '../platform/extract.ts'
 import { saveDownload } from '../platform/media.ts'
 import { Chat } from './Chat.tsx'
-import { librarySourcesKey } from './Library.tsx'
 import { EmptyState, ErrorNote, Icon, Markdown, Menu, Modal, Spinner, openExternal, confirmAction } from './ui.tsx'
 
 export type RailView = { mode: 'list' } | { mode: 'source'; id: string; query?: string }
@@ -43,7 +42,7 @@ export function SourcesRail({
   }
   return (
     <aside className="rail" aria-label="Sources">
-      <div className="drag" data-tauri-drag-region />
+      <div className="drag" />
       <header className="rail-header">
         <h2>
           {sources.length ? `${sources.length} ${sources.length === 1 ? 'source' : 'sources'}` : 'Sources'}
@@ -198,7 +197,7 @@ function SourceReader({ id, query, notebookId, onBack }: { id: string; query?: s
 
   return (
     <aside className="rail" aria-label="Source">
-      <div className="drag" data-tauri-drag-region />
+      <div className="drag" />
       <header className="rail-header">
         <button className="icon-button" onClick={onBack} aria-label="All sources" title="All sources">
           <Icon name="back" />

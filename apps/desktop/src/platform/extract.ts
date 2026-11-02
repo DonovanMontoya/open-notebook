@@ -1,8 +1,8 @@
 // Turns a URL or a picked file into readable text on device.
 import { captionsToText, isMedia, parseWatchPage, pickTrack, youtubeId } from '@open-notebook/engine'
-import { Readability } from '@mozilla/readability'
 
-import { OFFICE_FILE, readOffice } from './office.ts'
+// Readability, the PDF reader and the Office reader load on first use, not at startup.
+export const OFFICE_FILE = /\.(docx|pptx|xlsx|epub)$/i
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
@@ -47,12 +47,13 @@ export async function readPdf(data: ArrayBuffer): Promise<Extracted> {
   }
 }
 
-export function readHtml(html: string, url: string): Extracted {
+export async function readHtml(html: string, url: string): Promise<Extracted> {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const base = doc.createElement('base')
   base.href = url
   doc.head.prepend(base)
   const fallbackTitle = doc.title.trim()
+  const { Readability } = await import('@mozilla/readability')
   const article = new Readability(doc).parse()
   if (article?.textContent?.trim()) {
     return { title: article.title?.trim() || fallbackTitle, text: tidy(article.textContent) }
@@ -103,12 +104,13 @@ export async function readFile(file: File): Promise<Extracted> {
     return { title: pdf.title || name, text: pdf.text }
   }
   if (OFFICE_FILE.test(file.name)) {
+    const { readOffice } = await import('./office.ts')
     const office = readOffice(file.name, await file.arrayBuffer())
     return { title: office.title || name, text: office.text }
   }
   const text = await file.text()
   if (/\.html?$/i.test(file.name) || file.type === 'text/html') {
-    const html = readHtml(text, 'file:///' + encodeURIComponent(file.name))
+    const html = await readHtml(text, 'file:///' + encodeURIComponent(file.name))
     return { title: html.title || name, text: html.text }
   }
   return { title: name, text: text.trim() }

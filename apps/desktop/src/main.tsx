@@ -7,6 +7,9 @@ import { createRoot } from 'react-dom/client'
 
 import App from './App.tsx'
 import { BackendProvider } from './lib/backend.tsx'
+import { enableWindowDrag } from './platform/window-drag.ts'
+
+enableWindowDrag()
 
 const queryClient = new QueryClient({
   defaultOptions: {
