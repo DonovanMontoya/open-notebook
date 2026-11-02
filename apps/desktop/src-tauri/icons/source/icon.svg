@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="graphite" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#34343a"/><stop offset="1" stop-color="#17171a"/></linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f3bd6c"/><stop offset="1" stop-color="#d9932f"/></linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#graphite)"/>
+  <rect x="336" y="214" width="380" height="520" rx="30" fill="#77767a"/>
+  <rect x="680" y="240" width="94" height="112" rx="16" fill="#77767a"/>
+  <rect x="306" y="252" width="380" height="520" rx="30" fill="#b3b1ad"/>
+  <rect x="650" y="390" width="104" height="120" rx="16" fill="#b3b1ad"/>
+  <rect x="610" y="548" width="168" height="150" rx="22" fill="url(#amber)"/>
+  <rect x="276" y="290" width="380" height="520" rx="30" fill="#f3f2ef"/>
+  <rect x="330" y="374" width="230" height="24" rx="12" fill="#c8c6c1"/>
+  <rect x="330" y="438" width="262" height="24" rx="12" fill="#c8c6c1"/>
+  <rect x="330" y="502" width="212" height="24" rx="12" fill="#c8c6c1"/>
+  <rect x="330" y="566" width="246" height="24" rx="12" fill="#c8c6c1"/>
+  <rect x="330" y="630" width="140" height="24" rx="12" fill="#c8c6c1"/>
+</svg>
