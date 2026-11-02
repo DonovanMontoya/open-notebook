@@ -98,7 +98,17 @@ export function NotebookView({
             {notebook.isPending ? <Spinner /> : <h1 onDoubleClick={() => setEditingDetails(true)}>{notebook.data?.name}</h1>}
             {notebook.data?.description && <p>{notebook.data.description}</p>}
           </div>
+          <button className="icon-button" onClick={() => setEditingDetails(true)} aria-label="Notebook settings" title="Notebook settings">
+            <Icon name="settings" />
+          </button>
           <div className="desk-tools">
+            <div className="segmented desk-tabs-wide" role="tablist">
+              {tabs.map(([t, label]) => (
+                <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <NotebookSearch
               notebookId={id}
               onSource={(hit, q) => openSource(hit.id, q)}
@@ -107,16 +117,6 @@ export function NotebookView({
                 setEditingNote({ noteId })
               }}
             />
-            <div className="segmented desk-tabs-wide" role="tablist">
-              {tabs.map(([t, label]) => (
-                <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            <button className="icon-button" onClick={() => setEditingDetails(true)} aria-label="Notebook settings" title="Notebook settings">
-              <Icon name="settings" />
-            </button>
           </div>
         </header>
         <div className="mobile-tabs">

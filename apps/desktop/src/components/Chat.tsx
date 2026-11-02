@@ -1,13 +1,13 @@
-import type { ChatMessage, SourceSummary } from '@open-notebook/api-client'
+import type { ChatMessage, ChatSession, SourceSummary } from '@open-notebook/api-client'
 import { finishedBlocks, linkCitations, sentenceAround, type ContextSelection } from '@open-notebook/engine'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useBackend } from '../lib/backend.tsx'
-import { errorMessage } from '../lib/format.ts'
+import { errorMessage, relativeTime } from '../lib/format.ts'
 import { keys, useStoredState } from '../lib/hooks.ts'
 import { useSettings } from '../lib/settings.ts'
-import { EmptyState, ErrorNote, Icon, Markdown, Menu, Spinner, confirmAction } from './ui.tsx'
+import { EmptyState, ErrorNote, Icon, Markdown, Menu, Spinner, confirmAction, usePopover } from './ui.tsx'
 import { createProvider } from '@open-notebook/engine'
 import { platformFetch } from '../platform/index.ts'
 import { providerConfig } from '../lib/settings.ts'
@@ -67,10 +67,24 @@ export function Chat({ scope, sources, activeCite, onCite, onSaveNote, onAddSour
   const messages = activeId ? (session.data?.messages ?? []) : []
   const turns = useMemo(() => pairTurns(messages), [messages])
 
+  // Follow new text only while the reader is at the bottom; scrolling up while an answer streams stops following.
+  const following = useRef(true)
   useEffect(() => {
     const el = scroller.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [turns.length, pending?.text, activeId])
+    if (!el) return
+    const onScroll = () => {
+      following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+  useEffect(() => {
+    following.current = true
+  }, [turns.length, activeId, pending?.question])
+  useEffect(() => {
+    const el = scroller.current
+    if (el && following.current) el.scrollTop = el.scrollHeight
+  }, [turns.length, pending?.text, pending?.question, activeId])
 
   useEffect(() => {
     const el = input.current
@@ -133,49 +147,44 @@ export function Chat({ scope, sources, activeCite, onCite, onSaveNote, onAddSour
 
   return (
     <div className="chat">
+      {(sessions.data?.length ?? 0) > 0 && (
+        <div className="chat-bar">
+          {renaming !== undefined ? (
+            <form
+              className="rename"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void rename(renaming)
+              }}
+            >
+              <input autoFocus value={renaming} onChange={(e) => setRenaming(e.target.value)} aria-label="Conversation name" onKeyDown={(e) => e.key === 'Escape' && setRenaming(undefined)} />
+              <button className="button small" type="submit">
+                Save
+              </button>
+              <button className="button quiet small" type="button" onClick={() => setRenaming(undefined)}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <Conversations sessions={sessions.data ?? []} activeId={activeId} onSelect={setSelected} />
+          )}
+          {activeId && renaming === undefined && (
+            <>
+              <button className="icon-button" onClick={() => setRenaming(activeSession?.title ?? '')} title="Rename conversation" aria-label="Rename conversation">
+                <Icon name="note" />
+              </button>
+              <button className="icon-button" onClick={() => void remove()} title="Delete conversation" aria-label="Delete conversation">
+                <Icon name="trash" />
+              </button>
+            </>
+          )}
+          <button className="button small new-chat" onClick={() => setSelected(null)} disabled={!activeId}>
+            <Icon name="plus" size={14} /> New chat
+          </button>
+        </div>
+      )}
       <div className="chat-scroll" ref={scroller}>
         <div className="column">
-          {(sessions.data?.length ?? 0) > 0 && (
-            <div className="session-bar">
-              {renaming !== undefined ? (
-                <form
-                  className="rename"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    void rename(renaming)
-                  }}
-                >
-                  <input autoFocus value={renaming} onChange={(e) => setRenaming(e.target.value)} aria-label="Conversation name" onKeyDown={(e) => e.key === 'Escape' && setRenaming(undefined)} />
-                  <button className="button small" type="submit">
-                    Save
-                  </button>
-                </form>
-              ) : (
-                <select aria-label="Conversation" value={activeId ?? ''} onChange={(e) => setSelected(e.target.value || null)}>
-                  {!activeId && <option value="">New conversation</option>}
-                  {sessions.data?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.title || 'Untitled conversation'}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {activeId && renaming === undefined && (
-                <>
-                  <button className="icon-button" onClick={() => setRenaming(activeSession?.title ?? '')} title="Rename conversation" aria-label="Rename conversation">
-                    <Icon name="note" />
-                  </button>
-                  <button className="icon-button" onClick={() => void remove()} title="Delete conversation" aria-label="Delete conversation">
-                    <Icon name="trash" />
-                  </button>
-                  <button className="button quiet small" onClick={() => setSelected(null)}>
-                    <Icon name="plus" size={14} /> New
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
           {activeId && session.isPending && <Spinner />}
           {!activeId && !pending && (
             <EmptyState title={scope.kind === 'source' ? 'Ask about this source' : ready ? 'Ask about your sources' : 'Add a source to ask about'}>
@@ -356,5 +365,36 @@ function ModelMenu({ value, defaultLabel, onChange }: { value?: string; defaultL
     <span className="model-menu">
       <Menu title="Model for this conversation" label={current && value ? current.label : defaultLabel} value={value ?? ''} options={list} onChange={onChange} />
     </span>
+  )
+}
+
+/** The notebook's conversations, newest first, in a dropdown that names the current one. */
+function Conversations({ sessions, activeId, onSelect }: { sessions: ChatSession[]; activeId?: string; onSelect: (id: string | null) => void }) {
+  const { open, setOpen, ref } = usePopover()
+  const current = sessions.find((s) => s.id === activeId)
+  const pick = (id: string | null) => {
+    onSelect(id)
+    setOpen(false)
+  }
+  return (
+    <div className="conversations" ref={ref}>
+      <button className="conversation-current" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        <span className="conversation-name">{current ? current.title || 'Untitled conversation' : 'New chat'}</span>
+        <span className="conversation-count">{sessions.length}</span>
+        <Icon name="chevron-down" size={14} />
+      </button>
+      {open && (
+        <ul className="conversation-list" role="listbox" aria-label="Conversations">
+          {sessions.map((s) => (
+            <li key={s.id}>
+              <button role="option" aria-selected={s.id === activeId} className={s.id === activeId ? 'selected' : ''} onClick={() => pick(s.id)}>
+                <span className="conversation-name">{s.title || 'Untitled conversation'}</span>
+                <span className="conversation-when">{relativeTime(s.updated || s.created)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   )
 }

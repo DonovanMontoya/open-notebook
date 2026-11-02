@@ -171,6 +171,24 @@ export function SkipIcon({ seconds, forward, size = 28 }: { seconds: number; for
 }
 
 /** A button that opens a small list of choices. */
+/** Open state for a dropdown that closes on a click outside it or on Escape. */
+export function usePopover() {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [open])
+  return { open, setOpen, ref }
+}
+
 export function Menu<T extends string | number>({
   label,
   value,
@@ -186,14 +204,7 @@ export function Menu<T extends string | number>({
   icon?: string
   title: string
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
+  const { open, setOpen, ref } = usePopover()
   return (
     <div className="menu" ref={ref}>
       <button className="button quiet small" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} title={title}>

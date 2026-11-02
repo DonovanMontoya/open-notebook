@@ -18,21 +18,21 @@ function PlayGlyph({ playing, size = 18 }: { playing: boolean; size?: number }) 
   )
 }
 
-/** Docked player that follows you around the app. */
-export function MiniPlayer() {
+/** Player that follows you around the app: in the sidebar on desktop, floating at the bottom on phones. */
+export function MiniPlayer({ docked = false }: { docked?: boolean }) {
   const p = usePlayer()
   if (!p.episode || p.expanded) return null
   const duration = p.duration || p.episode.duration || 0
   const chapter = p.episode.chapters[p.chapterIndex]
   return (
-    <div className="mini-player" role="region" aria-label="Now playing">
+    <div className={`mini-player ${docked ? 'docked' : 'floating'}`} role="region" aria-label="Now playing">
       <button className="mini-play" onClick={p.toggle} aria-label={p.playing ? 'Pause' : 'Play'}>
         {p.loading ? <Spinner /> : <PlayGlyph playing={p.playing} size={16} />}
       </button>
       <button className="mini-info" onClick={() => p.setExpanded(true)} title="Open player">
         <span className="mini-title">{p.episode.name}</span>
         <span className="mini-meta">
-          {chapter ? chapter.title : p.notebookName}
+          <span className="mini-chapter">{chapter ? chapter.title : p.notebookName}</span>
           <span className="mini-time">{formatTime(Math.max(0, duration - p.time))} left</span>
         </span>
       </button>

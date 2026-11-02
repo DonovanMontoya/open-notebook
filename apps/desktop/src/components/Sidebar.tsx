@@ -5,6 +5,7 @@ import { useBackend } from '../lib/backend.tsx'
 import { hostOf } from '../lib/format.ts'
 import { useCreateNotebook, useNotebooks } from '../lib/hooks.ts'
 import { useSettings } from '../lib/settings.ts'
+import { MiniPlayer } from './Player.tsx'
 import { ErrorNote, Icon, Modal, Spinner } from './ui.tsx'
 
 export function Sidebar({ route, navigate }: { route: Route; navigate: (r: Route) => void }) {
@@ -86,6 +87,8 @@ export function Sidebar({ route, navigate }: { route: Route; navigate: (r: Route
           </>
         )}
       </div>
+
+      <MiniPlayer docked />
 
       <div className="nav-footer">
         <button

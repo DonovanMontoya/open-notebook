@@ -528,8 +528,9 @@ textarea {
 
 .desk-header {
   display: flex;
-  align-items: flex-end;
-  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
   padding: 0 32px 12px;
   border-bottom: 1px solid var(--line);
 }
@@ -557,8 +558,13 @@ textarea {
 
 .desk-tools {
   display: flex;
+  flex: 1 0 100%;
   align-items: center;
   gap: 8px;
+}
+
+.desk-tools .search-box {
+  margin-left: auto;
 }
 
 .desk-body {
@@ -663,22 +669,117 @@ textarea {
   line-height: 16px;
 }
 
-.session-bar {
+/* Conversation switcher: pinned above the chat so other conversations stay in reach. */
+
+.chat-bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 24px;
+  gap: 4px;
+  padding: 8px 32px;
+  border-bottom: 1px solid var(--line);
 }
 
-.session-bar select {
-  width: auto;
-  max-width: 260px;
-  min-height: 28px;
-  padding: 2px 8px;
-  border-color: transparent;
+.chat-bar .rename {
+  flex: 1;
+  max-width: 420px;
+}
+
+.new-chat {
+  margin-left: auto;
+}
+
+.conversations {
+  position: relative;
+  min-width: 0;
+}
+
+.conversation-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   background: var(--raised);
   font-size: 13px;
+  font-weight: 500;
+}
+
+.conversation-current:hover {
+  border-color: var(--line-strong);
+}
+
+.conversation-current[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
+.conversation-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-count {
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--line);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.conversation-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.14);
+}
+
+.conversation-list button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+}
+
+.conversation-list button:hover {
+  background: var(--raised);
+}
+
+.conversation-list button.selected {
+  background: var(--raised);
+  font-weight: 500;
+}
+
+.conversation-when {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 12px;
 }
 
 /* The signature: a citation is a small index tab in library amber. */
@@ -1312,13 +1413,24 @@ textarea {
     border-bottom: 0;
   }
 
+  .desk-tools {
+    display: none;
+  }
+
   .composer-hint {
     display: none;
   }
 
-  .session-bar select {
-    max-width: 100%;
+  .chat-bar {
+    padding: 8px 16px;
+  }
+
+  .conversations {
     flex: 1;
+  }
+
+  .conversation-current {
+    max-width: 100%;
   }
 
   .desk-tabs-wide {
@@ -1768,28 +1880,28 @@ textarea {
   padding: 12px 14px;
 }
 
-/* Mini player: docked at the foot of the sidebar */
+/* Mini player: in the sidebar above the footer on desktop, floating at the bottom on phones */
 
 .mini-player {
-  position: fixed;
-  left: 8px;
-  bottom: 56px;
-  z-index: 25;
-  width: calc(var(--sidebar) - 16px);
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px 10px 8px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--panel);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
   overflow: hidden;
   animation: rise 240ms var(--ease);
 }
 
-.has-player .nav-list {
-  padding-bottom: 72px;
+.mini-player.docked {
+  flex: none;
+  margin-top: 8px;
+}
+
+.mini-player.floating {
+  display: none;
 }
 
 .mini-play {
@@ -1818,39 +1930,44 @@ textarea {
   text-align: left;
 }
 
-.mini-title,
-.mini-meta {
+.mini-title {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.mini-title {
-  font: 500 14px/18px var(--read);
+  font: 500 13px/18px var(--ui);
 }
 
 .mini-meta {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   color: var(--text-3);
   font-size: 11px;
   line-height: 16px;
 }
 
+.mini-chapter {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mini-time {
-  margin-left: auto;
   flex: none;
   font-variant-numeric: tabular-nums;
 }
 
 .mini-progress {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
   height: 2px;
+  border-radius: 1px;
   background: var(--line);
+  overflow: hidden;
 }
 
 .mini-progress span {
@@ -2269,11 +2386,22 @@ main.desk {
 }
 
 @media (max-width: 860px) {
-  .mini-player {
+  .mini-player.docked {
+    display: none;
+  }
+
+  .mini-player.floating {
+    position: fixed;
     left: 8px;
     right: 8px;
     bottom: calc(8px + env(safe-area-inset-bottom));
-    width: auto;
+    z-index: 25;
+    display: flex;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+  }
+
+  .has-player .sidebar {
+    padding-bottom: 72px;
   }
 
   .has-player .desk {
@@ -2961,31 +3089,38 @@ main.desk {
 
 /* Usage */
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.stat {
+.usage-total {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  margin-bottom: 28px;
 }
 
-.stat-label {
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 16px;
-}
-
-.stat-value {
-  font: 450 26px/30px var(--read);
+.usage-amount {
+  font: 450 44px/48px var(--read);
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
+}
+
+.usage-caption {
+  color: var(--text-2);
+}
+
+.usage-facts {
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-cost {
+  font-variant-numeric: tabular-nums;
+}
+
+.price-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .usage-table {
