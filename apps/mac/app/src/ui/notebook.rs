@@ -223,6 +223,18 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
         .gap(8.0)
         .center_y()
         .child(text(title).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
+        .child({
+            let (sid, t) = (detail.summary.id.clone(), detail.summary.title.clone().unwrap_or_else(|| "Untitled source".into()));
+            let on = o.scope.as_ref().is_some_and(|(id, _)| *id == sid);
+            IconButton::new(&icons::CHAT)
+                .variant(IconButtonVariant::GhostMuted)
+                .expanded(on)
+                .label(if on { "Back to notebook chat" } else { "Chat about this source" })
+                .help(if on { "Back to notebook chat" } else { "Chat about this source" })
+                .on_press(move |s: &mut App| s.chat_scope((!on).then(|| (sid.clone(), t.clone()))))
+                .build(k)
+                .key("source-chat")
+        })
         .child(
             IconButton::new(&icons::CLOSE)
                 .variant(IconButtonVariant::GhostMuted)
@@ -526,6 +538,21 @@ fn chat(o: &Open, l: &Look) -> El {
     let k = &l.k;
     let sources = citable(o);
     let mut thread = col().key("thread").w_full().max_w(720.0).gap(18.0).px(24.0).py(20.0);
+    if let Some((_, title)) = &o.scope {
+        thread = thread.child(
+            row()
+                .key("scope-banner")
+                .w_full()
+                .gap(8.0)
+                .px(12.0)
+                .py(8.0)
+                .radius(10.0)
+                .fill(l.amber_wash)
+                .center_y()
+                .child(text(format!("Chatting about {title}")).font(k.ty.ui).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
+                .child(Button::new("Back to notebook chat").variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(|s: &mut App| s.chat_scope(None)).build(k).key("scope-back")),
+        );
+    }
     let messages = o.session.as_ref().map(|s| s.messages.as_slice()).unwrap_or(&[]);
     if messages.is_empty() && o.pending.is_none() {
         let hint = if o.sources.is_empty() { "Add a source, then ask about it." } else { "Ask about your sources. Answers cite the passages they come from." };
@@ -626,7 +653,7 @@ fn composer(o: &Open, l: &Look) -> El {
     let k = &l.k;
     let sending = o.sending.is_some();
     let field = TextArea::new(&o.draft)
-        .placeholder(if o.sources.is_empty() { "Ask anything" } else { "Ask about your sources" })
+        .placeholder(if o.scope.is_some() { "Ask about this source" } else if o.sources.is_empty() { "Ask anything" } else { "Ask about your sources" })
         .label("Message")
         .width(None)
         .auto_grow(1, 8)

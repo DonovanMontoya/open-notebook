@@ -22,6 +22,7 @@ pub const SCENES: &[Scene] = &[
     ("study", study),
     ("quiz", quiz),
     ("insights", insights),
+    ("source-chat", source_chat),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -219,4 +220,10 @@ fn insights(s: &mut App) {
         status: Some("completed".into()),
         error: None,
     }];
+}
+
+fn source_chat(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    o.scope = Some(("s1".into(), "Sleep spindles and memory consolidation".into()));
 }

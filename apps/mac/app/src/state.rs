@@ -99,6 +99,8 @@ pub struct Open {
     pub note: Option<NoteDraft>,
     pub sessions_open: bool,
     pub error: Option<String>,
+    /// Chat about one source (id, title) instead of the whole notebook.
+    pub scope: Option<(String, String)>,
     /// Insights of the source being read.
     pub insights: Vec<Insight>,
     pub insight_picker: bool,
@@ -126,6 +128,7 @@ impl Open {
             note: None,
             sessions_open: false,
             error: None,
+            scope: None,
             insights: Vec::new(),
             insight_picker: false,
             transformations: Vec::new(),
@@ -429,11 +432,51 @@ impl App {
     // Chat
 
     pub fn open_session(&self, session_id: String) {
-        let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
-        self.run(move |b| b.get_chat_session(&session_id), with_open(&id, |o, s| {
-            o.session = Some(s);
-            o.sessions_open = false;
-        }));
+        let Some(o) = self.open.as_ref() else { return };
+        let (id, scope) = (o.id.clone(), o.scope.as_ref().map(|(sid, _)| sid.clone()));
+        self.run(
+            move |b| match &scope {
+                Some(source) => b.get_source_chat_session(source, &session_id),
+                None => b.get_chat_session(&session_id),
+            },
+            with_open(&id, |o, s| {
+                o.session = Some(s);
+                o.sessions_open = false;
+            }),
+        );
+    }
+
+    /// Switches the chat to one source, or back to the notebook with None, and opens its latest conversation.
+    pub fn chat_scope(&mut self, scope: Option<(String, String)>) {
+        let Some(o) = self.open.as_mut() else { return };
+        if o.sending.is_some() {
+            return;
+        }
+        o.scope = scope.clone();
+        o.tab = NotebookTab::Chat;
+        o.session = None;
+        o.sessions.clear();
+        o.error = None;
+        let id = o.id.clone();
+        let nb = id.clone();
+        self.run(
+            move |b| match &scope {
+                Some((source, _)) => b.list_source_chat_sessions(source),
+                None => b.list_chat_sessions(&nb),
+            },
+            move |app: &mut App, r: notebook_engine::Result<Vec<ChatSession>>| match r {
+                Ok(sessions) => {
+                    let latest = sessions.first().map(|s| s.id.clone());
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
+                        o.sessions = sessions;
+                    }
+                    if let Some(sid) = latest {
+                        app.open_session(sid);
+                    }
+                }
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn new_chat(&mut self) {
@@ -457,6 +500,7 @@ impl App {
         o.error = None;
         let notebook_id = o.id.clone();
         let session_id = o.session.as_ref().map(|s| s.session.id.clone());
+        let scope = o.scope.as_ref().map(|(sid, _)| sid.clone());
         let inbox = self.inbox.clone();
         let id = notebook_id.clone();
         self.run(
@@ -470,15 +514,25 @@ impl App {
                         }
                     });
                 };
-                b.send_chat_message(notebook_engine::backend::SendChat {
-                    notebook_id,
-                    session_id,
-                    message,
-                    context: None,
-                    model_override: None,
-                    on_text: Some(&mut on_text),
-                    cancel,
-                })
+                match scope {
+                    Some(source_id) => b.send_source_chat_message(notebook_engine::backend::SendSourceChat {
+                        source_id,
+                        session_id,
+                        message,
+                        model_override: None,
+                        on_text: Some(&mut on_text),
+                        cancel,
+                    }),
+                    None => b.send_chat_message(notebook_engine::backend::SendChat {
+                        notebook_id,
+                        session_id,
+                        message,
+                        context: None,
+                        model_override: None,
+                        on_text: Some(&mut on_text),
+                        cancel,
+                    }),
+                }
             },
             move |app, r| {
                 let Some(o) = app.open.as_mut() else { return };
@@ -513,7 +567,13 @@ impl App {
 
     pub fn delete_session(&mut self, session_id: String) {
         let gone = session_id.clone();
-        self.run(move |b| b.delete_chat_session(&session_id), move |app, r| match r {
+        let scope = self.open.as_ref().and_then(|o| o.scope.as_ref().map(|(sid, _)| sid.clone()));
+        self.run(
+            move |b| match &scope {
+                Some(source) => b.delete_source_chat_session(source, &session_id),
+                None => b.delete_chat_session(&session_id),
+            },
+            move |app, r| match r {
             Ok(()) => {
                 if let Some(o) = app.open.as_mut() {
                     o.sessions.retain(|s| s.id != gone);
@@ -523,7 +583,8 @@ impl App {
                 }
             }
             Err(e) => app.fail(e),
-        });
+            },
+        );
     }
 
     // Sources
