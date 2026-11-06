@@ -1,0 +1,16 @@
+[package]
+name = "notebook-engine"
+description = "Open Notebook's on-device engine: local SQLite backend, AI providers and the server client."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror = "2"
+rusqlite = { version = "0.37", features = ["bundled"] }
+ureq = { version = "3", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
