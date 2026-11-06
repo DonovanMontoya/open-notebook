@@ -12,6 +12,7 @@ pub mod extract;
 pub mod insights;
 pub mod net;
 pub mod pricing;
+pub mod providers;
 pub mod remote;
 pub mod settings;
 pub mod studio;
