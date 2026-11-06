@@ -14,3 +14,11 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 ureq = { version = "3", features = ["json"] }
 uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+# Server client, file extraction, YouTube and transcription.
+base64 = "0.22"
+dom_query = "0.29"
+dom_smoothie = "0.19"
+pdf-extract = "0.12"
+quick-xml = "0.42"
+url = "2"
+zip = { version = "9", default-features = false, features = ["deflate"] }
