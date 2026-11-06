@@ -7,13 +7,13 @@ use rusqlite::{OptionalExtension, Row, params};
 use time::OffsetDateTime;
 
 use super::{Engine, iso};
+use crate::Error;
 use crate::backend::{Cancel, Result};
 use crate::db::{int, num};
-use crate::insights::{DEFAULT_TRANSFORMATIONS, DEFAULT_TRANSFORMATION_INSTRUCTIONS};
+use crate::insights::{DEFAULT_TRANSFORMATION_INSTRUCTIONS, DEFAULT_TRANSFORMATIONS};
 use crate::providers::{ChatRequest, ChatTurn};
 use crate::text::{char_len, take_chars};
 use crate::types::{Insight, Note, Transformation, UsageGroup, UsageReport};
-use crate::Error;
 
 /// Source text sent to a transformation, about 100k tokens.
 const TRANSFORMATION_CHARS: usize = 400_000;
@@ -45,8 +45,7 @@ impl Engine {
     /// Adds the server's default transformations the first time the app runs.
     pub fn seed_transformations(&self) -> Result<()> {
         let mut conn = self.db.lock();
-        let seeded: Option<String> =
-            conn.query_row("SELECT value FROM app_setting WHERE key = 'transformations_seeded'", [], |r| r.get(0)).optional()?;
+        let seeded: Option<String> = conn.query_row("SELECT value FROM app_setting WHERE key = 'transformations_seeded'", [], |r| r.get(0)).optional()?;
         if seeded.is_some() {
             return Ok(());
         }
@@ -107,11 +106,8 @@ impl Engine {
 
     /// The instructions placed before every transformation prompt.
     pub fn transformation_instructions(&self) -> Result<String> {
-        let value: Option<String> = self
-            .db
-            .lock()
-            .query_row("SELECT value FROM app_setting WHERE key = 'transformation_instructions'", [], |r| r.get(0))
-            .optional()?;
+        let value: Option<String> =
+            self.db.lock().query_row("SELECT value FROM app_setting WHERE key = 'transformation_instructions'", [], |r| r.get(0)).optional()?;
         Ok(value.unwrap_or_else(|| DEFAULT_TRANSFORMATION_INSTRUCTIONS.into()))
     }
 
@@ -166,14 +162,14 @@ impl Engine {
             if !cancel.is_cancelled() {
                 let now = engine.now();
                 let _ = match result {
-                    Ok(content) => engine.db.lock().execute(
-                        "UPDATE source_insight SET content = ?1, status = 'completed', updated = ?2 WHERE id = ?3",
-                        params![content.trim(), now, id],
-                    ),
-                    Err(e) => engine.db.lock().execute(
-                        "UPDATE source_insight SET status = 'failed', error = ?1, updated = ?2 WHERE id = ?3",
-                        params![e.to_string(), now, id],
-                    ),
+                    Ok(content) => engine
+                        .db
+                        .lock()
+                        .execute("UPDATE source_insight SET content = ?1, status = 'completed', updated = ?2 WHERE id = ?3", params![content.trim(), now, id]),
+                    Err(e) => engine
+                        .db
+                        .lock()
+                        .execute("UPDATE source_insight SET status = 'failed', error = ?1, updated = ?2 WHERE id = ?3", params![e.to_string(), now, id]),
                 };
             }
             engine.finish_running(&id, generation);

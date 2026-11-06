@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use super::audio::{SAMPLE_RATE, Timeline};
 use super::script::PodcastScript;
 use super::voices::{DialogueLine, VoiceMode, VoiceProvider};
-use crate::backend::{Cancel, Result};
 use crate::Error;
+use crate::backend::{Cancel, Result};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimedLine {
@@ -47,7 +47,13 @@ pub type OnProgress<'a> = &'a (dyn Fn(usize, usize) + Sync);
 
 /// Runs `job(i)` for every index, at most `concurrency` at once, and returns the
 /// results in index order. The first failure stops new requests and is returned.
-fn run_limited<T: Send>(count: usize, concurrency: usize, cancel: &Cancel, on_progress: Option<OnProgress<'_>>, job: impl Fn(usize) -> Result<T> + Sync) -> Result<Vec<T>> {
+fn run_limited<T: Send>(
+    count: usize,
+    concurrency: usize,
+    cancel: &Cancel,
+    on_progress: Option<OnProgress<'_>>,
+    job: impl Fn(usize) -> Result<T> + Sync,
+) -> Result<Vec<T>> {
     let next = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
     let done = Mutex::new(0usize);

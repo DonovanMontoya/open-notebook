@@ -68,7 +68,10 @@ mod tests {
 
     #[test]
     fn short_pages_keep_their_text_without_scripts() {
-        let out = read_html("<html><head><title> Tiny </title><style>p{}</style></head><body><header>Top</header><p>Just   a\u{a0}line</p><script>x()</script></body></html>", None);
+        let out = read_html(
+            "<html><head><title> Tiny </title><style>p{}</style></head><body><header>Top</header><p>Just   a\u{a0}line</p><script>x()</script></body></html>",
+            None,
+        );
         assert_eq!(out.title, "Tiny");
         assert!(out.text.contains("Just a line"), "{}", out.text);
         assert!(!out.text.contains("x()") && !out.text.contains("p{}"), "{}", out.text);

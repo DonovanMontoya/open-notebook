@@ -8,12 +8,12 @@ use std::sync::Arc;
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::Engine;
+use crate::Error;
 use crate::backend::{Cancel, Result};
 use crate::db::int;
 use crate::text::{chunk_source_text, encode_vector, title_from};
 use crate::transcribe::{Recording, SpeechProvider, is_media, transcribe};
 use crate::types::{NewSource, SourceAsset, SourceDetail, SourceFile, SourceInput, SourceSummary};
-use crate::Error;
 
 const SOURCE_SELECT: &str = "SELECT s.*,
         (SELECT COUNT(*) FROM chunk c WHERE c.source_id = s.id) AS chunk_count,
@@ -77,10 +77,7 @@ impl Engine {
     }
 
     pub fn list_sources(&self, notebook_id: &str) -> Result<Vec<SourceSummary>> {
-        let rows = self.source_rows(
-            "s.id IN (SELECT source_id FROM notebook_source WHERE notebook_id = ?1) ORDER BY s.updated DESC",
-            &[&notebook_id],
-        )?;
+        let rows = self.source_rows("s.id IN (SELECT source_id FROM notebook_source WHERE notebook_id = ?1) ORDER BY s.updated DESC", &[&notebook_id])?;
         Ok(rows.into_iter().map(|r| r.summary).collect())
     }
 
@@ -160,9 +157,7 @@ impl Engine {
 
     pub fn retry_source(self: &Arc<Self>, id: &str) -> Result<()> {
         self.get_source(id)?;
-        self.db
-            .lock()
-            .execute("UPDATE source SET status = 'processing', error = NULL, updated = ?1 WHERE id = ?2", params![self.now(), id])?;
+        self.db.lock().execute("UPDATE source SET status = 'processing', error = NULL, updated = ?1 WHERE id = ?2", params![self.now(), id])?;
         self.process(id, None);
         Ok(())
     }
@@ -192,9 +187,7 @@ impl Engine {
     pub fn link_source(&self, source_id: &str, notebook_id: &str) -> Result<()> {
         self.get_source(source_id)?;
         self.get_notebook(notebook_id)?;
-        self.db
-            .lock()
-            .execute("INSERT OR IGNORE INTO notebook_source (source_id, notebook_id) VALUES (?1, ?2)", params![source_id, notebook_id])?;
+        self.db.lock().execute("INSERT OR IGNORE INTO notebook_source (source_id, notebook_id) VALUES (?1, ?2)", params![source_id, notebook_id])?;
         self.touch_notebook(notebook_id)
     }
 
@@ -202,8 +195,7 @@ impl Engine {
         let conn = self.db.lock();
         conn.execute("DELETE FROM notebook_source WHERE source_id = ?1 AND notebook_id = ?2", params![source_id, notebook_id])?;
         // Keep the home notebook pointing at a notebook the source is still in.
-        let left: Option<String> =
-            conn.query_row("SELECT notebook_id FROM notebook_source WHERE source_id = ?1", [source_id], |r| r.get(0)).optional()?;
+        let left: Option<String> = conn.query_row("SELECT notebook_id FROM notebook_source WHERE source_id = ?1", [source_id], |r| r.get(0)).optional()?;
         if let Some(left) = left {
             conn.execute("UPDATE source SET notebook_id = ?1 WHERE id = ?2 AND notebook_id = ?3", params![left, source_id, notebook_id])?;
         }
@@ -255,10 +247,10 @@ impl Engine {
                 && let Err(error) = engine.run_pipeline(&id, &cancel, explicit_title.as_deref())
                 && !cancel.is_cancelled()
             {
-                let _ = engine.db.lock().execute(
-                    "UPDATE source SET status = 'failed', error = ?1, updated = ?2 WHERE id = ?3",
-                    params![error.to_string(), engine.now(), id],
-                );
+                let _ = engine
+                    .db
+                    .lock()
+                    .execute("UPDATE source SET status = 'failed', error = ?1, updated = ?2 WHERE id = ?3", params![error.to_string(), engine.now(), id]);
             }
             engine.finish_running(&id, generation);
         });
@@ -279,9 +271,7 @@ impl Engine {
             if text.trim().is_empty() {
                 return Err(Error::other("No readable text was found at that address."));
             }
-            self.db
-                .lock()
-                .execute("UPDATE source SET full_text = ?1, title = ?2, updated = ?3 WHERE id = ?4", params![text, title, self.now(), id])?;
+            self.db.lock().execute("UPDATE source SET full_text = ?1, title = ?2, updated = ?3 WHERE id = ?4", params![text, title, self.now(), id])?;
         }
 
         if text.trim().is_empty() {
@@ -342,15 +332,10 @@ impl Engine {
         let Some(choice) = config.transcription else {
             return Err(Error::Setup("Choose a speech to text model in Settings to transcribe audio and video.".into()));
         };
-        let path = file_ref
-            .and_then(|f| self.original(&f))
-            .ok_or_else(|| Error::other("The original file is missing or outside the app's files"))?;
+        let path = file_ref.and_then(|f| self.original(&f)).ok_or_else(|| Error::other("The original file is missing or outside the app's files"))?;
         let data = std::fs::read(path)?;
-        let provider = SpeechProvider {
-            kind: choice.provider.kind.as_str(),
-            base_url: choice.provider.base_url.as_deref(),
-            api_key: choice.provider.api_key.as_deref(),
-        };
+        let provider =
+            SpeechProvider { kind: choice.provider.kind.as_str(), base_url: choice.provider.base_url.as_deref(), api_key: choice.provider.api_key.as_deref() };
         let file = Recording { data: &data, name: name.as_deref().unwrap_or("recording"), mime: mime.as_deref().unwrap_or_default() };
         let text = transcribe(&*self.http, provider, &choice.model, file, cancel)?;
         if text.is_empty() {

@@ -152,17 +152,13 @@ pub fn decode_vector(encoded: &str) -> Option<Vec<f32>> {
     if bytes.len() % 4 != 0 {
         return None;
     }
-    Some(bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+    Some(bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
 }
 
 /// Short title from the first line of some text.
 pub fn title_from(text: &str, max: usize) -> String {
     let line = text.trim().split('\n').next().unwrap_or("").trim();
-    if char_len(line) > max {
-        format!("{}…", take_chars(line, max.saturating_sub(1)).trim_end())
-    } else {
-        line.to_string()
-    }
+    if char_len(line) > max { format!("{}…", take_chars(line, max.saturating_sub(1)).trim_end()) } else { line.to_string() }
 }
 
 static LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?i)https?://[^\s<>"'),\]]+"#).unwrap());
@@ -173,10 +169,7 @@ static TRAILING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[.,;]+$").unwra
 /// Every http(s) address in some pasted text, deduplicated, in order.
 pub fn parse_links(text: &str) -> Vec<String> {
     let found = LINK.find_iter(text).map(|m| m.as_str().to_string());
-    let bare = text
-        .split_whitespace()
-        .filter(|t| !SCHEME.is_match(t) && BARE.is_match(t))
-        .map(|t| format!("https://{t}"));
+    let bare = text.split_whitespace().filter(|t| !SCHEME.is_match(t) && BARE.is_match(t)).map(|t| format!("https://{t}"));
     let mut out: Vec<String> = Vec::new();
     for u in found.chain(bare) {
         let u = TRAILING.replace(&u, "").into_owned();
@@ -232,11 +225,7 @@ pub fn snippet(text: &str, query: &str, size: usize) -> String {
     let terms = keyword_terms(query);
     let lower = text.to_lowercase();
     // Positions are found in the lower-cased text and mapped back by character count.
-    let at = terms
-        .iter()
-        .filter_map(|t| lower.find(t.as_str()).map(|b| char_len(&lower[..b])))
-        .min()
-        .unwrap_or(0);
+    let at = terms.iter().filter_map(|t| lower.find(t.as_str()).map(|b| char_len(&lower[..b]))).min().unwrap_or(0);
     let start = at.saturating_sub(60);
     let body = char_slice(text, start, start + size);
     let body = SPACES.replace_all(body, " ");

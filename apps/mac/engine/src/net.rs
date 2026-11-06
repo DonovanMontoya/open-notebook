@@ -134,10 +134,7 @@ pub struct UreqHttp {
 
 impl Default for UreqHttp {
     fn default() -> Self {
-        let config = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .user_agent("OpenNotebook-Mac")
-            .build();
+        let config = ureq::Agent::config_builder().http_status_as_error(false).user_agent("OpenNotebook-Mac").build();
         UreqHttp { agent: ureq::Agent::new_with_config(config) }
     }
 }
@@ -164,11 +161,7 @@ impl Http for UreqHttp {
             other => Transport::Failed(other.to_string()),
         })?;
         let status = response.status().as_u16();
-        let headers = response
-            .headers()
-            .iter()
-            .map(|(k, v)| (k.as_str().to_string(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
-            .collect();
+        let headers = response.headers().iter().map(|(k, v)| (k.as_str().to_string(), String::from_utf8_lossy(v.as_bytes()).into_owned())).collect();
         let reader = response.into_body().into_reader();
         Ok(Response { status, headers, body: Box::new(TimeoutReader(reader)) })
     }

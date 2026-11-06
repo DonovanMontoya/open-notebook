@@ -14,14 +14,7 @@ fn insight_env() -> Env {
 }
 
 fn summary(apply_default: bool) -> Transformation {
-    Transformation {
-        id: String::new(),
-        name: "s".into(),
-        title: "Summary".into(),
-        description: String::new(),
-        prompt: "SUMMARY-PROMPT".into(),
-        apply_default,
-    }
+    Transformation { id: String::new(), name: "s".into(), title: "Summary".into(), description: String::new(), prompt: "SUMMARY-PROMPT".into(), apply_default }
 }
 
 #[test]

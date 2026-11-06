@@ -19,13 +19,7 @@ pub struct ContextNote {
 const NOTES_BUDGET: usize = 40_000;
 
 /// System prompt for notebook chat: instructions first, then the notebook material.
-pub fn build_chat_prompt(
-    name: &str,
-    description: &str,
-    sources: &[ContextSource],
-    chunks: &[ContextChunk],
-    notes: &[ContextNote],
-) -> String {
+pub fn build_chat_prompt(name: &str, description: &str, sources: &[ContextSource], chunks: &[ContextChunk], notes: &[ContextNote]) -> String {
     let mut parts: Vec<String> = vec![
         format!("You are a research assistant working inside the notebook \"{name}\"."),
         if description.is_empty() { String::new() } else { format!("Notebook description: {description}") },

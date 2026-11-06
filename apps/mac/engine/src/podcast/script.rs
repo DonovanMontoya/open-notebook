@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::WORDS_PER_SEGMENT;
-use crate::backend::Result;
 use crate::Error;
+use crate::backend::Result;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScriptLine {
@@ -63,8 +63,7 @@ pub struct ScriptInput<'a> {
     pub notes: Option<&'a str>,
 }
 
-pub const SCRIPT_SYSTEM: &str =
-    "You are an audio producer who writes accurate, engaging podcast scripts from research material. You reply with JSON only.";
+pub const SCRIPT_SYSTEM: &str = "You are an audio producer who writes accurate, engaging podcast scripts from research material. You reply with JSON only.";
 
 pub fn script_prompt(input: &ScriptInput<'_>) -> String {
     let speakers = &input.speakers;
@@ -176,10 +175,7 @@ pub fn parse_script(raw: &str, host_count: usize) -> Result<PodcastScript> {
                 .iter()
                 .map(|l| {
                     let host = if l["host"].is_null() { &l["speaker"] } else { &l["host"] };
-                    ScriptLine {
-                        host: number(host).clamp(0.0, max_host).trunc() as usize,
-                        text: l["text"].as_str().map(clean_spoken).unwrap_or_default(),
-                    }
+                    ScriptLine { host: number(host).clamp(0.0, max_host).trunc() as usize, text: l["text"].as_str().map(clean_spoken).unwrap_or_default() }
                 })
                 .filter(|l| !l.text.is_empty())
                 .collect(),
@@ -221,16 +217,7 @@ mod tests {
     #[test]
     fn the_prompt_names_the_cast_and_leaves_out_empty_parts() {
         let speakers = vec![Persona { name: "Ana", backstory: "", personality: "Calm" }];
-        let input = ScriptInput {
-            notebook_name: "N",
-            material: "M",
-            speakers,
-            briefing: "B",
-            segments: 2,
-            language: None,
-            focus: None,
-            notes: None,
-        };
+        let input = ScriptInput { notebook_name: "N", material: "M", speakers, briefing: "B", segments: 2, language: None, focus: None, notes: None };
         let prompt = script_prompt(&input);
         assert!(prompt.contains("The show has one host, Ana (host 0), speaking directly to the listener."));
         assert!(prompt.contains("- Ana (host 0)\n  Personality: Calm"));

@@ -6,13 +6,13 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{OptionalExtension, Row, params, params_from_iter};
 
 use super::{AiConfig, Engine, FULL_CONTEXT_CHARS, ModelChoice};
+use crate::Error;
 use crate::backend::{Cancel, OnText, Result, SendChat, SendChatResult, SendSourceChat};
 use crate::chat::{ContextChunk, ContextNote, ContextSource, build_chat_prompt, fair_share};
 use crate::db::int;
 use crate::providers::{ChatRequest, ChatTurn, ProviderKind};
 use crate::text::{char_len, cosine_similarity, decode_vector, keyword_score, keyword_terms, take_chars, title_from};
 use crate::types::{ChatMessage, ChatSession, ChatSessionWithMessages, ContextSelection, MessageKind, SourceContext};
-use crate::Error;
 
 const HISTORY_TURNS: usize = 20;
 pub(super) const RETRIEVAL_CHUNKS: usize = 40;
@@ -86,10 +86,8 @@ impl Engine {
 
     pub fn get_chat_session(&self, id: &str) -> Result<ChatSessionWithMessages> {
         let conn = self.db.lock();
-        let mut session = conn
-            .query_row("SELECT * FROM chat_session WHERE id = ?1", [id], to_session)
-            .optional()?
-            .ok_or_else(|| Error::NotFound("Chat session".into()))?;
+        let mut session =
+            conn.query_row("SELECT * FROM chat_session WHERE id = ?1", [id], to_session).optional()?.ok_or_else(|| Error::NotFound("Chat session".into()))?;
         let mut stmt = conn.prepare("SELECT id, type, content, timestamp FROM chat_message WHERE session_id = ?1 ORDER BY timestamp, id")?;
         let messages = stmt.query_map([id], to_message)?.collect::<rusqlite::Result<Vec<_>>>()?;
         session.message_count = Some(messages.len() as u32);

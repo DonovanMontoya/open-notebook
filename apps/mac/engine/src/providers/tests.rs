@@ -69,7 +69,9 @@ fn openai_embeddings_keep_input_order_and_batch_large_inputs() {
 
 #[test]
 fn openai_model_list_marks_embedding_and_non_chat_models() {
-    let (http, _) = fake(|_| Response::new(200, json!({ "data": [{ "id": "whisper-1" }, { "id": "gpt-x", "name": "GPT X" }, { "id": "text-embedding-3-small" }] }).to_string()));
+    let (http, _) = fake(|_| {
+        Response::new(200, json!({ "data": [{ "id": "whisper-1" }, { "id": "gpt-x", "name": "GPT X" }, { "id": "text-embedding-3-small" }] }).to_string())
+    });
     let models = create_provider(&ProviderConfig::with_key(ProviderKind::OpenAi, "k"), http).list_models().unwrap();
     let got: Vec<(&str, Vec<Capability>)> = models.iter().map(|m| (m.id.as_str(), m.capabilities.clone())).collect();
     assert_eq!(got, [("gpt-x", vec![Capability::Chat]), ("text-embedding-3-small", vec![Capability::Embedding]), ("whisper-1", vec![])]);
@@ -84,9 +86,7 @@ fn gemini_chat_maps_roles_skips_thought_parts_and_reads_the_sse_stream() {
     ];
     let (http, calls) = fake(move |_| Response::new(200, sse(&events)));
     let provider = create_provider(&ProviderConfig::with_key(ProviderKind::Gemini, "g"), http);
-    let text = provider
-        .chat(ChatRequest::new("gemini-x", "sys", vec![ChatTurn::user("a"), ChatTurn::assistant("b"), ChatTurn::user("c")]))
-        .unwrap();
+    let text = provider.chat(ChatRequest::new("gemini-x", "sys", vec![ChatTurn::user("a"), ChatTurn::assistant("b"), ChatTurn::user("c")])).unwrap();
     assert_eq!(text, "Answer");
     let calls = calls.lock().unwrap();
     assert!(calls[0].url.ends_with("models/gemini-x:streamGenerateContent?alt=sse"));
@@ -101,7 +101,10 @@ fn gemini_model_list_keeps_chat_and_embedding_capabilities_across_pages() {
         if r.url.contains("pageToken") {
             Response::new(200, json!({ "models": [{ "name": "models/embed-1", "supportedGenerationMethods": ["embedContent"] }] }).to_string())
         } else {
-            Response::new(200, json!({ "models": [{ "name": "models/chat-1", "supportedGenerationMethods": ["generateContent"] }], "nextPageToken": "p/2" }).to_string())
+            Response::new(
+                200,
+                json!({ "models": [{ "name": "models/chat-1", "supportedGenerationMethods": ["generateContent"] }], "nextPageToken": "p/2" }).to_string(),
+            )
         }
     });
     let models = create_provider(&ProviderConfig::with_key(ProviderKind::Gemini, "g"), http).list_models().unwrap();
@@ -143,9 +146,8 @@ fn provider_errors_carry_the_api_message_and_flag_rejected_keys() {
 fn stream_errors_inside_the_body_are_reported() {
     let events = [json!({ "error": { "message": "context too long" } }).to_string()];
     let (http, _) = fake(move |_| Response::new(200, sse(&events)));
-    let err = create_provider(&ProviderConfig::with_key(ProviderKind::OpenAi, "k"), http)
-        .chat(ChatRequest::new("m", "s", vec![ChatTurn::user("x")]))
-        .unwrap_err();
+    let err =
+        create_provider(&ProviderConfig::with_key(ProviderKind::OpenAi, "k"), http).chat(ChatRequest::new("m", "s", vec![ChatTurn::user("x")])).unwrap_err();
     assert!(err.to_string().contains("context too long"));
 }
 
@@ -218,9 +220,7 @@ fn a_cancelled_request_stops_with_cancelled() {
     let (http, calls) = fake(|_| Response::new(200, ""));
     let cancel = Cancel::new();
     cancel.cancel();
-    let err = create_provider(&ProviderConfig::with_key(ProviderKind::OpenAi, "k"), http)
-        .chat(ChatRequest::new("m", "s", vec![]).cancel(&cancel))
-        .unwrap_err();
+    let err = create_provider(&ProviderConfig::with_key(ProviderKind::OpenAi, "k"), http).chat(ChatRequest::new("m", "s", vec![]).cancel(&cancel)).unwrap_err();
     assert!(matches!(err, Error::Cancelled));
     assert!(calls.lock().unwrap().is_empty());
 }

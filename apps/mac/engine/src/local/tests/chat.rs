@@ -58,9 +58,8 @@ fn chat_on_a_large_notebook_includes_every_source_not_only_the_closest_matches()
     let env = setup();
     let b = &env.backend;
     let nb = b.create_notebook("Eight", "").unwrap();
-    let long = |n: usize| {
-        format!("Source {n} opening line.\n\n{}", format!("paragraph about topic {n} with details. ").repeat(FULL_CONTEXT_CHARS / 8 / 40 + 200))
-    };
+    let long =
+        |n: usize| format!("Source {n} opening line.\n\n{}", format!("paragraph about topic {n} with details. ").repeat(FULL_CONTEXT_CHARS / 8 / 40 + 200));
     for n in 1..=8 {
         b.add_source(&nb.id, text(&long(n), &format!("Paper {n}"))).unwrap();
     }

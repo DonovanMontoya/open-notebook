@@ -123,7 +123,14 @@ fn files_are_uploaded_as_multipart_for_the_server_to_read() {
     let boundary = ty.strip_prefix("multipart/form-data; boundary=").expect("multipart");
     let text = c.body_text();
     let part = |name: &str, value: &str| format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n");
-    for (name, value) in [("type", "upload"), ("notebooks", "[\"notebook:1\"]"), ("title", "Paper"), ("transformations", "[\"t:1\"]"), ("embed", "true"), ("async_processing", "true")] {
+    for (name, value) in [
+        ("type", "upload"),
+        ("notebooks", "[\"notebook:1\"]"),
+        ("title", "Paper"),
+        ("transformations", "[\"t:1\"]"),
+        ("embed", "true"),
+        ("async_processing", "true"),
+    ] {
         assert!(text.contains(&part(name, value)), "missing {name} in {text}");
     }
     assert!(text.contains("name=\"file\"; filename=\"paper.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.4 data\r\n"));
@@ -177,12 +184,13 @@ fn audio_urls_are_absolute_so_the_player_can_stream_them() {
 
 #[test]
 fn default_context_prefers_insights_and_applies_the_selection() {
-    let sources: Vec<SourceSummary> = [("s1", 2), ("s2", 0), ("s3", 0)]
-        .iter()
-        .map(|(id, n)| SourceSummary { id: id.to_string(), insights_count: *n, ..Default::default() })
-        .collect();
+    let sources: Vec<SourceSummary> =
+        [("s1", 2), ("s2", 0), ("s3", 0)].iter().map(|(id, n)| SourceSummary { id: id.to_string(), insights_count: *n, ..Default::default() }).collect();
     let notes = vec![Note { id: "n1".into(), ..Default::default() }, Note { id: "n2".into(), ..Default::default() }];
-    assert_eq!(server_context(&sources, &notes[..1], None), json!({ "sources": { "s1": "insights", "s2": "full content", "s3": "full content" }, "notes": { "n1": "full content" } }));
+    assert_eq!(
+        server_context(&sources, &notes[..1], None),
+        json!({ "sources": { "s1": "insights", "s2": "full content", "s3": "full content" }, "notes": { "n1": "full content" } })
+    );
     let mut sel = ContextSelection::default();
     sel.sources.insert("s1".into(), SourceContext::Full);
     sel.sources.insert("s2".into(), SourceContext::Off);
@@ -205,10 +213,12 @@ fn chat_creates_a_session_builds_context_and_returns_the_reply() {
             { "id": "m1", "type": "human", "content": "hi" },
             { "id": "m2", "type": "ai", "content": "Hello [source:a]" },
         ] })),
-        "GET /api/chat/sessions/chat_session%3A1" => json_ok(json!({ "id": "chat_session:1", "title": "t", "notebook_id": null, "created": "c", "updated": "u", "messages": [
+        "GET /api/chat/sessions/chat_session%3A1" => {
+            json_ok(json!({ "id": "chat_session:1", "title": "t", "notebook_id": null, "created": "c", "updated": "u", "messages": [
             { "id": "m1", "type": "human", "content": "hi", "timestamp": null },
             { "id": "m2", "type": "ai", "content": "Hello [source:a]" },
-        ] })),
+        ] }))
+        }
         other => panic!("unexpected {other}"),
     });
     let mut streamed = Vec::new();
@@ -236,7 +246,10 @@ fn chat_creates_a_session_builds_context_and_returns_the_reply() {
     assert_eq!(title.chars().count(), 40);
     assert!(title.ends_with("word…"), "{title}");
     let ctx = calls.iter().find(|c| target(c) == "POST /api/chat/context").unwrap();
-    assert_eq!(body(ctx), json!({ "notebook_id": "notebook:1", "context_config": { "sources": { "source:a": "insights" }, "notes": { "note:n": "full content" } } }));
+    assert_eq!(
+        body(ctx),
+        json!({ "notebook_id": "notebook:1", "context_config": { "sources": { "source:a": "insights" }, "notes": { "note:n": "full content" } } })
+    );
     let exec = calls.iter().find(|c| target(c) == "POST /api/chat/execute").unwrap();
     assert_eq!(
         body(exec),
@@ -250,14 +263,23 @@ fn a_cancelled_chat_sends_nothing() {
     let cancel = Cancel::new();
     cancel.cancel();
     let err = backend(&f, None)
-        .send_chat_message(SendChat { notebook_id: "n".into(), session_id: Some("s".into()), message: "m".into(), context: None, model_override: None, on_text: None, cancel })
+        .send_chat_message(SendChat {
+            notebook_id: "n".into(),
+            session_id: Some("s".into()),
+            message: "m".into(),
+            context: None,
+            model_override: None,
+            on_text: None,
+            cancel,
+        })
         .unwrap_err();
     assert!(matches!(err, Error::Cancelled));
 }
 
 #[test]
 fn source_chat_streams_server_sent_events() {
-    let f = fake(|r| match target(r).as_str() {
+    let f = fake(|r| {
+        match target(r).as_str() {
         "POST /api/sources/source%3A1/chat/sessions/s1/messages" => Ok(Response::new(
             200,
             "data: {\"type\":\"user_message\",\"content\":\"q\"}\n\ndata: {\"type\":\"ai_message\",\"content\":\"Hel\"}\n\ndata: {\"type\":\"ai_message\",\"content\":\"lo\"}\n\ndata: {\"type\":\"complete\"}\n\n",
@@ -267,6 +289,7 @@ fn source_chat_streams_server_sent_events() {
             json_ok(json!({ "id": "s1", "title": "t", "source_id": "source:1", "created": "c", "updated": "u", "messages": [{ "id": "m", "type": "ai", "content": "Hello" }] }))
         }
         other => panic!("unexpected {other}"),
+    }
     });
     let mut chunks = Vec::new();
     let mut on_text = |t: &str| chunks.push(t.to_string());
@@ -289,7 +312,14 @@ fn source_chat_streams_server_sent_events() {
 fn source_chat_error_events_become_errors() {
     let f = fake(|_| Ok(Response::new(200, "data: {\"type\":\"error\",\"message\":\"No model\"}\n\n")));
     let err = backend(&f, None)
-        .send_source_chat_message(SendSourceChat { source_id: "s".into(), session_id: Some("x".into()), message: "q".into(), model_override: None, on_text: None, cancel: Cancel::new() })
+        .send_source_chat_message(SendSourceChat {
+            source_id: "s".into(),
+            session_id: Some("x".into()),
+            message: "q".into(),
+            model_override: None,
+            on_text: None,
+            cancel: Cancel::new(),
+        })
         .unwrap_err();
     assert_eq!(err.to_string(), "Server: No model");
 }
@@ -318,7 +348,9 @@ fn ask_uses_the_default_model_and_resolves_citations() {
     let f = fake(|r| match target(r).as_str() {
         "GET /api/models/defaults" => json_ok(json!({ "default_chat_model": "model:m", "default_embedding_model": null })),
         "POST /api/search/ask/simple" => json_ok(json!({ "answer": "A [source:a] B [note:n] C [source:a] [source:gone] [other:x]", "question": "q" })),
-        "GET /api/sources/source%3Aa" => json_ok(json!({ "id": "source:a", "title": "Paper", "embedded": true, "embedded_chunks": 0, "created": "c", "updated": "u", "notebooks": ["notebook:9"] })),
+        "GET /api/sources/source%3Aa" => json_ok(
+            json!({ "id": "source:a", "title": "Paper", "embedded": true, "embedded_chunks": 0, "created": "c", "updated": "u", "notebooks": ["notebook:9"] }),
+        ),
         "GET /api/notes/note%3An" => json_ok(note("note:n", "x")),
         "GET /api/sources/source%3Agone" => Ok(Response::new(404, "{}")),
         other => panic!("unexpected {other}"),
@@ -407,14 +439,27 @@ fn episodes_map_server_status_transcript_and_voice() {
 #[test]
 fn create_episode_generates_by_profile_name() {
     let f = fake(|r| match target(r).as_str() {
-        "GET /api/episode-profiles" => json_ok(json!([{ "id": "ep:1", "name": "tech", "description": "", "speaker_config": "sp:1", "default_briefing": "b", "num_segments": 3 }])),
+        "GET /api/episode-profiles" => {
+            json_ok(json!([{ "id": "ep:1", "name": "tech", "description": "", "speaker_config": "sp:1", "default_briefing": "b", "num_segments": 3 }]))
+        }
         "GET /api/speaker-profiles" => json_ok(json!([{ "id": "sp:1", "name": "duo", "description": "", "speakers": [] }])),
-        "GET /api/notebooks/notebook%3A1" => json_ok(json!({ "id": "notebook:1", "name": "Rust", "description": "", "archived": false, "created": "c", "updated": "u", "source_count": 0, "note_count": 0 })),
-        "POST /api/podcasts/generate" => json_ok(json!({ "job_id": "command:7", "status": "submitted", "message": "", "episode_profile": "tech", "episode_name": "Rust episode" })),
+        "GET /api/notebooks/notebook%3A1" => json_ok(
+            json!({ "id": "notebook:1", "name": "Rust", "description": "", "archived": false, "created": "c", "updated": "u", "source_count": 0, "note_count": 0 }),
+        ),
+        "POST /api/podcasts/generate" => {
+            json_ok(json!({ "job_id": "command:7", "status": "submitted", "message": "", "episode_profile": "tech", "episode_name": "Rust episode" }))
+        }
         other => panic!("unexpected {other}"),
     });
     let e = backend(&f, None)
-        .create_episode(CreateEpisode { notebook_id: "notebook:1".into(), episode_profile: "ep:1".into(), speaker_profile: None, focus: Some("  ".into()), name: None, effort: None })
+        .create_episode(CreateEpisode {
+            notebook_id: "notebook:1".into(),
+            episode_profile: "ep:1".into(),
+            speaker_profile: None,
+            focus: Some("  ".into()),
+            name: None,
+            effort: None,
+        })
         .unwrap();
     assert_eq!((e.id.as_str(), e.name.as_str(), e.status), ("job:command:7", "Rust episode", EpisodeStatus::Queued));
     assert!(e.created.ends_with('Z') && e.created.len() == 24, "{}", e.created);
@@ -439,12 +484,24 @@ fn editing_an_episode_profile_keeps_the_server_models() {
     let f = fake(|r| match target(r).as_str() {
         "GET /api/episode-profiles" => json_ok(json!([{ "id": "ep:1", "name": "old", "description": "", "speaker_config": "sp:1", "outline_llm": "model:o",
             "transcript_llm": "model:t", "default_briefing": "b", "num_segments": 3, "max_tokens": null }])),
-        "PUT /api/episode-profiles/ep%3A1" => json_ok(json!({ "id": "ep:1", "name": "new", "description": "d", "speaker_config": "sp:2", "default_briefing": "B", "num_segments": 4 })),
-        "POST /api/episode-profiles" => json_ok(json!({ "id": "ep:2", "name": "x", "description": "", "speaker_config": "sp:2", "default_briefing": "", "num_segments": 1 })),
+        "PUT /api/episode-profiles/ep%3A1" => {
+            json_ok(json!({ "id": "ep:1", "name": "new", "description": "d", "speaker_config": "sp:2", "default_briefing": "B", "num_segments": 4 }))
+        }
+        "POST /api/episode-profiles" => {
+            json_ok(json!({ "id": "ep:2", "name": "x", "description": "", "speaker_config": "sp:2", "default_briefing": "", "num_segments": 1 }))
+        }
         other => panic!("unexpected {other}"),
     });
     let b = backend(&f, None);
-    let p = EpisodeProfile { id: "ep:1".into(), name: "new".into(), description: "d".into(), speaker_profile_id: "sp:2".into(), language: None, briefing: "B".into(), segments: 4 };
+    let p = EpisodeProfile {
+        id: "ep:1".into(),
+        name: "new".into(),
+        description: "d".into(),
+        speaker_profile_id: "sp:2".into(),
+        language: None,
+        briefing: "B".into(),
+        segments: 4,
+    };
     assert_eq!(b.save_episode_profile(p.clone()).unwrap(), p);
     let put = calls(&f).into_iter().find(|c| c.method == "PUT").unwrap();
     assert_eq!(
@@ -484,7 +541,9 @@ fn speaker_profiles_round_trip() {
 #[test]
 fn transformations_and_insights_map_field_names() {
     let f = fake(|r| match target(r).as_str() {
-        "GET /api/transformations" => json_ok(json!([{ "id": "t:1", "name": "n", "title": "T", "description": "d", "prompt": "p", "apply_default": true, "created": "c", "updated": "u" }])),
+        "GET /api/transformations" => json_ok(
+            json!([{ "id": "t:1", "name": "n", "title": "T", "description": "d", "prompt": "p", "apply_default": true, "created": "c", "updated": "u" }]),
+        ),
         "POST /api/transformations" => json_ok(json!({ "id": "t:2", "name": "n", "title": "T", "description": "d", "prompt": "p", "apply_default": false })),
         "GET /api/sources/s/insights" => json_ok(json!([{ "id": "i:1", "source_id": "s", "insight_type": "Dense Summary", "content": "c", "created": null }])),
         "POST /api/transformations/execute" => json_ok(json!({ "output": "done" })),
@@ -492,7 +551,16 @@ fn transformations_and_insights_map_field_names() {
     });
     let b = backend(&f, None);
     assert!(b.list_transformations().unwrap()[0].apply_default);
-    let saved = b.save_transformation(Transformation { id: String::new(), name: "n".into(), title: "T".into(), description: "d".into(), prompt: "p".into(), apply_default: false }).unwrap();
+    let saved = b
+        .save_transformation(Transformation {
+            id: String::new(),
+            name: "n".into(),
+            title: "T".into(),
+            description: "d".into(),
+            prompt: "p".into(),
+            apply_default: false,
+        })
+        .unwrap();
     assert_eq!(saved.id, "t:2");
     let i = &b.list_insights("s").unwrap()[0];
     assert_eq!((i.kind.as_str(), i.status.as_deref()), ("Dense Summary", Some("completed")));
@@ -518,7 +586,9 @@ fn notebook_updates_send_only_what_changed_and_deletes_take_exclusive_sources() 
         if r.method == "DELETE" {
             return Ok(Response::new(200, ""));
         }
-        json_ok(json!({ "id": "notebook:1", "name": "N", "description": "", "archived": true, "created": "c", "updated": "u", "source_count": 0, "note_count": 0 }))
+        json_ok(
+            json!({ "id": "notebook:1", "name": "N", "description": "", "archived": true, "created": "c", "updated": "u", "source_count": 0, "note_count": 0 }),
+        )
     });
     let b = backend(&f, None);
     b.update_notebook("notebook:1", NotebookUpdate { archived: Some(true), ..Default::default() }).unwrap();
@@ -530,7 +600,11 @@ fn notebook_updates_send_only_what_changed_and_deletes_take_exclusive_sources() 
 
 #[test]
 fn usage_maps_groups() {
-    let f = fake(|_| json_ok(json!({ "days": 7, "estimated_usd": null, "calls": 3, "groups": [{ "model": "m", "feature": "chat", "calls": 3, "input_tokens": 10, "output_tokens": 5, "audio_seconds": 0, "estimated_usd": 0.01 }] })));
+    let f = fake(|_| {
+        json_ok(
+            json!({ "days": 7, "estimated_usd": null, "calls": 3, "groups": [{ "model": "m", "feature": "chat", "calls": 3, "input_tokens": 10, "output_tokens": 5, "audio_seconds": 0, "estimated_usd": 0.01 }] }),
+        )
+    });
     let u = backend(&f, None).usage(7).unwrap();
     assert_eq!((u.days, u.calls, u.estimated, u.groups[0].output_tokens), (7, 3, false, 5));
     assert_eq!(target(&calls(&f)[0]), "GET /api/usage?days=7");

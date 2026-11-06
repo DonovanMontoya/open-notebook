@@ -32,9 +32,7 @@ impl Anthropic {
     }
 
     fn request(&self, method: &str, path: &str) -> Request {
-        Request::new(method, format!("{}{path}", self.base_url))
-            .header("x-api-key", self.api_key.clone())
-            .header("anthropic-version", API_VERSION)
+        Request::new(method, format!("{}{path}", self.base_url)).header("x-api-key", self.api_key.clone()).header("anthropic-version", API_VERSION)
     }
 }
 

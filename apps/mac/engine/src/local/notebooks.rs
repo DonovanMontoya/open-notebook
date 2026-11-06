@@ -3,11 +3,11 @@
 use rusqlite::{OptionalExtension, Row, params};
 
 use super::Engine;
+use crate::Error;
 use crate::backend::Result;
 use crate::db::int;
 use crate::text::title_from;
 use crate::types::{Note, Notebook, NotebookUpdate};
-use crate::Error;
 
 const NOTEBOOK_SELECT: &str = "SELECT n.*,
         (SELECT COUNT(*) FROM notebook_source l WHERE l.notebook_id = n.id) AS source_count,
@@ -48,9 +48,7 @@ impl Engine {
 
     pub fn get_notebook(&self, id: &str) -> Result<Notebook> {
         let conn = self.db.lock();
-        conn.query_row(&format!("{NOTEBOOK_SELECT} WHERE n.id = ?1"), [id], to_notebook)
-            .optional()?
-            .ok_or_else(|| Error::NotFound("Notebook".into()))
+        conn.query_row(&format!("{NOTEBOOK_SELECT} WHERE n.id = ?1"), [id], to_notebook).optional()?.ok_or_else(|| Error::NotFound("Notebook".into()))
     }
 
     pub fn create_notebook(&self, name: &str, description: &str) -> Result<Notebook> {
@@ -67,13 +65,7 @@ impl Engine {
         let name = update.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&current.name).to_string();
         self.db.lock().execute(
             "UPDATE notebook SET name = ?1, description = ?2, archived = ?3, updated = ?4 WHERE id = ?5",
-            params![
-                name,
-                update.description.unwrap_or(current.description),
-                update.archived.unwrap_or(current.archived) as i64,
-                self.now(),
-                id
-            ],
+            params![name, update.description.unwrap_or(current.description), update.archived.unwrap_or(current.archived) as i64, self.now(), id],
         )?;
         self.get_notebook(id)
     }

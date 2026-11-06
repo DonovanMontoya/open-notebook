@@ -41,9 +41,24 @@ pub const DEFAULT_SPEAKER_PROFILES: [SpeakerProfileSeed; 3] = [
         voice_kind: "openai",
         voice_model: "gpt-4o-mini-tts",
         speakers: &[
-            ("Marcus Thompson", "echo", "Former McKinsey consultant, now startup advisor. Expert in strategic analysis and market dynamics.", "Strategic thinker, data-driven, excellent at identifying key insights and implications"),
-            ("Elena Vasquez", "shimmer", "Serial entrepreneur and investor. Focuses on practical implementation and execution.", "Action-oriented, pragmatic, brings startup experience and execution focus"),
-            ("Johny Bing", "ash", "Youtube celebrity and business mogul. Focuses on practical implementation and execution.", "Controversial, likes to question ideas and concepts. He brings a fresh perspective and always has a point to make."),
+            (
+                "Marcus Thompson",
+                "echo",
+                "Former McKinsey consultant, now startup advisor. Expert in strategic analysis and market dynamics.",
+                "Strategic thinker, data-driven, excellent at identifying key insights and implications",
+            ),
+            (
+                "Elena Vasquez",
+                "shimmer",
+                "Serial entrepreneur and investor. Focuses on practical implementation and execution.",
+                "Action-oriented, pragmatic, brings startup experience and execution focus",
+            ),
+            (
+                "Johny Bing",
+                "ash",
+                "Youtube celebrity and business mogul. Focuses on practical implementation and execution.",
+                "Controversial, likes to question ideas and concepts. He brings a fresh perspective and always has a point to make.",
+            ),
         ],
     },
     SpeakerProfileSeed {
@@ -64,8 +79,18 @@ pub const DEFAULT_SPEAKER_PROFILES: [SpeakerProfileSeed; 3] = [
         voice_kind: "openai",
         voice_model: "gpt-4o-mini-tts",
         speakers: &[
-            ("Dr. Alex Chen", "marin", "Senior AI researcher and former tech lead at major companies. Specializes in making complex technical concepts accessible.", "Analytical, clear communicator, asks probing questions to dig deeper into technical details"),
-            ("Jamie Rodriguez", "alloy", "Full-stack engineer and tech entrepreneur. Loves practical applications and real-world implementations.", "Enthusiastic, practical-minded, great at explaining implementation details and trade-offs"),
+            (
+                "Dr. Alex Chen",
+                "marin",
+                "Senior AI researcher and former tech lead at major companies. Specializes in making complex technical concepts accessible.",
+                "Analytical, clear communicator, asks probing questions to dig deeper into technical details",
+            ),
+            (
+                "Jamie Rodriguez",
+                "alloy",
+                "Full-stack engineer and tech entrepreneur. Loves practical applications and real-world implementations.",
+                "Enthusiastic, practical-minded, great at explaining implementation details and trade-offs",
+            ),
         ],
     },
 ];

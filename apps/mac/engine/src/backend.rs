@@ -81,7 +81,10 @@ pub enum PodcastMode {
 pub enum EpisodeAudio {
     File(std::path::PathBuf),
     /// Downloaded on demand; the request needs the server password, if any.
-    Url { url: String, password: Option<String> },
+    Url {
+        url: String,
+        password: Option<String>,
+    },
 }
 
 pub trait Backend: Send + Sync {

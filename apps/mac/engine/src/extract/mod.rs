@@ -94,7 +94,8 @@ mod tests {
 
     #[test]
     fn html_files_are_cleaned() {
-        let out = extract("page.html", None, b"<html><head><title>Saved page</title></head><body><p>Kept text</p><script>bad()</script></body></html>").unwrap();
+        let out =
+            extract("page.html", None, b"<html><head><title>Saved page</title></head><body><p>Kept text</p><script>bad()</script></body></html>").unwrap();
         assert_eq!(out.title, "Saved page");
         assert!(out.text.contains("Kept text") && !out.text.contains("bad()"), "{}", out.text);
     }

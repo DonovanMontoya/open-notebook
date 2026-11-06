@@ -38,9 +38,7 @@ pub fn match_source<'a>(label: &str, sources: &'a [CitableSource]) -> Option<&'a
         .iter()
         .find(|(_, t)| *t == want)
         .or_else(|| titled.iter().find(|(_, t)| t.starts_with(&want) || want.starts_with(t.as_str())))
-        .or_else(|| {
-            titled.iter().find(|(_, t)| want.chars().count() >= 6 && (t.contains(&want) || want.contains(t.as_str())))
-        })
+        .or_else(|| titled.iter().find(|(_, t)| want.chars().count() >= 6 && (t.contains(&want) || want.contains(t.as_str()))))
         .map(|(s, _)| *s)
 }
 

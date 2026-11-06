@@ -20,8 +20,8 @@ pub(crate) mod tests {
     use super::audio::SAMPLE_RATE;
     use super::script::{PodcastScript, ScriptChapter, ScriptLine};
     use super::voices::{DialogueLine, VoiceKind, VoiceMode, VoiceOption, VoiceProvider};
-    use crate::backend::{Cancel, Result};
     use crate::Error;
+    use crate::backend::{Cancel, Result};
 
     /// The script the TypeScript tests use.
     pub fn script() -> PodcastScript {

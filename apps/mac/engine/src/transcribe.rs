@@ -8,9 +8,9 @@ use std::time::Duration;
 use base64::Engine;
 use serde_json::{Value, json};
 
+use crate::Error;
 use crate::backend::{Cancel, Result};
 use crate::net::{Http, Multipart, Request, Response, Transport};
-use crate::Error;
 
 const OPENAI_LIMIT: usize = 25 * 1024 * 1024;
 const GEMINI_INLINE_LIMIT: usize = 19 * 1024 * 1024;

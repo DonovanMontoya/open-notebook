@@ -9,6 +9,7 @@ use serde_json::json;
 
 use super::podcasts::{CheckExtra, EpisodeJob, EpisodePatch};
 use super::{AiConfig, Engine};
+use crate::Error;
 use crate::backend::{Cancel, Result};
 use crate::podcast::WORDS_PER_SEGMENT;
 use crate::podcast::audio::{SAMPLE_RATE, encode_wav};
@@ -19,7 +20,6 @@ use crate::podcast::voices::{VoiceConfig, VoiceKind};
 use crate::providers::{ChatRequest, ChatTurn};
 use crate::settings::provider_secret;
 use crate::types::{CheckCounts, ClaimVerdict, ContextSelection, EpisodeProfile, EpisodeStatus, PodcastEffort, SourceContext, SpeakerProfile};
-use crate::Error;
 
 fn status(s: EpisodeStatus) -> EpisodePatch {
     EpisodePatch { status: Some(s), ..Default::default() }
@@ -158,8 +158,7 @@ impl Engine {
         self.record_usage("podcast_audio", &sp.voice_model, 0, 0, result.duration.round());
 
         self.set_episode(id, status(EpisodeStatus::Saving))?;
-        let old: Option<String> =
-            self.db.lock().query_row("SELECT audio_ref FROM podcast_episode WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
+        let old: Option<String> = self.db.lock().query_row("SELECT audio_ref FROM podcast_episode WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
         if let Some(old) = old {
             let _ = self.remove_audio(&old);
         }

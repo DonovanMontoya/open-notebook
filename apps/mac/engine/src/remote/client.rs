@@ -198,11 +198,7 @@ pub fn read_text(response: Response) -> Result<String> {
 
 /// A body read that failed partway.
 pub fn read_error(e: std::io::Error) -> Error {
-    if e.kind() == std::io::ErrorKind::TimedOut {
-        Error::Network("The server took too long to respond".into())
-    } else {
-        Error::Network(e.to_string())
-    }
+    if e.kind() == std::io::ErrorKind::TimedOut { Error::Network("The server took too long to respond".into()) } else { Error::Network(e.to_string()) }
 }
 
 /// The file name in a Content-Disposition header, matching

@@ -11,10 +11,10 @@ use serde_json::{Value, json};
 
 use super::audio::{SAMPLE_RATE, base64_to_bytes, bytes_to_pcm, resample, trim};
 use super::live::{LiveOptions, OpenSocket, render_live};
+use crate::Error;
 use crate::backend::{Cancel, Result};
 use crate::net::{Request, Response, SharedHttp, encode_component};
 use crate::providers::{ProviderKind, provider_error};
-use crate::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum VoiceKind {
@@ -128,16 +128,39 @@ pub trait VoiceProvider: Send + Sync {
 const OPENAI_VOICES: [&str; 13] = ["alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse"];
 pub const LIVE_VOICES: [&str; 10] = ["alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse", "marin", "cedar"];
 const GEMINI_VOICES: [(&str, &str); 30] = [
-    ("Zephyr", "bright"), ("Puck", "upbeat"), ("Charon", "informative"), ("Kore", "firm"), ("Fenrir", "excitable"),
-    ("Leda", "youthful"), ("Orus", "firm"), ("Aoede", "breezy"), ("Callirrhoe", "easy-going"), ("Autonoe", "bright"),
-    ("Enceladus", "breathy"), ("Iapetus", "clear"), ("Umbriel", "easy-going"), ("Algieba", "smooth"), ("Despina", "smooth"),
-    ("Erinome", "clear"), ("Algenib", "gravelly"), ("Rasalgethi", "informative"), ("Laomedeia", "upbeat"), ("Achernar", "soft"),
-    ("Alnilam", "firm"), ("Schedar", "even"), ("Gacrux", "mature"), ("Pulcherrima", "forward"), ("Achird", "friendly"),
-    ("Zubenelgenubi", "casual"), ("Vindemiatrix", "gentle"), ("Sadachbia", "lively"), ("Sadaltager", "knowledgeable"), ("Sulafat", "warm"),
+    ("Zephyr", "bright"),
+    ("Puck", "upbeat"),
+    ("Charon", "informative"),
+    ("Kore", "firm"),
+    ("Fenrir", "excitable"),
+    ("Leda", "youthful"),
+    ("Orus", "firm"),
+    ("Aoede", "breezy"),
+    ("Callirrhoe", "easy-going"),
+    ("Autonoe", "bright"),
+    ("Enceladus", "breathy"),
+    ("Iapetus", "clear"),
+    ("Umbriel", "easy-going"),
+    ("Algieba", "smooth"),
+    ("Despina", "smooth"),
+    ("Erinome", "clear"),
+    ("Algenib", "gravelly"),
+    ("Rasalgethi", "informative"),
+    ("Laomedeia", "upbeat"),
+    ("Achernar", "soft"),
+    ("Alnilam", "firm"),
+    ("Schedar", "even"),
+    ("Gacrux", "mature"),
+    ("Pulcherrima", "forward"),
+    ("Achird", "friendly"),
+    ("Zubenelgenubi", "casual"),
+    ("Vindemiatrix", "gentle"),
+    ("Sadachbia", "lively"),
+    ("Sadaltager", "knowledgeable"),
+    ("Sulafat", "warm"),
 ];
 
-const HOST_STYLE: &str =
-    "Speak as a warm, curious podcast host in a natural conversational rhythm. Vary pace slightly, sound engaged, never theatrical.";
+const HOST_STYLE: &str = "Speak as a warm, curious podcast host in a natural conversational rhythm. Vary pace slightly, sound engaged, never theatrical.";
 
 /// A single voice request may take a while for a long line; this only stops one that hangs.
 const TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -194,7 +217,8 @@ impl Base {
 
     /// OpenAI model ids matching a filter, sorted.
     fn openai_models(&self, keep: impl Fn(&str) -> bool) -> Result<Vec<String>> {
-        let body = self.json(Request::get("https://api.openai.com/v1/models").header("Authorization", format!("Bearer {}", self.key())), ProviderKind::OpenAi)?;
+        let body =
+            self.json(Request::get("https://api.openai.com/v1/models").header("Authorization", format!("Bearer {}", self.key())), ProviderKind::OpenAi)?;
         let mut ids: Vec<String> =
             body["data"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()).filter(|id| keep(id)).map(String::from).collect();
         ids.sort();
@@ -282,10 +306,8 @@ impl GeminiSpeech {
             "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
             "generationConfig": { "responseModalities": ["AUDIO"], "speechConfig": speech_config },
         });
-        let request = Request::post(format!("{GEMINI_BASE}/{}:generateContent", self.model()))
-            .header("x-goog-api-key", self.0.key())
-            .json(&body)
-            .timeout(TIMEOUT);
+        let request =
+            Request::post(format!("{GEMINI_BASE}/{}:generateContent", self.model())).header("x-goog-api-key", self.0.key()).json(&body).timeout(TIMEOUT);
         let response = self.0.send(request, cancel, ProviderKind::Gemini)?;
         let body: Value = serde_json::from_slice(&response.bytes().map_err(|e| Error::Network(e.to_string()))?)?;
         let part = body
@@ -452,10 +474,8 @@ mod tests {
         let audio = super::super::audio::bytes_to_base64(&PCM);
         let reply = json!({ "candidates": [{ "content": { "parts": [{ "inlineData": { "mimeType": "audio/L16;codec=pcm;rate=24000", "data": audio } }] } }] });
         let gemini = create_voice_provider(&config(VoiceKind::Gemini, "g", &["Kore", "Puck"]), answering(reply.to_string().into_bytes(), &calls), None);
-        let lines = [
-            DialogueLine { host: 0, speaker: "Kore".into(), text: "First.".into() },
-            DialogueLine { host: 1, speaker: "Puck".into(), text: "Second.".into() },
-        ];
+        let lines =
+            [DialogueLine { host: 0, speaker: "Kore".into(), text: "First.".into() }, DialogueLine { host: 1, speaker: "Puck".into(), text: "Second.".into() }];
         let pcm = gemini.speak_dialogue(&lines, &["Kore".into(), "Puck".into()], &Cancel::new()).unwrap();
         assert!(!pcm.is_empty());
         let r = calls.lock().unwrap().remove(0);
@@ -485,9 +505,8 @@ mod tests {
 
     #[test]
     fn voice_errors_name_the_voice_provider() {
-        let http: SharedHttp = Arc::new(|_r: Request| -> std::result::Result<Response, Transport> {
-            Ok(Response::new(401, r#"{"error":{"message":"Incorrect API key"}}"#))
-        });
+        let http: SharedHttp =
+            Arc::new(|_r: Request| -> std::result::Result<Response, Transport> { Ok(Response::new(401, r#"{"error":{"message":"Incorrect API key"}}"#)) });
         let openai = create_voice_provider(&config(VoiceKind::OpenAi, "bad", &["marin"]), http, None);
         let err = openai.speak_line("Hi", "marin", &Cancel::new()).unwrap_err();
         assert_eq!(err.to_string(), "OpenAI speech: API key rejected: Incorrect API key");

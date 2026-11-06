@@ -134,7 +134,12 @@ fn read_docx(a: &Archive) -> Result<String> {
                     let rows: Vec<String> = block
                         .all("tr")
                         .into_iter()
-                        .map(|row| row.all("tc").into_iter().map(|c| c.all("p").into_iter().map(run_text).collect::<Vec<_>>().join(" ").trim().to_string()).collect::<Vec<_>>())
+                        .map(|row| {
+                            row.all("tc")
+                                .into_iter()
+                                .map(|c| c.all("p").into_iter().map(run_text).collect::<Vec<_>>().join(" ").trim().to_string())
+                                .collect::<Vec<_>>()
+                        })
                         .filter(|cells| cells.iter().any(|c| !c.is_empty()))
                         .map(|cells| cells.join(" | "))
                         .collect();
@@ -224,8 +229,7 @@ fn read_epub(a: &Archive) -> Result<String> {
     let path = opf_path(a).ok_or_else(none)?;
     let opf = a.xml(&path).ok_or_else(none)?;
     let dir = path.rfind('/').map(|i| &path[..=i]).unwrap_or("");
-    let items: Vec<(String, String)> =
-        opf.all("item").into_iter().filter_map(|i| Some((i.attr("id")?.to_string(), i.attr("href")?.to_string()))).collect();
+    let items: Vec<(String, String)> = opf.all("item").into_iter().filter_map(|i| Some((i.attr("id")?.to_string(), i.attr("href")?.to_string()))).collect();
     let pages: Vec<String> = opf
         .all("itemref")
         .into_iter()
@@ -302,7 +306,11 @@ pub(crate) mod tests {
 
     #[test]
     fn pptx_reads_slides_in_number_order_with_notes() {
-        let slide = |t: &str| format!(r#"<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{t}</a:t></a:r></a:p><a:p/></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"#);
+        let slide = |t: &str| {
+            format!(
+                r#"<p:sld xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{t}</a:t></a:r></a:p><a:p/></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"#
+            )
+        };
         let notes = r#"<p:notes xmlns:p="p" xmlns:a="a"><a:p><a:r><a:t>Say</a:t></a:r><a:r><a:t>this</a:t></a:r></a:p></p:notes>"#;
         let data = zip_of(&[
             ("ppt/slides/slide10.xml", &slide("Ten")),
@@ -321,7 +329,8 @@ pub(crate) mod tests {
         let workbook = r#"<workbook><sheets><sheet name="People" sheetId="1"/><sheet name="" sheetId="2"/></sheets></workbook>"#;
         let s1 = r#"<worksheet><sheetData><row><c t="s"><v>0</v></c><c><v>42</v></c></row><row><c t="s"><v>1</v></c><c t="inlineStr"><is><t>x</t></is></c></row><row><c/></row></sheetData></worksheet>"#;
         let s2 = r#"<worksheet><sheetData><row><c><v>1</v></c><c/></row></sheetData></worksheet>"#;
-        let data = zip_of(&[("xl/sharedStrings.xml", shared), ("xl/workbook.xml", workbook), ("xl/worksheets/sheet1.xml", s1), ("xl/worksheets/sheet2.xml", s2)]);
+        let data =
+            zip_of(&[("xl/sharedStrings.xml", shared), ("xl/workbook.xml", workbook), ("xl/worksheets/sheet1.xml", s1), ("xl/worksheets/sheet2.xml", s2)]);
         assert_eq!(read_office("book.xlsx", &data).unwrap().text, "People\nName\t42\nAda L.\tx\n\nSheet 2\n1");
     }
 

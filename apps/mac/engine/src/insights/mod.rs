@@ -2,4 +2,4 @@
 
 pub mod seeds;
 
-pub use seeds::{DEFAULT_TRANSFORMATIONS, DEFAULT_TRANSFORMATION_INSTRUCTIONS, TransformationSeed};
+pub use seeds::{DEFAULT_TRANSFORMATION_INSTRUCTIONS, DEFAULT_TRANSFORMATIONS, TransformationSeed};

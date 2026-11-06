@@ -10,9 +10,7 @@ mod tests;
 
 pub use api::Upload;
 pub use client::{Body, Client, DEFAULT_TIMEOUT, Download, error_message, normalize_base_url};
-pub use wire::{
-    AuthStatus, Language, ModelProviders, NewCredential, RebuildStarted, ServerCredential, ServerJob, TestResult, cited_ids, title_from,
-};
+pub use wire::{AuthStatus, Language, ModelProviders, NewCredential, RebuildStarted, ServerCredential, ServerJob, TestResult, cited_ids, title_from};
 
 use serde_json::{Map, json};
 
@@ -95,7 +93,8 @@ impl Backend for RemoteBackend {
         let (kind, body, title) = match source.input {
             // Files go to the server as they are, so it can read PDFs, Office files, audio and video itself.
             SourceInput::Document { title, file_name: Some(file_name), file: Some(data), mime, .. } => {
-                let upload = Upload { data: &data, file_name: &file_name, mime: mime.as_deref().unwrap_or(""), title: Some(&title), transformations: &transformations };
+                let upload =
+                    Upload { data: &data, file_name: &file_name, mime: mime.as_deref().unwrap_or(""), title: Some(&title), transformations: &transformations };
                 return Ok(self.client.upload_source(notebook_id, upload)?.summary());
             }
             SourceInput::Document { title, content, .. } => ("text", ("content", content), Some(title)),
@@ -255,7 +254,11 @@ impl Backend for RemoteBackend {
         let ids = cited_ids(&answer);
         let documents = std::thread::scope(|s| {
             let handles: Vec<_> = ids.iter().map(|id| s.spawn(move || cited_document(c, id))).collect();
-            handles.into_iter().zip(&ids).map(|(h, id)| h.join().unwrap_or_else(|_| AskDocument { id: id.clone(), title: id.clone(), notebook_id: None })).collect()
+            handles
+                .into_iter()
+                .zip(&ids)
+                .map(|(h, id)| h.join().unwrap_or_else(|_| AskDocument { id: id.clone(), title: id.clone(), notebook_id: None }))
+                .collect()
         });
         Ok(AskResult { answer, documents })
     }

@@ -29,7 +29,10 @@ fn text_sources_are_chunked_embedded_and_searchable() {
 #[test]
 fn link_sources_take_their_text_and_title_from_the_page() {
     let env = setup();
-    env.pages.lock().unwrap().insert("https://example.com/a".into(), Extracted { title: "Example article".into(), text: "Body of the article.".into(), ..Default::default() });
+    env.pages
+        .lock()
+        .unwrap()
+        .insert("https://example.com/a".into(), Extracted { title: "Example article".into(), text: "Body of the article.".into(), ..Default::default() });
     let nb = env.backend.create_notebook("Links", "").unwrap();
     let s = env.backend.add_source(&nb.id, link("https://example.com/a")).unwrap();
     assert_eq!(s.title.as_deref(), Some("https://example.com/a"), "the address is the title until the page is read");
@@ -74,7 +77,10 @@ fn a_failed_source_records_the_error_and_can_be_retried() {
     assert_eq!(source.summary.status.as_deref(), Some("failed"));
     assert!(source.summary.error.unwrap().contains("404"));
 
-    env.pages.lock().unwrap().insert("https://example.com/missing".into(), Extracted { title: "Back".into(), text: "Now it exists.".into(), ..Default::default() });
+    env.pages
+        .lock()
+        .unwrap()
+        .insert("https://example.com/missing".into(), Extracted { title: "Back".into(), text: "Now it exists.".into(), ..Default::default() });
     b.retry_source(&s.id).unwrap();
     b.idle();
     let source = b.get_source(&s.id).unwrap();

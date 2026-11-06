@@ -57,13 +57,7 @@ impl ServerSource {
             file_available: self.file_available.unwrap_or(false),
             status: self.status.clone(),
             // The web UI shows processing_info.error for failed sources.
-            error: self
-                .processing_info
-                .as_ref()
-                .and_then(|p| p.get("error"))
-                .and_then(Value::as_str)
-                .filter(|e| !e.is_empty())
-                .map(str::to_string),
+            error: self.processing_info.as_ref().and_then(|p| p.get("error")).and_then(Value::as_str).filter(|e| !e.is_empty()).map(str::to_string),
             notebooks: self.notebooks.clone().unwrap_or_default(),
         }
     }
@@ -503,7 +497,12 @@ impl From<ServerSpeakerProfile> for SpeakerProfile {
             speakers: p
                 .speakers
                 .into_iter()
-                .map(|s| Speaker { name: s.name, voice_id: s.voice_id, backstory: s.backstory.unwrap_or_default(), personality: s.personality.unwrap_or_default() })
+                .map(|s| Speaker {
+                    name: s.name,
+                    voice_id: s.voice_id,
+                    backstory: s.backstory.unwrap_or_default(),
+                    personality: s.personality.unwrap_or_default(),
+                })
                 .collect(),
         }
     }

@@ -52,8 +52,7 @@ struct InputSource<'a> {
 
 /// The sources as JSON, as the model receives them.
 pub fn study_input(sources: &[(String, Option<String>, String)]) -> String {
-    let list: Vec<InputSource<'_>> =
-        sources.iter().map(|(id, title, text)| InputSource { source_id: id, title: title.as_deref(), text }).collect();
+    let list: Vec<InputSource<'_>> = sources.iter().map(|(id, title, text)| InputSource { source_id: id, title: title.as_deref(), text }).collect();
     serde_json::to_string(&list).unwrap_or_else(|_| "[]".into())
 }
 
@@ -89,11 +88,7 @@ pub fn parse_deck(raw: &str, kind: StudyKind, count: u32, source_ids: &[String])
         let question = item.get("question").and_then(non_empty_str).ok_or_else(fail)?;
         let answer = item.get("answer").and_then(non_empty_str).ok_or_else(fail)?;
         let ids = item.get("source_ids").and_then(Value::as_array).filter(|a| !a.is_empty()).ok_or_else(fail)?;
-        let ids: Vec<String> = ids
-            .iter()
-            .map(|id| id.as_str().filter(|id| allowed.contains(id)).map(String::from))
-            .collect::<Option<_>>()
-            .ok_or_else(fail)?;
+        let ids: Vec<String> = ids.iter().map(|id| id.as_str().filter(|id| allowed.contains(id)).map(String::from)).collect::<Option<_>>().ok_or_else(fail)?;
         let options = item.get("options").filter(|o| !o.is_null());
         let correct = item.get("correct_index").filter(|c| !c.is_null());
         let (options, correct_index) = match kind {

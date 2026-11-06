@@ -14,9 +14,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+use crate::Error;
 use crate::backend::{Cancel, OnText, Result};
 use crate::net::{Request, Response, SharedHttp};
-use crate::Error;
 
 pub use anthropic::DEFAULT_ANTHROPIC_MODEL;
 

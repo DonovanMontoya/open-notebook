@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use time::OffsetDateTime;
 
+use crate::Error;
 use crate::backend::{Cancel, Result};
 use crate::db::{self, Db};
 use crate::net::{SharedHttp, UreqHttp};
@@ -32,7 +33,6 @@ use crate::podcast::live::OpenSocket;
 use crate::podcast::voices::{VoiceConfig, VoiceProvider, create_voice_provider};
 use crate::providers::{ChatRequest, Provider, ProviderConfig, ProviderKind, create_provider};
 use crate::settings::{AppSettings, ModelSetting, Secrets, provider_secret};
-use crate::Error;
 
 pub use crate::extract::Extracted;
 

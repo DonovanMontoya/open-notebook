@@ -16,7 +16,7 @@ pub fn bytes_to_base64(bytes: &[u8]) -> String {
 
 /// Little-endian 16-bit samples from raw bytes (an odd trailing byte is dropped).
 pub fn bytes_to_pcm(bytes: &[u8]) -> Vec<i16> {
-    bytes.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect()
+    bytes.as_chunks::<2>().0.iter().map(|b| i16::from_le_bytes(*b)).collect()
 }
 
 pub fn pcm_to_bytes(pcm: &[i16]) -> Vec<u8> {

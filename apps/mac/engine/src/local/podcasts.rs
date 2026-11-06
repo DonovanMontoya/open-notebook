@@ -9,6 +9,7 @@ use rusqlite::{OptionalExtension, Row, params};
 use serde_json::{Map, Value, json};
 
 use super::{AiConfig, Engine};
+use crate::Error;
 use crate::backend::{Cancel, EpisodeAudio, Result};
 use crate::db::int;
 use crate::podcast::check::{CHECK_SYSTEM, MaterialPart, ScriptCheck, check_prompt, material_text, parse_check};
@@ -18,9 +19,8 @@ use crate::podcast::voices::{VoiceConfig, VoiceKind, VoiceProvider};
 use crate::providers::{ChatRequest, ChatTurn};
 use crate::settings::provider_secret;
 use crate::types::{
-    CheckCounts, CreateEpisode, Episode, EpisodeCheck, EpisodePrompt, EpisodeProfile, EpisodeStatus, PodcastEffort, PodcastProfiles, SpeakerProfile,
+    CheckCounts, CreateEpisode, Episode, EpisodeCheck, EpisodeProfile, EpisodePrompt, EpisodeStatus, PodcastEffort, PodcastProfiles, SpeakerProfile,
 };
-use crate::Error;
 
 /// Where finished episodes are kept: the Tauri app's folder, so either app can play them.
 const PODCASTS: &str = "podcasts";
@@ -280,11 +280,7 @@ impl Engine {
     }
 
     pub fn get_episode(&self, id: &str) -> Result<Episode> {
-        self.db
-            .lock()
-            .query_row(&format!("{EPISODE_SELECT} WHERE e.id = ?1"), [id], to_episode)
-            .optional()?
-            .ok_or_else(|| Error::NotFound("Episode".into()))
+        self.db.lock().query_row(&format!("{EPISODE_SELECT} WHERE e.id = ?1"), [id], to_episode).optional()?.ok_or_else(|| Error::NotFound("Episode".into()))
     }
 
     /// Saves the episode and starts writing and voicing it in the background.
@@ -357,7 +353,8 @@ impl Engine {
             if let Err(error) = engine.make_episode(&id, &job, &ep, &sp, &config, &cancel)
                 && !cancel.is_cancelled()
             {
-                let _ = engine.set_episode(&id, EpisodePatch { status: Some(EpisodeStatus::Failed), error: Some(Some(error.to_string())), ..Default::default() });
+                let _ =
+                    engine.set_episode(&id, EpisodePatch { status: Some(EpisodeStatus::Failed), error: Some(Some(error.to_string())), ..Default::default() });
             }
             engine.finish_running(&id, generation);
         });
@@ -367,8 +364,7 @@ impl Engine {
     pub fn delete_episode(&self, id: &str) -> Result<()> {
         self.cancel_running(id);
         self.cancel_running(&format!("check:{id}"));
-        let audio: Option<String> =
-            self.db.lock().query_row("SELECT audio_ref FROM podcast_episode WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
+        let audio: Option<String> = self.db.lock().query_row("SELECT audio_ref FROM podcast_episode WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
         if let Some(audio) = audio {
             let _ = self.remove_audio(&audio);
         }
@@ -380,8 +376,7 @@ impl Engine {
     }
 
     pub fn episode_audio(&self, id: &str) -> Result<EpisodeAudio> {
-        let audio: Option<String> =
-            self.db.lock().query_row("SELECT audio_ref FROM podcast_episode WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
+        let audio: Option<String> = self.db.lock().query_row("SELECT audio_ref FROM podcast_episode WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten();
         let path = PathBuf::from(audio.ok_or_else(|| Error::other("This episode has no audio yet."))?);
         if !path.exists() {
             return Err(Error::other("This episode’s audio file is missing."));
@@ -431,10 +426,7 @@ impl Engine {
         values.push(V::Text(self.now()));
         let assignments = sets.iter().enumerate().map(|(i, c)| format!("{c} = ?{}", i + 1)).collect::<Vec<_>>().join(", ");
         values.push(V::Text(id.into()));
-        self.db.lock().execute(
-            &format!("UPDATE podcast_episode SET {assignments} WHERE id = ?{}", values.len()),
-            rusqlite::params_from_iter(values),
-        )?;
+        self.db.lock().execute(&format!("UPDATE podcast_episode SET {assignments} WHERE id = ?{}", values.len()), rusqlite::params_from_iter(values))?;
         Ok(())
     }
 
@@ -453,11 +445,8 @@ impl Engine {
         if config.chat.is_none() {
             return Err(Error::Setup("Choose a chat model in Settings to check episodes.".into()));
         }
-        let saved: Option<(String, Option<String>)> = self
-            .db
-            .lock()
-            .query_row("SELECT model, material FROM podcast_prompt WHERE episode_id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()?;
+        let saved: Option<(String, Option<String>)> =
+            self.db.lock().query_row("SELECT model, material FROM podcast_prompt WHERE episode_id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
         // Check against the material the script was written from when it was kept.
         let material: Vec<MaterialPart> = match saved.as_ref().and_then(|(_, m)| m.as_deref()) {
             Some(m) => serde_json::from_str(m)?,
@@ -491,7 +480,15 @@ impl Engine {
     }
 
     /// Checks a script's claims, saves the result on the episode and returns it.
-    pub(super) fn run_check(&self, id: &str, script: &PodcastScript, material: &[MaterialPart], config: &AiConfig, extra: &CheckExtra, cancel: &Cancel) -> Result<ScriptCheck> {
+    pub(super) fn run_check(
+        &self,
+        id: &str,
+        script: &PodcastScript,
+        material: &[MaterialPart],
+        config: &AiConfig,
+        extra: &CheckExtra,
+        cancel: &Cancel,
+    ) -> Result<ScriptCheck> {
         let choice = config.chat.as_ref().ok_or_else(|| Error::Setup("Choose a chat model in Settings to check episodes.".into()))?;
         self.save_check(id, "checking", &choice.model, Some(extra.to_map()), None)?;
         let request = ChatRequest::new(&choice.model, CHECK_SYSTEM, vec![ChatTurn::user(check_prompt(script, &material_text(material)))])
@@ -564,12 +561,8 @@ impl Engine {
 /// Converts with the system's afconvert, like the Tauri app; None when it isn't available.
 #[cfg(target_os = "macos")]
 fn to_aac(wav: &Path, m4a: &Path) -> Option<PathBuf> {
-    let ok = std::process::Command::new("/usr/bin/afconvert")
-        .args(["-f", "m4af", "-d", "aac", "-b", "96000"])
-        .arg(wav)
-        .arg(m4a)
-        .status()
-        .is_ok_and(|s| s.success());
+    let ok =
+        std::process::Command::new("/usr/bin/afconvert").args(["-f", "m4af", "-d", "aac", "-b", "96000"]).arg(wav).arg(m4a).status().is_ok_and(|s| s.success());
     (ok && m4a.exists()).then(|| m4a.to_path_buf())
 }
 

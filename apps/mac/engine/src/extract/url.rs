@@ -9,8 +9,7 @@ use crate::backend::{Cancel, Result};
 use crate::net::{Http, Request, Response, Transport, encode_component, percent_decode};
 use crate::youtube::{Json3, captions_to_text, parse_watch_page, pick_track, youtube_id};
 
-pub const USER_AGENT: &str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -38,10 +37,8 @@ pub fn extract_url(http: &dyn Http, url: &str, languages: &[String], cancel: &Ca
     if let Some(id) = youtube_id(url) {
         return read_youtube(http, &id, languages, cancel);
     }
-    let response = get(
-        http,
-        Request::get(url).header("User-Agent", USER_AGENT).header("Accept", "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8"),
-    )?;
+    let response =
+        get(http, Request::get(url).header("User-Agent", USER_AGENT).header("Accept", "text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8"))?;
     if !response.ok() {
         let status = response.status;
         let line = format!("{status} {}", reason(status));
@@ -141,12 +138,17 @@ mod tests {
             Ok(match r.url.as_str() {
                 "https://x/a%20file.txt" => Response::new(200, " text body \n").with_header("Content-Type", "text/plain; charset=utf-8"),
                 "https://x/doc" => Response::new(200, super::super::pdf::tests::sample_pdf()).with_header("Content-Type", "application/pdf"),
-                "https://x/page" => Response::new(200, "<html><head><title>Page</title></head><body><p>Short page</p></body></html>").with_header("Content-Type", "text/html"),
+                "https://x/page" => {
+                    Response::new(200, "<html><head><title>Page</title></head><body><p>Short page</p></body></html>").with_header("Content-Type", "text/html")
+                }
                 _ => Response::new(404, ""),
             })
         };
         let c = Cancel::new();
-        assert_eq!(extract_url(&http, "https://x/a%20file.txt", &[], &c).unwrap(), Extracted { title: "a file.txt".into(), text: "text body".into(), media: false });
+        assert_eq!(
+            extract_url(&http, "https://x/a%20file.txt", &[], &c).unwrap(),
+            Extracted { title: "a file.txt".into(), text: "text body".into(), media: false }
+        );
         assert_eq!(extract_url(&http, "https://x/doc", &[], &c).unwrap().title, "A Test Paper");
         let page = extract_url(&http, "https://x/page", &[], &c).unwrap();
         assert_eq!(page.title, "Page");

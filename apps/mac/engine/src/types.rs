@@ -85,10 +85,22 @@ pub struct SourceDetail {
 /// What the user adds as a source.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SourceInput {
-    Link { url: String, title: Option<String> },
-    Text { content: String, title: Option<String> },
+    Link {
+        url: String,
+        title: Option<String>,
+    },
+    Text {
+        content: String,
+        title: Option<String>,
+    },
     /// A file read on device. `content` is its text (empty for audio and video, which are transcribed).
-    Document { title: String, content: String, file_name: Option<String>, file: Option<Vec<u8>>, mime: Option<String> },
+    Document {
+        title: String,
+        content: String,
+        file_name: Option<String>,
+        file: Option<Vec<u8>>,
+        mime: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

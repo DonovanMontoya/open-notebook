@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::script::PodcastScript;
+use crate::Error;
 use crate::backend::Result;
 use crate::text::json_object;
 use crate::types::{CheckedClaim, ClaimVerdict};
-use crate::Error;
 
 /// The result of one check, as saved in `podcast_check.result` (with `writer` and `history`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -95,7 +95,20 @@ pub struct MaterialPart {
 pub fn material_text(parts: &[MaterialPart]) -> String {
     parts
         .iter()
-        .map(|p| format!("## {}{}\n{}", if p.note { "Note: " } else if p.excerpt { "Excerpt from " } else { "" }, p.title, p.text))
+        .map(|p| {
+            format!(
+                "## {}{}\n{}",
+                if p.note {
+                    "Note: "
+                } else if p.excerpt {
+                    "Excerpt from "
+                } else {
+                    ""
+                },
+                p.title,
+                p.text
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -196,12 +209,8 @@ pub fn parse_check(raw: &str, script: &PodcastScript, material: &[MaterialPart])
 
     let count = |v: ClaimVerdict| claims.iter().filter(|c| c.verdict == v).count() as u32;
     let sources: BTreeSet<&str> = sections.iter().filter(|s| !s.is_note).map(|s| s.title.as_str()).collect();
-    let used: BTreeSet<&str> = claims
-        .iter()
-        .filter(|c| c.verdict == ClaimVerdict::Supported)
-        .filter_map(|c| c.source.as_deref())
-        .filter(|s| sources.contains(s))
-        .collect();
+    let used: BTreeSet<&str> =
+        claims.iter().filter(|c| c.verdict == ClaimVerdict::Supported).filter_map(|c| c.source.as_deref()).filter(|s| sources.contains(s)).collect();
     Ok(ScriptCheck {
         supported: count(ClaimVerdict::Supported),
         overstated: count(ClaimVerdict::Overstated),
@@ -239,8 +248,7 @@ pub fn research_prompt(material: &str, focus: Option<&str>) -> String {
     .join("\n\n")
 }
 
-pub const REVISE_SYSTEM: &str =
-    "You are an editor who corrects podcast scripts so every claim matches the research it is based on. You reply with JSON only.";
+pub const REVISE_SYSTEM: &str = "You are an editor who corrects podcast scripts so every claim matches the research it is based on. You reply with JSON only.";
 
 fn verdict_name(v: ClaimVerdict) -> &'static str {
     match v {

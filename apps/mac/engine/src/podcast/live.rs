@@ -11,8 +11,8 @@ use regex::Regex;
 use serde_json::{Value, json};
 
 use super::audio::{AUDIBLE, SAMPLE_RATE, base64_to_bytes, bytes_to_base64, bytes_to_pcm};
-use crate::backend::{Cancel, Result};
 use crate::Error;
+use crate::backend::{Cancel, Result};
 
 /// A text WebSocket. Opened with an Authorization header, which OpenAI Live needs.
 pub trait LiveSocket: Send {
@@ -93,9 +93,7 @@ pub fn narration_matches(expected: &str, spoken: &str) -> bool {
     let matched = lcs(&wanted, &actual);
     let ratio = (2 * matched) as f64 / (wanted.len() + actual.len()) as f64;
     let tail = &actual[actual.len().saturating_sub(8)..];
-    matched as f64 / wanted.len() as f64 >= 0.8
-        && ratio >= 0.75
-        && wanted[wanted.len() - wanted.len().min(3)..].iter().all(|w| tail.contains(w))
+    matched as f64 / wanted.len() as f64 >= 0.8 && ratio >= 0.75 && wanted[wanted.len() - wanted.len().min(3)..].iter().all(|w| tail.contains(w))
 }
 
 fn peak(pcm: &[i16]) -> i32 {
@@ -276,8 +274,8 @@ impl LiveSocket for Tungstenite {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::audio::pcm_to_bytes;
+    use super::*;
     use std::collections::VecDeque;
     use std::sync::Mutex;
 

@@ -4,15 +4,15 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::notebooks::to_note;
 use super::Engine;
+use super::notebooks::to_note;
+use crate::Error;
 use crate::ask::{AskDoc, MAX_SEARCHES, final_answer_prompt, parse_strategy, search_answer_prompt, strategy_prompt};
 use crate::backend::{Cancel, Result};
 use crate::providers::{ChatRequest, ChatTurn};
 use crate::studio::{STUDY_INPUT_LIMIT, STUDY_PREFIX, decks_from_notes, parse_deck, study_input, study_prompt};
 use crate::text::{char_len, keyword_score, keyword_terms, snippet};
 use crate::types::{AskDocument, AskResult, AskSearch, AskStep, HitKind, Note, SearchHit, StoredDeck, StudyDeck, StudyRequest};
-use crate::Error;
 
 const SEARCH_LIMIT: usize = 20;
 /// Searches an Ask runs at the same time.
@@ -152,12 +152,8 @@ impl Engine {
                 });
             }
         });
-        let answers: Vec<(String, String)> = answers
-            .into_inner()
-            .unwrap_or_else(|e| e.into_inner())
-            .into_iter()
-            .map(|a| a.unwrap_or(Err(Error::Cancelled)))
-            .collect::<Result<_>>()?;
+        let answers: Vec<(String, String)> =
+            answers.into_inner().unwrap_or_else(|e| e.into_inner()).into_iter().map(|a| a.unwrap_or(Err(Error::Cancelled))).collect::<Result<_>>()?;
 
         let answer = chat(final_answer_prompt(question, &reasoning, &answers))?;
         (on_step.into_inner().unwrap_or_else(|e| e.into_inner()))(AskStep::Final { answer: answer.clone() });

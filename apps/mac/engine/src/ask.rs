@@ -58,12 +58,8 @@ pub fn search_answer_prompt(question: &str, search: &AskSearch, results: &[AskDo
         }
     }
     let instructions = if search.instructions.is_empty() { "Summarize what the results say about the term." } else { &search.instructions };
-    let mut parts = vec![
-        ROLE.to_string(),
-        format!("# Question\n{question}"),
-        format!("# Search\nTerm: {}\nInstructions: {instructions}", search.term),
-        "# Results".into(),
-    ];
+    let mut parts =
+        vec![ROLE.to_string(), format!("# Question\n{question}"), format!("# Search\nTerm: {}\nInstructions: {instructions}", search.term), "# Results".into()];
     for r in results {
         parts.push(format!("<document id=\"{}\" title=\"{}\">\n{}\n</document>", r.id, r.title.replace('"', "'"), r.text));
     }

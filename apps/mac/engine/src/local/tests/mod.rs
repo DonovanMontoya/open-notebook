@@ -15,11 +15,11 @@ use std::time::Duration;
 use time::OffsetDateTime;
 
 use super::{Extracted, LocalBackend, LocalOptions};
+use crate::Error;
 use crate::backend::{Backend, Cancel, Result, SendChat, SendSourceChat};
 use crate::providers::{Capability, ChatRequest, ChatTurn, ModelInfo, Provider, ProviderKind};
 use crate::settings::{AppSettings, ModelSetting};
 use crate::types::{NewSource, SourceInput};
-use crate::Error;
 
 /// A folder removed when the test ends.
 pub struct TempDir(pub PathBuf);
@@ -162,7 +162,8 @@ pub struct Env {
 
 /// A clock that moves one second per reading, so ordering by time is stable.
 pub fn ticking_clock() -> super::Clock {
-    let tick = Arc::new(AtomicI64::new(OffsetDateTime::parse("2026-11-01T12:00:00Z", &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp()));
+    let tick =
+        Arc::new(AtomicI64::new(OffsetDateTime::parse("2026-11-01T12:00:00Z", &time::format_description::well_known::Rfc3339).unwrap().unix_timestamp()));
     Arc::new(move || OffsetDateTime::from_unix_timestamp(tick.fetch_add(1, Ordering::SeqCst) + 1).unwrap())
 }
 
@@ -174,9 +175,7 @@ pub fn options(settings: AppSettings, fake: &Arc<Fake>, pages: &Pages) -> LocalO
             Err(crate::net::Transport::Failed("no network in tests".into()))
         })),
         providers: Some(Arc::new(move |_| provider.clone() as Arc<dyn Provider>)),
-        extract_url: Some(Arc::new(move |url: &str, _: &Cancel| {
-            pages.lock().unwrap().get(url).cloned().ok_or_else(|| Error::other(format!("404 for {url}")))
-        })),
+        extract_url: Some(Arc::new(move |url: &str, _: &Cancel| pages.lock().unwrap().get(url).cloned().ok_or_else(|| Error::other(format!("404 for {url}"))))),
         clock: Some(ticking_clock()),
         settings: Some(settings),
         voices: None,

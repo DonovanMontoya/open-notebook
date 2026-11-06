@@ -71,10 +71,7 @@ impl Client {
     // Sources
 
     pub fn list_sources(&self, notebook_id: &str) -> Result<Vec<ServerSource>> {
-        self.get(
-            "/sources",
-            &[("notebook_id", some(notebook_id)), ("sort_by", some("updated")), ("sort_order", some("desc")), ("limit", some(100))],
-        )
+        self.get("/sources", &[("notebook_id", some(notebook_id)), ("sort_by", some("updated")), ("sort_order", some("desc")), ("limit", some(100))])
     }
 
     pub fn list_all_sources(&self) -> Result<Vec<ServerSource>> {
@@ -100,10 +97,8 @@ impl Client {
 
     /// Uploads a file as multipart form data, the way the web app's FormData does.
     pub fn upload_source(&self, notebook_id: &str, file: Upload<'_>) -> Result<ServerSource> {
-        let mut form = Multipart::new()
-            .text("type", "upload")
-            .text("notebooks", &json!([notebook_id]).to_string())
-            .file("file", file.file_name, file.mime, file.data);
+        let mut form =
+            Multipart::new().text("type", "upload").text("notebooks", &json!([notebook_id]).to_string()).file("file", file.file_name, file.mime, file.data);
         if let Some(t) = file.title.filter(|t| !t.is_empty()) {
             form = form.text("title", t);
         }
