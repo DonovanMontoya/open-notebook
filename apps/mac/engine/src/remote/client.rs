@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::Error;
 use crate::backend::Result;
-use crate::net::{Multipart, Request, Response, SharedHttp, Transport, encode_component, query_string};
+use crate::net::{Multipart, Request, Response, SharedHttp, Transport, encode_component, percent_decode, query_string};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -225,22 +225,4 @@ pub fn disposition_name(header: &str) -> Option<String> {
         return Some(percent_decode(raw).unwrap_or_else(|| raw.to_string()));
     }
     None
-}
-
-/// `decodeURIComponent`; None when it would throw.
-pub fn percent_decode(s: &str) -> Option<String> {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hex = s.get(i + 1..i + 3)?;
-            out.push(u8::from_str_radix(hex, 16).ok()?);
-            i += 3;
-        } else {
-            out.push(bytes[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8(out).ok()
 }

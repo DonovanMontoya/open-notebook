@@ -3,6 +3,7 @@
 
 pub mod backend;
 pub mod error;
+pub mod extract;
 pub mod net;
 pub mod remote;
 pub mod settings;

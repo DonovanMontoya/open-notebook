@@ -262,6 +262,24 @@ pub fn encode_component(s: &str) -> String {
     out
 }
 
+/// `decodeURIComponent`; None when it would throw.
+pub fn percent_decode(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = s.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 /// A query string as `URLSearchParams` writes it.
 pub fn query_string<'a>(pairs: impl IntoIterator<Item = (&'a str, String)>) -> String {
     let mut s = url::form_urlencoded::Serializer::new(String::new());
