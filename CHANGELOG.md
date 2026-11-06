@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- macOS app drawn with Rune (`apps/mac`), replacing the Tauri shell on the Mac: notebooks, sources (links, text and files read on device), cited chat that opens the passage, notes, insights, transformations, Ask and Search, study decks, Usage and Settings, on device with your own keys or against an Open Notebook server. It opens the Tauri app's data folder, so existing notebooks, keys and files carry over. iOS stays on Tauri ([ADR-019](docs/7-DEVELOPMENT/decisions/ADR-019-rune-mac-app.md)).
 - GPT Live speech rendering for saved podcasts and default TTS, with selectable speaker profiles, script coverage checks, MP3 downloads, and session-based usage estimates.
 
 - Persistent podcast player with streaming seeks, speed controls, media keys, and browser MP3 downloads.
