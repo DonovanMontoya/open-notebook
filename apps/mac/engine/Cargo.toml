@@ -14,6 +14,7 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 ureq = { version = "3", features = ["json"] }
 uuid = { version = "1", features = ["v4"] }
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+regex = "1"
 # Server client, file extraction, YouTube and transcription.
 base64 = "0.22"
 dom_query = "0.29"
