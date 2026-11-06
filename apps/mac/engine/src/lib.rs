@@ -6,7 +6,9 @@ pub mod error;
 pub mod net;
 pub mod remote;
 pub mod settings;
+pub mod transcribe;
 pub mod types;
+pub mod youtube;
 
 pub use backend::{Backend, BackendKind, Cancel, PodcastMode, Result};
 pub use error::Error;
