@@ -19,3 +19,4 @@ icon!(DOC, "on-doc", r#"<path d="M4 2.5H9.5L12 5V13.5H4V2.5Z M9.5 2.5V5H12 M6 8H
 icon!(CLOSE, "on-close", r#"<path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#);
 icon!(RETRY, "on-retry", r#"<path d="M12.5 8A4.5 4.5 0 1 1 11.2 4.8M12.5 3V5.5H10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#);
 icon!(SAVE, "on-save", r#"<path d="M4.5 2.5H11.5V13.5L8 11L4.5 13.5V2.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#);
+icon!(GAUGE, "on-gauge", r#"<path d="M2.5 11.5A5.5 5.5 0 1 1 13.5 11.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/><path d="M8 11L10.5 6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#);

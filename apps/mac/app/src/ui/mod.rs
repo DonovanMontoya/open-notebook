@@ -3,7 +3,9 @@
 
 mod icons;
 mod notebook;
+mod pages;
 mod settings;
+mod study;
 
 use rune::{Cx, El, Spring, TextEdit, Tx, col, row, text};
 use rune_kit::shell::{PaneMotion, Sidebar, SidebarRow, SidebarToggle, SplitView, Toolbar};
@@ -27,6 +29,10 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let (main, title) = match &s.route {
         Route::Notebook(_) if s.open.is_some() => (notebook::view(s, &l, &mut layer), s.open.as_ref().and_then(|o| o.notebook.as_ref()).map(|n| n.name.clone()).unwrap_or_default()),
         Route::Settings => (settings::view(s, &l, &mut layer), "Settings".to_owned()),
+        Route::Ask => (pages::ask(s, &l, &mut layer), "Ask".to_owned()),
+        Route::Library => (pages::library(s, &l), "Library".to_owned()),
+        Route::Transformations => (pages::transformations(s, &l), "Transformations".to_owned()),
+        Route::Usage => (pages::usage(s, &l), "Usage".to_owned()),
         _ => (home(s, &l), String::new()),
     };
     if let Some((question, _)) = &s.confirm {
@@ -98,7 +104,16 @@ fn sidebar(s: &App, l: &Look) -> El {
             .build(k)
             .key("new-notebook")
     };
-    sb = sb.header(new_row);
+    let nav = |label: &str, icon: &'static rune::Icon, route: Route, key: &str| {
+        let selected = s.route == route;
+        SidebarRow::new(label.to_owned()).icon(icon).height(30.0).selected(selected).on_select(move |s: &mut App, _| s.go(route.clone())).build(k).key(key.to_owned())
+    };
+    sb = sb
+        .header(nav("Ask", &rune_kit::glyphs::SEARCH, Route::Ask, "nav-ask"))
+        .header(nav("Library", &icons::DOC, Route::Library, "nav-library"))
+        .header(nav("Transformations", &rune_kit::glyphs::SPARKLE, Route::Transformations, "nav-transformations"))
+        .header(nav("Usage", &icons::GAUGE, Route::Usage, "nav-usage"))
+        .header(new_row);
     for nb in s.notebooks.iter().filter(|n| !n.archived) {
         let id = nb.id.clone();
         let selected = matches!(&s.route, Route::Notebook(open) if *open == nb.id);

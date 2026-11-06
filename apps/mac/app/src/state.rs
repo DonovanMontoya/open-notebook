@@ -40,12 +40,17 @@ pub enum Route {
     Home,
     Notebook(String),
     Settings,
+    Ask,
+    Library,
+    Transformations,
+    Usage,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotebookTab {
     Chat,
     Notes,
+    Study,
 }
 
 /// The add-source sheet.
@@ -94,6 +99,13 @@ pub struct Open {
     pub note: Option<NoteDraft>,
     pub sessions_open: bool,
     pub error: Option<String>,
+    /// Insights of the source being read.
+    pub insights: Vec<Insight>,
+    pub insight_picker: bool,
+    pub transformations: Vec<Transformation>,
+    pub decks: Vec<StoredDeck>,
+    pub study: Option<crate::study::StudyForm>,
+    pub viewing: Option<crate::study::DeckView>,
 }
 
 impl Open {
@@ -114,12 +126,19 @@ impl Open {
             note: None,
             sessions_open: false,
             error: None,
+            insights: Vec::new(),
+            insight_picker: false,
+            transformations: Vec::new(),
+            decks: Vec::new(),
+            study: None,
+            viewing: None,
         }
     }
 
-    /// Sources still being read or embedded, which the view refreshes until they finish.
+    /// Sources still being read, or insights being written, which `poll` refreshes until they finish.
     pub fn processing(&self) -> bool {
         self.sources.iter().any(|s| matches!(s.status.as_deref(), Some("new" | "queued" | "running" | "processing")))
+            || self.insights.iter().any(|i| i.status.as_deref() == Some("running"))
     }
 }
 
@@ -170,6 +189,10 @@ pub struct App {
     pub open: Option<Open>,
     pub new_notebook: Option<TextEdit>,
     pub form: Option<SettingsForm>,
+    pub ask: Option<crate::pages::AskPage>,
+    pub library: Option<crate::pages::LibraryPage>,
+    pub transformations: Option<crate::pages::TransformationsPage>,
+    pub usage: Option<crate::pages::UsagePage>,
     pub toast: Option<String>,
     /// When the toast appeared (app clock), so `poll` can clear it.
     pub toast_since: Option<f64>,
@@ -198,6 +221,10 @@ impl App {
             open: None,
             new_notebook: None,
             form: None,
+            ask: None,
+            library: None,
+            transformations: None,
+            usage: None,
             toast: None,
             toast_since: None,
             confirm: None,
@@ -359,6 +386,8 @@ impl App {
         let i = id.clone();
         self.run(move |b| b.get_notebook(&i), with_open(&id, |o, nb| o.notebook = Some(nb)));
         self.refresh_sources();
+        self.load_transformations();
+        self.load_decks();
         let i = id.clone();
         self.run(move |b| b.list_notes(&i), with_open(&id, |o, notes| o.notes = notes));
         let i = id.clone();
@@ -380,6 +409,12 @@ impl App {
     }
 
     pub fn refresh_sources(&self) {
+        if let Some(o) = self.open.as_ref()
+            && let Some((d, _)) = &o.reading
+            && o.insights.iter().any(|i| i.status.as_deref() == Some("running"))
+        {
+            self.load_insights(d.summary.id.clone());
+        }
         let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let i = id.clone();
         self.run(move |b| b.list_sources(&i), with_open(&id, |o, sources| o.sources = sources));
@@ -495,6 +530,11 @@ impl App {
 
     pub fn read_source(&mut self, source_id: String, passage_query: Option<String>) {
         let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
+        if let Some(o) = self.open.as_mut() {
+            o.insights.clear();
+            o.insight_picker = false;
+        }
+        self.load_insights(source_id.clone());
         self.run(move |b| b.get_source(&source_id), with_open(&id, move |o, detail: SourceDetail| {
             let passage = passage_query.and_then(|q| notebook_engine::citations::best_passage(&detail.full_text, &q));
             o.reading = Some((detail, passage));

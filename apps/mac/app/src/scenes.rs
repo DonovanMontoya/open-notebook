@@ -15,6 +15,13 @@ pub const SCENES: &[Scene] = &[
     ("notes", notes),
     ("add-source", add_source),
     ("settings", settings),
+    ("ask", ask),
+    ("library", library),
+    ("transformations", transformations),
+    ("usage", usage),
+    ("study", study),
+    ("quiz", quiz),
+    ("insights", insights),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -114,4 +121,102 @@ fn settings(s: &mut App) {
     s.notebooks = notebooks();
     s.form = Some(SettingsForm::from(&s.settings, &s.secrets));
     s.route = Route::Settings;
+}
+
+fn ask(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Ask;
+    let mut p = crate::pages::AskPage { query: TextEdit::new("Do spindles matter for memory?"), ..Default::default() };
+    p.steps.push(AskStep::Strategy {
+        reasoning: "Look for studies linking spindle density to recall, then for limits.".into(),
+        searches: vec![
+            AskSearch { term: "spindle density recall".into(), instructions: String::new() },
+            AskSearch { term: "procedural memory sleep".into(), instructions: String::new() },
+        ],
+    });
+    p.result = Some(AskResult {
+        answer: "Yes, for declarative memory: spindle density after learning predicted next-day recall [s1]. The link is weaker for skills [s2].".into(),
+        documents: vec![
+            AskDocument { id: "s1".into(), title: "Sleep spindles and memory consolidation".into(), notebook_id: Some("nb1".into()) },
+            AskDocument { id: "s2".into(), title: "Why we sleep: a review of the evidence".into(), notebook_id: Some("nb1".into()) },
+        ],
+    });
+    s.ask = Some(p);
+}
+
+fn library(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Library;
+    s.library = Some(crate::pages::LibraryPage { sources: sources(), loaded: true, ..Default::default() });
+}
+
+fn transformations(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Transformations;
+    let t = |id: &str, title: &str, d: &str, on| Transformation { id: id.into(), name: title.into(), title: title.into(), description: d.into(), prompt: "...".into(), apply_default: on };
+    s.transformations = Some(crate::pages::TransformationsPage {
+        list: vec![t("t1", "Dense Summary", "A short summary that keeps every key fact.", true), t("t2", "Key Insights", "The ideas worth remembering.", false)],
+        instructions: TextEdit::new("Write in plain English. Quote the source when it matters."),
+        ..Default::default()
+    });
+}
+
+fn usage(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Usage;
+    let g = |feature: &str, model: &str, calls, i, o, usd| UsageGroup { model: model.into(), feature: feature.into(), calls, input_tokens: i, output_tokens: o, audio_seconds: 0.0, estimated_usd: Some(usd) };
+    s.usage = Some(crate::pages::UsagePage {
+        days: 30,
+        report: Some(UsageReport {
+            days: 30,
+            calls: 64,
+            estimated_usd: Some(1.84),
+            groups: vec![g("chat", "claude-sonnet-4-5", 41, 380_000, 52_000, 1.92), g("embedding", "text-embedding-3-small", 18, 210_000, 0, 0.01), g("insights", "claude-sonnet-4-5", 5, 60_000, 9_000, 0.31)],
+            estimated: true,
+        }),
+    });
+}
+
+fn study(s: &mut App) {
+    open(s);
+    s.new_study_form();
+    s.open.as_mut().unwrap().tab = NotebookTab::Study;
+}
+
+fn quiz(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    o.tab = NotebookTab::Study;
+    o.decks = vec![StoredDeck {
+        note_id: "n9".into(),
+        created: None,
+        deck: StudyDeck {
+            version: 1,
+            kind: StudyKind::Quiz,
+            title: "Spindles and memory".into(),
+            items: vec![StudyItem {
+                question: "Which memories did spindle density predict best?".into(),
+                answer: "Declarative memories, such as facts and word pairs.".into(),
+                options: vec!["Motor skills".into(), "Declarative memories".into(), "Emotional memories".into(), "None".into()],
+                correct_index: Some(1),
+                source_ids: vec!["s1".into()],
+            }],
+        },
+    }];
+    o.viewing = Some(crate::study::DeckView { index: 0, card: 0, flipped: false, picked: Some(0), right: 0 });
+}
+
+fn insights(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    o.transformations = vec![Transformation { id: "t1".into(), name: "Dense Summary".into(), title: "Dense Summary".into(), ..Default::default() }];
+    o.insights = vec![Insight {
+        id: "i1".into(),
+        source_id: "s1".into(),
+        kind: "Dense Summary".into(),
+        content: "Spindle density after learning predicts **declarative** recall; the effect on skills is weaker.".into(),
+        created: None,
+        status: Some("completed".into()),
+        error: None,
+    }];
 }

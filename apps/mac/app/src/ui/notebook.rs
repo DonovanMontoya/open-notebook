@@ -20,13 +20,15 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let center = match o.tab {
         NotebookTab::Chat => chat(o, l),
         NotebookTab::Notes => notes(o, l),
+        NotebookTab::Study => super::study::view(o, l),
     };
-    let tabs = SegmentedControl::new(&["Chat", "Notes"], Some(if o.tab == NotebookTab::Chat { 0 } else { 1 }))
+    const TABS: [NotebookTab; 3] = [NotebookTab::Chat, NotebookTab::Notes, NotebookTab::Study];
+    let tabs = SegmentedControl::new(&["Chat", "Notes", "Study"], TABS.iter().position(|t| *t == o.tab))
         .label("View")
         .fit()
         .on_pick(|s: &mut App, i, _: &mut Tx| {
             if let Some(o) = s.open.as_mut() {
-                o.tab = if i == 0 { NotebookTab::Chat } else { NotebookTab::Notes };
+                o.tab = TABS[i];
             }
         })
         .build(&l.k)
@@ -56,7 +58,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 .build(&l.k)
                 .key("new-chat"),
         );
-    } else {
+    } else if o.tab == NotebookTab::Notes {
         head = head.child(
             Button::new("New note")
                 .icon(&icons::PLUS)
@@ -76,7 +78,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let middle = col().key("center").grow(1.0).h_full().min_w(380.0).min_h(0.0).child(head).child(rule(l)).child(center);
     // A cited passage opens in the rail, beside the answer that cites it, as in the Tauri app.
     let rail = match &o.reading {
-        Some((detail, passage)) => reader(detail, *passage, l),
+        Some((detail, passage)) => reader(o, detail, *passage, l, layer),
         None => sources(o, l),
     };
     let body = row().key("notebook").w_full().h_full().min_h(0.0).child(rail).child(vrule(l)).child(middle);
@@ -211,7 +213,7 @@ fn source_row(src: &SourceSummary, selected: bool, l: &Look) -> El {
     r.on_press(move |s: &mut App| s.read_source(id.clone(), None))
 }
 
-fn reader(detail: &SourceDetail, passage: Option<(usize, usize)>, l: &Look) -> El {
+fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let title = detail.summary.title.clone().unwrap_or_else(|| "Untitled source".into());
     let head = row()
@@ -254,7 +256,92 @@ fn reader(detail: &SourceDetail, passage: Option<(usize, usize)>, l: &Look) -> E
         .fill(l.page)
         .child(head)
         .child(rule(l))
-        .child(col().w_full().px(20.0).py(16.0).child(body).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0))
+        .child(col().w_full().px(20.0).py(16.0).gap(18.0).child(insights(o, l, layer)).child(body).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0))
+}
+
+/// The source's insights, above its text, and a menu to run a transformation on it.
+fn insights(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
+    let k = &l.k;
+    let names: Vec<String> = o.transformations.iter().map(|t| t.title.clone()).collect();
+    let ids: Vec<String> = o.transformations.iter().map(|t| t.id.clone()).collect();
+    let mut c = col().key("insights").w_full().gap(8.0);
+    if !names.is_empty() {
+        c = c.child(
+            rune_kit::Select::new("run-insight", &names)
+                .label("Run a transformation")
+                .placeholder("Run a transformation…")
+                .current(None)
+                .width(220.0)
+                .open(o.insight_picker)
+                .on_toggle(|s: &mut App| {
+                    if let Some(o) = s.open.as_mut() {
+                        o.insight_picker = !o.insight_picker;
+                    }
+                })
+                .on_close(|s: &mut App| {
+                    if let Some(o) = s.open.as_mut() {
+                        o.insight_picker = false;
+                    }
+                })
+                .on_choose(move |s: &mut App, name: &str, _: &mut Tx| {
+                    let id = s.open.as_ref().and_then(|o| o.transformations.iter().position(|t| t.title == name)).and_then(|i| ids.get(i).cloned());
+                    if let Some(id) = id {
+                        s.run_insight(id);
+                    }
+                })
+                .build(k, layer)
+                .key("run-insight"),
+        );
+    }
+    for i in &o.insights {
+        let (del, save) = (i.id.clone(), i.id.clone());
+        let status = match i.status.as_deref() {
+            Some("running") => "Writing…".to_owned(),
+            Some("failed") => i.error.clone().unwrap_or_else(|| "Failed".into()),
+            _ => String::new(),
+        };
+        let head = row()
+            .w_full()
+            .gap(4.0)
+            .center_y()
+            .child(text(i.kind.clone()).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
+            .child(text(status).font(k.ty.small).color(l.text3))
+            .child(
+                IconButton::new(&icons::SAVE)
+                    .variant(IconButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .label("Save as note")
+                    .help("Save as note")
+                    .on_press(move |s: &mut App| s.insight_to_note(save.clone()))
+                    .build(k)
+                    .key("save"),
+            )
+            .child(
+                IconButton::new(&icons::TRASH)
+                    .variant(IconButtonVariant::GhostMuted)
+                    .control_size(ControlSize::Small)
+                    .label("Delete insight")
+                    .on_press(move |s: &mut App| {
+                        let id = del.clone();
+                        s.ask("Delete this insight?", move |s| s.delete_insight(id.clone()));
+                    })
+                    .build(k)
+                    .key("delete"),
+            );
+        let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).text(l.text2);
+        c = c.child(
+            col()
+                .key(format!("insight-{}", i.id))
+                .w_full()
+                .gap(6.0)
+                .padding(12.0)
+                .radius(10.0)
+                .fill(l.raised)
+                .child(head)
+                .child(Markdown::new(i.content.clone()).style(style).streaming(i.status.as_deref() == Some("running")).selectable(true).build(k)),
+        );
+    }
+    c
 }
 
 fn add_sheet(a: &AddSource, l: &Look, layer: &mut Vec<El>) {
