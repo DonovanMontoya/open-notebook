@@ -24,6 +24,8 @@ pub const SCENES: &[Scene] = &[
     ("insights", insights),
     ("source-chat", source_chat),
     ("server", server),
+    ("listen", listen),
+    ("profiles", profiles),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -34,7 +36,14 @@ pub fn requested() -> bool {
 const T: &str = "2026-11-05T10:00:00Z";
 
 fn notebooks() -> Vec<Notebook> {
-    let nb = |id: &str, name: &str, sources| Notebook { id: id.into(), name: name.into(), created: T.into(), updated: T.into(), source_count: sources, ..Default::default() };
+    let nb = |id: &str, name: &str, sources| Notebook {
+        id: id.into(),
+        name: name.into(),
+        created: T.into(),
+        updated: T.into(),
+        source_count: sources,
+        ..Default::default()
+    };
     vec![nb("nb1", "Sleep and memory", 3), nb("nb2", "Heat pumps", 5), nb("nb3", "Reading list", 0)]
 }
 
@@ -68,7 +77,14 @@ fn open(s: &mut App) {
     let o = s.open.as_mut().unwrap();
     o.notebook = Some(s.notebooks[0].clone());
     o.sources = sources();
-    o.sessions = vec![ChatSession { id: "c1".into(), title: "What do spindles do?".into(), notebook_id: "nb1".into(), created: T.into(), updated: T.into(), ..Default::default() }];
+    o.sessions = vec![ChatSession {
+        id: "c1".into(),
+        title: "What do spindles do?".into(),
+        notebook_id: "nb1".into(),
+        created: T.into(),
+        updated: T.into(),
+        ..Default::default()
+    }];
 }
 
 fn home(s: &mut App) {
@@ -107,8 +123,22 @@ fn notes(s: &mut App) {
     let o = s.open.as_mut().unwrap();
     o.tab = NotebookTab::Notes;
     o.notes = vec![
-        Note { id: "n1".into(), title: Some("Questions for Thursday".into()), content: Some("Does spindle density change with age? Ask about the 2019 replication.".into()), note_type: Some("human".into()), created: T.into(), updated: T.into() },
-        Note { id: "n2".into(), title: Some("Spindles and declarative memory".into()), content: Some("Spindle density after learning predicted recall the next morning.".into()), note_type: Some("ai".into()), created: T.into(), updated: T.into() },
+        Note {
+            id: "n1".into(),
+            title: Some("Questions for Thursday".into()),
+            content: Some("Does spindle density change with age? Ask about the 2019 replication.".into()),
+            note_type: Some("human".into()),
+            created: T.into(),
+            updated: T.into(),
+        },
+        Note {
+            id: "n2".into(),
+            title: Some("Spindles and declarative memory".into()),
+            content: Some("Spindle density after learning predicted recall the next morning.".into()),
+            note_type: Some("ai".into()),
+            created: T.into(),
+            updated: T.into(),
+        },
     ];
     o.note = Some(NoteDraft { id: None, title: TextEdit::new("Draft"), content: TextEdit::new("Spindles cluster in trains every 3 to 6 seconds.") });
 }
@@ -155,9 +185,19 @@ fn library(s: &mut App) {
 fn transformations(s: &mut App) {
     s.notebooks = notebooks();
     s.route = Route::Transformations;
-    let t = |id: &str, title: &str, d: &str, on| Transformation { id: id.into(), name: title.into(), title: title.into(), description: d.into(), prompt: "...".into(), apply_default: on };
+    let t = |id: &str, title: &str, d: &str, on| Transformation {
+        id: id.into(),
+        name: title.into(),
+        title: title.into(),
+        description: d.into(),
+        prompt: "...".into(),
+        apply_default: on,
+    };
     s.transformations = Some(crate::pages::TransformationsPage {
-        list: vec![t("t1", "Dense Summary", "A short summary that keeps every key fact.", true), t("t2", "Key Insights", "The ideas worth remembering.", false)],
+        list: vec![
+            t("t1", "Dense Summary", "A short summary that keeps every key fact.", true),
+            t("t2", "Key Insights", "The ideas worth remembering.", false),
+        ],
         instructions: TextEdit::new("Write in plain English. Quote the source when it matters."),
         ..Default::default()
     });
@@ -166,14 +206,26 @@ fn transformations(s: &mut App) {
 fn usage(s: &mut App) {
     s.notebooks = notebooks();
     s.route = Route::Usage;
-    let g = |feature: &str, model: &str, calls, i, o, usd| UsageGroup { model: model.into(), feature: feature.into(), calls, input_tokens: i, output_tokens: o, audio_seconds: 0.0, estimated_usd: Some(usd) };
+    let g = |feature: &str, model: &str, calls, i, o, usd| UsageGroup {
+        model: model.into(),
+        feature: feature.into(),
+        calls,
+        input_tokens: i,
+        output_tokens: o,
+        audio_seconds: 0.0,
+        estimated_usd: Some(usd),
+    };
     s.usage = Some(crate::pages::UsagePage {
         days: 30,
         report: Some(UsageReport {
             days: 30,
             calls: 64,
             estimated_usd: Some(1.84),
-            groups: vec![g("chat", "claude-sonnet-4-5", 41, 380_000, 52_000, 1.92), g("embedding", "text-embedding-3-small", 18, 210_000, 0, 0.01), g("insights", "claude-sonnet-4-5", 5, 60_000, 9_000, 0.31)],
+            groups: vec![
+                g("chat", "claude-sonnet-4-5", 41, 380_000, 52_000, 1.92),
+                g("embedding", "text-embedding-3-small", 18, 210_000, 0, 0.01),
+                g("insights", "claude-sonnet-4-5", 5, 60_000, 9_000, 0.31),
+            ],
             estimated: true,
         }),
     });
@@ -236,8 +288,15 @@ fn server(s: &mut App) {
     s.route = Route::Server;
     let m = |id: &str, name: &str, provider: &str, kind: &str| ServerModel { id: id.into(), name: name.into(), provider: provider.into(), kind: kind.into() };
     let mut p = crate::server::ServerPage {
-        models: vec![m("model:1", "qwen3:14b", "ollama", "language"), m("model:2", "nomic-embed-text", "ollama", "embedding"), m("model:3", "gpt-4o-mini-tts", "openai", "text_to_speech")],
-        credentials: serde_json::from_value(serde_json::json!([{"id": "credential:1", "name": "OpenAI", "provider": "openai", "has_api_key": true, "model_count": 12}])).unwrap(),
+        models: vec![
+            m("model:1", "qwen3:14b", "ollama", "language"),
+            m("model:2", "nomic-embed-text", "ollama", "embedding"),
+            m("model:3", "gpt-4o-mini-tts", "openai", "text_to_speech"),
+        ],
+        credentials: serde_json::from_value(
+            serde_json::json!([{"id": "credential:1", "name": "OpenAI", "provider": "openai", "has_api_key": true, "model_count": 12}]),
+        )
+        .unwrap(),
         jobs: serde_json::from_value(serde_json::json!([{"job_id": "command:9", "name": "process_source", "status": "running"}])).unwrap(),
         ..Default::default()
     };
@@ -245,4 +304,97 @@ fn server(s: &mut App) {
     p.defaults.insert("default_embedding_model".into(), Some("model:2".into()));
     p.notes.insert("credential:1".into(), "Key works".into());
     s.server = Some(p);
+}
+
+fn profiles_sample() -> PodcastProfiles {
+    let speakers = SpeakerProfile {
+        id: "sp1".into(),
+        name: "Two hosts".into(),
+        description: String::new(),
+        voice_kind: Some("openai".into()),
+        voice_model: "gpt-4o-mini-tts".into(),
+        speakers: vec![
+            Speaker { name: "Maya".into(), voice_id: "coral".into(), backstory: "A sleep researcher".into(), personality: "Curious".into() },
+            Speaker { name: "Leo".into(), voice_id: "ash".into(), backstory: "A science writer".into(), personality: "Skeptical".into() },
+        ],
+    };
+    let episode = EpisodeProfile {
+        id: "ep1".into(),
+        name: "Deep dive".into(),
+        description: "Two hosts walk through the sources.".into(),
+        speaker_profile_id: "sp1".into(),
+        language: None,
+        briefing: "Explain, then question.".into(),
+        segments: 4,
+    };
+    PodcastProfiles { episode: vec![episode], speaker: vec![speakers] }
+}
+
+fn listen(s: &mut App) {
+    open(s);
+    s.podcast_profiles = Some(profiles_sample());
+    let o = s.open.as_mut().unwrap();
+    o.tab = NotebookTab::Listen;
+    let line = |speaker: &str, t: &str, start| EpisodeLine { speaker: speaker.into(), text: t.into(), start: Some(start), end: None };
+    let claim = |c: &str, v, q: &str| CheckedClaim {
+        line: 1,
+        said: c.into(),
+        claim: c.into(),
+        verdict: v,
+        quote: Some(q.into()),
+        source: Some("Sleep spindles and memory consolidation".into()),
+        quote_found: true,
+        note: None,
+    };
+    let done = Episode {
+        id: "e1".into(),
+        notebook_id: Some("nb1".into()),
+        name: "What spindles do for memory".into(),
+        summary: Some("Maya and Leo go through the spindle studies and where the evidence is thin.".into()),
+        status: EpisodeStatus::Completed,
+        progress: None,
+        error: None,
+        created: T.into(),
+        duration: Some(754.0),
+        chapters: vec![EpisodeChapter { title: "What a spindle is".into(), start: 0.0 }, EpisodeChapter { title: "The recall studies".into(), start: 212.0 }],
+        transcript: vec![line("Maya", "So what is a sleep spindle?", 0.0), line("Leo", "A burst of activity in stage 2 sleep, about a second long.", 4.0)],
+        exact_timing: true,
+        voice_label: Some("OpenAI speech".into()),
+        effort: Some(PodcastEffort::Careful),
+        check: Some(EpisodeCheck {
+            status: "done".into(),
+            model: "claude-sonnet-4-5".into(),
+            writer: None,
+            error: None,
+            claims: vec![
+                claim(
+                    "Spindle density predicted next-day recall.",
+                    ClaimVerdict::Supported,
+                    "spindle density after learning predicted how much of a word list people recalled",
+                ),
+                claim("Spindles cause better memory.", ClaimVerdict::Overstated, "predicted how much of a word list people recalled"),
+            ],
+            supported: 14,
+            overstated: 2,
+            unsupported: 1,
+            sources_used: 2,
+            sources_total: 3,
+            history: Vec::new(),
+        }),
+    };
+    let mut making = done.clone();
+    making.id = "e2".into();
+    making.name = "Lecture notes, week 4".into();
+    making.status = EpisodeStatus::Voicing;
+    making.progress = Some((7, 18));
+    making.check = None;
+    making.summary = None;
+    o.episodes = vec![making, done.clone()];
+    o.episode_views.insert("e1".into(), crate::listen::EpisodeOpen { transcript: true, claims: true, prompt: None });
+}
+
+fn profiles(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Profiles;
+    s.profiles = Some(crate::listen::ProfilesPage { profiles: profiles_sample(), ..Default::default() });
 }

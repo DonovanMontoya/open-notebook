@@ -94,10 +94,13 @@ impl App {
 
     pub fn test_model(&self, id: String) {
         let key = id.clone();
-        self.admin(move |r| r.client().test_model(&id), move |p, t| {
-            let ok = t.success.unwrap_or(false);
-            p.notes.insert(key, t.message.unwrap_or_else(|| if ok { "Works".into() } else { "Failed".into() }));
-        });
+        self.admin(
+            move |r| r.client().test_model(&id),
+            move |p, t| {
+                let ok = t.success.unwrap_or(false);
+                p.notes.insert(key, t.message.unwrap_or_else(|| if ok { "Works".into() } else { "Failed".into() }));
+            },
+        );
     }
 
     pub fn delete_model(&self, id: String) {
@@ -124,18 +127,24 @@ impl App {
 
     pub fn test_credential(&self, id: String) {
         let key = id.clone();
-        self.admin(move |r| r.client().test_credential(&id), move |p, t| {
-            let ok = t.success.unwrap_or(false);
-            p.notes.insert(key, t.message.unwrap_or_else(|| if ok { "Key works".into() } else { "Key failed".into() }));
-        });
+        self.admin(
+            move |r| r.client().test_credential(&id),
+            move |p, t| {
+                let ok = t.success.unwrap_or(false);
+                p.notes.insert(key, t.message.unwrap_or_else(|| if ok { "Key works".into() } else { "Key failed".into() }));
+            },
+        );
     }
 
     pub fn register_models(&self, id: String) {
         let key = id.clone();
-        self.admin(move |r| r.client().register_credential_models(&id).and_then(|()| r.client().list_models()), move |p, m| {
-            p.models = m;
-            p.notes.insert(key, "Models added".into());
-        });
+        self.admin(
+            move |r| r.client().register_credential_models(&id).and_then(|()| r.client().list_models()),
+            move |p, m| {
+                p.models = m;
+                p.notes.insert(key, "Models added".into());
+            },
+        );
     }
 
     pub fn delete_credential(&self, id: String) {
@@ -147,8 +156,11 @@ impl App {
     }
 
     pub fn rebuild_index(&self) {
-        self.admin(|r| r.client().rebuild_embeddings(true), |p, started| {
-            p.notes.insert("rebuild".into(), started.message.unwrap_or_else(|| "Started".into()));
-        });
+        self.admin(
+            |r| r.client().rebuild_embeddings(true),
+            |p, started| {
+                p.notes.insert("rebuild".into(), started.message.unwrap_or_else(|| "Started".into()));
+            },
+        );
     }
 }

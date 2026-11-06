@@ -38,7 +38,9 @@ pub fn view(o: &Open, l: &Look) -> El {
                 .key("new-deck"),
         );
         if o.decks.is_empty() {
-            c = c.child(text("Make flashcards to remember the key points, or a quiz to check yourself.").font(theme::READ_HEADING).color(l.text3).wrap().pt(40.0));
+            c = c.child(
+                text("Make flashcards to remember the key points, or a quiz to check yourself.").font(theme::READ_HEADING).color(l.text3).wrap().pt(40.0),
+            );
         }
         for (i, d) in o.decks.iter().enumerate() {
             let kind = match d.deck.kind {
@@ -81,9 +83,23 @@ fn study_form(o: &Open, f: &StudyForm, l: &Look) -> El {
     let count = row()
         .gap(6.0)
         .center_y()
-        .child(Button::new("−").variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(|s: &mut App| form(s).count = form(s).count.saturating_sub(2).max(4)).build(k).key("count-down"))
+        .child(
+            Button::new("−")
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut App| form(s).count = form(s).count.saturating_sub(2).max(4))
+                .build(k)
+                .key("count-down"),
+        )
         .child(text(format!("{} {}", f.count, if f.kind == StudyKind::Quiz { "questions" } else { "cards" })).font(k.ty.ui).color(l.text))
-        .child(Button::new("+").variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(|s: &mut App| form(s).count = (form(s).count + 2).min(20)).build(k).key("count-up"));
+        .child(
+            Button::new("+")
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut App| form(s).count = (form(s).count + 2).min(20))
+                .build(k)
+                .key("count-up"),
+        );
     let mut sources = col().w_full().gap(6.0).child(text("From these sources").font(k.ty.ui_medium).color(l.text2));
     for src in &o.sources {
         let id = src.id.clone();
@@ -109,7 +125,15 @@ fn study_form(o: &Open, f: &StudyForm, l: &Look) -> El {
         .child(row().gap(12.0).center_y().child(kind).child(difficulty))
         .child(count)
         .child(sources)
-        .child(TextArea::new(&f.focus).width(None).rows(2).placeholder("Anything to focus on? Optional").on_edit(|s: &mut App| &mut form(s).focus).build(k).key("study-focus"));
+        .child(
+            TextArea::new(&f.focus)
+                .width(None)
+                .rows(2)
+                .placeholder("Anything to focus on? Optional")
+                .on_edit(|s: &mut App| &mut form(s).focus)
+                .build(k)
+                .key("study-focus"),
+        );
     if let Some(e) = &f.error {
         c = c.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap());
     }
@@ -129,7 +153,14 @@ fn study_form(o: &Open, f: &StudyForm, l: &Look) -> El {
                     .build(k)
                     .key("study-cancel"),
             )
-            .child(Button::new(if f.busy { "Making…" } else { "Make deck" }).variant(ButtonVariant::Contrast).disabled(f.busy).on_press(|s: &mut App| s.make_deck()).build(k).key("study-make")),
+            .child(
+                Button::new(if f.busy { "Making…" } else { "Make deck" })
+                    .variant(ButtonVariant::Contrast)
+                    .disabled(f.busy)
+                    .on_press(|s: &mut App| s.make_deck())
+                    .build(k)
+                    .key("study-make"),
+            ),
     )
 }
 
@@ -146,7 +177,9 @@ fn deck_view(deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
         })
         .build(k)
         .key("deck-back");
-    let mut c = col().w_full().gap(14.0).child(row().w_full().center_y().justify_between().child(back).child(text(format!("{} of {total}", (v.card + 1).min(total))).font(k.ty.small).color(l.text3)));
+    let mut c = col().w_full().gap(14.0).child(
+        row().w_full().center_y().justify_between().child(back).child(text(format!("{} of {total}", (v.card + 1).min(total))).font(k.ty.small).color(l.text3)),
+    );
     let Some(item) = deck.items.get(v.card) else {
         let score = if deck.kind == StudyKind::Quiz { format!("{} of {total} right.", v.right) } else { "Deck done.".into() };
         return c.child(text(score).font(theme::READ_TITLE).color(l.text)).child(
@@ -192,7 +225,15 @@ fn deck_view(deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                         v.flipped = !v.flipped;
                     }
                 });
-            c = c.child(k.interactive(card)).child(row().w_full().gap(8.0).justify_end().child(text(if v.flipped { "" } else { "Click the card to see the answer" }).font(k.ty.small).color(l.text3)).child(el().grow(1.0)).child(next("Next")));
+            c = c.child(k.interactive(card)).child(
+                row()
+                    .w_full()
+                    .gap(8.0)
+                    .justify_end()
+                    .child(text(if v.flipped { "" } else { "Click the card to see the answer" }).font(k.ty.small).color(l.text3))
+                    .child(el().grow(1.0))
+                    .child(next("Next")),
+            );
         }
         StudyKind::Quiz => {
             c = c.child(text(item.question.clone()).font(theme::READ_HEADING).color(l.text).wrap());
@@ -203,7 +244,14 @@ fn deck_view(deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                     Some(p) if p == i => l.danger.alpha(0.12),
                     _ => l.panel,
                 };
-                let choice = row().key(format!("opt-{i}")).w_full().padding(12.0).radius(10.0).border(1.0, l.line).fill(fill).child(text(option.clone()).font(k.ty.body).color(l.text).wrap());
+                let choice = row()
+                    .key(format!("opt-{i}"))
+                    .w_full()
+                    .padding(12.0)
+                    .radius(10.0)
+                    .border(1.0, l.line)
+                    .fill(fill)
+                    .child(text(option.clone()).font(k.ty.body).color(l.text).wrap());
                 c = c.child(if v.picked.is_some() {
                     choice
                 } else {
@@ -218,7 +266,9 @@ fn deck_view(deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                 });
             }
             if v.picked.is_some() {
-                c = c.child(text(item.answer.clone()).font(theme::READ_BODY).color(l.text2).wrap()).child(row().w_full().justify_end().child(next("Next question")));
+                c = c
+                    .child(text(item.answer.clone()).font(theme::READ_BODY).color(l.text2).wrap())
+                    .child(row().w_full().justify_end().child(next("Next question")));
             }
         }
     }

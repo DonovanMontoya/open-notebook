@@ -114,6 +114,12 @@ fn opens_the_tauri_apps_data() {
     std::thread::sleep(Duration::from_millis(300));
     app.drain();
     let o = app.open.as_ref().unwrap();
-    println!("sources: {}, notes: {}, sessions: {}, messages: {}", o.sources.len(), o.notes.len(), o.sessions.len(), o.session.as_ref().map_or(0, |s| s.messages.len()));
+    println!(
+        "sources: {}, notes: {}, sessions: {}, messages: {}",
+        o.sources.len(),
+        o.notes.len(),
+        o.sessions.len(),
+        o.session.as_ref().map_or(0, |s| s.messages.len())
+    );
     assert!(app.toast.is_none(), "{:?}", app.toast);
 }

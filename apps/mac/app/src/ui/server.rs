@@ -12,7 +12,12 @@ fn page(s: &mut App) -> &mut ServerPage {
 }
 
 fn section(title: &str, intro: &str, l: &Look) -> El {
-    col().w_full().gap(10.0).pt(8.0).child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text)).child(text(intro.to_owned()).font(l.k.ty.ui).color(l.text2).wrap())
+    col()
+        .w_full()
+        .gap(10.0)
+        .pt(8.0)
+        .child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text))
+        .child(text(intro.to_owned()).font(l.k.ty.ui).color(l.text2).wrap())
 }
 
 fn small(label: &str, key: String, l: &Look, f: impl Fn(&mut App) + 'static) -> El {
@@ -22,9 +27,14 @@ fn small(label: &str, key: String, l: &Look, f: impl Fn(&mut App) + 'static) -> 
 pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.server else { return col() };
-    let mut c = col().w_full().max_w(720.0).gap(14.0).px(24.0).py(28.0).child(text("Server").font(theme::READ_TITLE).color(l.text)).child(
-        text(format!("Admin for {}.", s.settings.server_url)).font(k.ty.ui).color(l.text2).wrap(),
-    );
+    let mut c = col()
+        .w_full()
+        .max_w(720.0)
+        .gap(14.0)
+        .px(24.0)
+        .py(28.0)
+        .child(text("Server").font(theme::READ_TITLE).color(l.text))
+        .child(text(format!("Admin for {}.", s.settings.server_url)).font(k.ty.ui).color(l.text2).wrap());
 
     // Default models, one per job.
     let mut defaults = section("Default models", "Which model the server uses for each job.", l);
@@ -58,16 +68,21 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     c = c.child(defaults);
 
     // Models.
-    let mut models = section("Models", "Models the server knows about. Sync adds what each provider key can reach.", l).child(row().child(small("Sync models", "sync".into(), l, |s: &mut App| s.sync_models())));
+    let mut models = section("Models", "Models the server knows about. Sync adds what each provider key can reach.", l).child(row().child(small(
+        "Sync models",
+        "sync".into(),
+        l,
+        |s: &mut App| s.sync_models(),
+    )));
     for m in &p.models {
         let (t, d) = (m.id.clone(), m.id.clone());
-        let mut r = row()
-            .key(format!("m-{}", m.id))
-            .w_full()
-            .gap(8.0)
-            .py(4.0)
-            .center_y()
-            .child(col().grow(1.0).min_w(0.0).child(text(m.name.clone()).font(k.ty.ui).color(l.text).max_lines(1)).child(text(format!("{} · {}", m.provider, m.kind)).font(k.ty.small).color(l.text3)));
+        let mut r = row().key(format!("m-{}", m.id)).w_full().gap(8.0).py(4.0).center_y().child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .child(text(m.name.clone()).font(k.ty.ui).color(l.text).max_lines(1))
+                .child(text(format!("{} · {}", m.provider, m.kind)).font(k.ty.small).color(l.text3)),
+        );
         if let Some(note) = p.notes.get(&m.id) {
             r = r.child(text(note.clone()).font(k.ty.small).color(l.text2).max_w(220.0).max_lines(2));
         }
@@ -88,13 +103,13 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
             (None, Some(n)) => format!("{} · {n} models", cr.provider),
             (None, None) => cr.provider.clone(),
         };
-        let mut r = row()
-            .key(format!("c-{}", cr.id))
-            .w_full()
-            .gap(8.0)
-            .py(4.0)
-            .center_y()
-            .child(col().grow(1.0).min_w(0.0).child(text(cr.name.clone()).font(k.ty.ui).color(l.text).max_lines(1)).child(text(detail).font(k.ty.small).color(if cr.decryption_error.is_some() { l.danger } else { l.text3 })));
+        let mut r = row().key(format!("c-{}", cr.id)).w_full().gap(8.0).py(4.0).center_y().child(
+            col()
+                .grow(1.0)
+                .min_w(0.0)
+                .child(text(cr.name.clone()).font(k.ty.ui).color(l.text).max_lines(1))
+                .child(text(detail).font(k.ty.small).color(if cr.decryption_error.is_some() { l.danger } else { l.text3 })),
+        );
         if let Some(note) = p.notes.get(&cr.id) {
             r = r.child(text(note.clone()).font(k.ty.small).color(l.text2).max_w(200.0).max_lines(2));
         }
@@ -114,8 +129,12 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     c = c.child(keys);
 
     // Jobs and the index.
-    let mut jobs = section("Background jobs", "Source processing, embeddings and podcasts running on the server.", l)
-        .child(row().gap(8.0).child(small("Refresh", "jobs-refresh".into(), l, |s| s.load_jobs())).child(small("Rebuild search index", "rebuild".into(), l, |s| s.rebuild_index())));
+    let mut jobs = section("Background jobs", "Source processing, embeddings and podcasts running on the server.", l).child(
+        row()
+            .gap(8.0)
+            .child(small("Refresh", "jobs-refresh".into(), l, |s| s.load_jobs()))
+            .child(small("Rebuild search index", "rebuild".into(), l, |s| s.rebuild_index())),
+    );
     if let Some(note) = p.notes.get("rebuild") {
         jobs = jobs.child(text(note.clone()).font(k.ty.small).color(l.text2));
     }
@@ -174,7 +193,9 @@ fn new_key(p: &ServerPage, a: &NewKey, l: &Look, layer: &mut Vec<El>) -> El {
         .child(provider)
         .child(TextInput::new(&a.name).width(None).placeholder("Name (optional)").on_edit(|s: &mut App| &mut adding(s).name).build(k).key("key-name"))
         .child(TextInput::new(&a.api_key).width(None).secure().placeholder("API key").on_edit(|s: &mut App| &mut adding(s).api_key).build(k).key("key-value"))
-        .child(TextInput::new(&a.base_url).width(None).placeholder("Base URL (optional)").on_edit(|s: &mut App| &mut adding(s).base_url).build(k).key("key-url"))
+        .child(
+            TextInput::new(&a.base_url).width(None).placeholder("Base URL (optional)").on_edit(|s: &mut App| &mut adding(s).base_url).build(k).key("key-url"),
+        )
         .child(
             row()
                 .w_full()
@@ -182,6 +203,13 @@ fn new_key(p: &ServerPage, a: &NewKey, l: &Look, layer: &mut Vec<El>) -> El {
                 .justify_end()
                 .child(el().grow(1.0))
                 .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| page(s).adding = None).build(k).key("key-cancel"))
-                .child(Button::new("Save key").variant(ButtonVariant::Contrast).disabled(a.provider.is_none()).on_press(|s: &mut App| s.add_credential()).build(k).key("key-save")),
+                .child(
+                    Button::new("Save key")
+                        .variant(ButtonVariant::Contrast)
+                        .disabled(a.provider.is_none())
+                        .on_press(|s: &mut App| s.add_credential())
+                        .build(k)
+                        .key("key-save"),
+                ),
         )
 }

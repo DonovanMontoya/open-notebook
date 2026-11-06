@@ -45,6 +45,7 @@ pub enum Route {
     Transformations,
     Usage,
     Server,
+    Profiles,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +53,7 @@ pub enum NotebookTab {
     Chat,
     Notes,
     Study,
+    Listen,
 }
 
 /// The add-source sheet.
@@ -109,6 +111,9 @@ pub struct Open {
     pub decks: Vec<StoredDeck>,
     pub study: Option<crate::study::StudyForm>,
     pub viewing: Option<crate::study::DeckView>,
+    pub episodes: Vec<Episode>,
+    pub new_episode: Option<crate::listen::NewEpisode>,
+    pub episode_views: std::collections::HashMap<String, crate::listen::EpisodeOpen>,
 }
 
 impl Open {
@@ -136,6 +141,9 @@ impl Open {
             decks: Vec::new(),
             study: None,
             viewing: None,
+            episodes: Vec::new(),
+            new_episode: None,
+            episode_views: std::collections::HashMap::new(),
         }
     }
 
@@ -143,6 +151,14 @@ impl Open {
     pub fn processing(&self) -> bool {
         self.sources.iter().any(|s| matches!(s.status.as_deref(), Some("new" | "queued" | "running" | "processing")))
             || self.insights.iter().any(|i| i.status.as_deref() == Some("running"))
+            || self.episodes_in_progress()
+    }
+
+    /// Episodes still being made, or whose claims are still being checked.
+    pub fn episodes_in_progress(&self) -> bool {
+        self.episodes
+            .iter()
+            .any(|e| !matches!(e.status, EpisodeStatus::Completed | EpisodeStatus::Failed) || e.check.as_ref().is_some_and(|c| c.status == "checking"))
     }
 }
 
@@ -156,6 +172,10 @@ pub struct SettingsForm {
     pub chat_provider: ProviderKind,
     pub embedding_model: TextEdit,
     pub embedding_provider: ProviderKind,
+    pub transcription_model: TextEdit,
+    pub transcription_provider: ProviderKind,
+    /// ElevenLabs voices for podcasts; not a chat provider.
+    pub elevenlabs: TextEdit,
     pub saved: bool,
     pub open_select: Option<&'static str>,
 }
@@ -174,6 +194,9 @@ impl SettingsForm {
             chat_provider: provider(&settings.chat, ProviderKind::Anthropic),
             embedding_model: TextEdit::new(model(&settings.embedding)),
             embedding_provider: provider(&settings.embedding, ProviderKind::OpenAi),
+            transcription_model: TextEdit::new(model(&settings.transcription)),
+            transcription_provider: provider(&settings.transcription, ProviderKind::OpenAi),
+            elevenlabs: TextEdit::new(secret(&settings::provider_secret("elevenlabs"))),
             saved: false,
             open_select: None,
         }
@@ -188,6 +211,9 @@ pub struct App {
     /// The same backend as `backend` in connected mode, for the admin calls only a server has.
     pub remote: Option<Arc<RemoteBackend>>,
     pub server: Option<crate::server::ServerPage>,
+    pub playing: Option<crate::listen::NowPlaying>,
+    pub podcast_profiles: Option<PodcastProfiles>,
+    pub profiles: Option<crate::listen::ProfilesPage>,
     pub backend_error: Option<String>,
     pub route: Route,
     pub sidebar: PaneState,
@@ -222,6 +248,9 @@ impl App {
             backend: None,
             remote: None,
             server: None,
+            playing: None,
+            podcast_profiles: None,
+            profiles: None,
             backend_error: None,
             route: Route::Home,
             sidebar: PaneState::new(248.0).range(180.0, 420.0),
@@ -320,6 +349,11 @@ impl App {
         });
     }
 
+    /// The waker that asks Rune for a frame, once `setup` has run.
+    pub fn waker(&self) -> Option<Waker> {
+        self.inbox.waker.clone()
+    }
+
     pub fn inbox(&self) -> Inbox {
         self.inbox.clone()
     }
@@ -336,16 +370,19 @@ impl App {
     // Notebooks
 
     pub fn refresh_notebooks(&self) {
-        self.run(|b| b.list_notebooks(), |app, r| match r {
-            Ok(list) => {
-                app.notebooks = list;
-                app.loaded = true;
-            }
-            Err(e) => {
-                app.loaded = true;
-                app.fail(e);
-            }
-        });
+        self.run(
+            |b| b.list_notebooks(),
+            |app, r| match r {
+                Ok(list) => {
+                    app.notebooks = list;
+                    app.loaded = true;
+                }
+                Err(e) => {
+                    app.loaded = true;
+                    app.fail(e);
+                }
+            },
+        );
     }
 
     pub fn create_notebook(&mut self) {
@@ -354,28 +391,34 @@ impl App {
         if name.is_empty() {
             return;
         }
-        self.run(move |b| b.create_notebook(&name, ""), |app, r| match r {
-            Ok(nb) => {
-                let id = nb.id.clone();
-                app.notebooks.insert(0, nb);
-                app.open_notebook(id);
-            }
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.create_notebook(&name, ""),
+            |app, r| match r {
+                Ok(nb) => {
+                    let id = nb.id.clone();
+                    app.notebooks.insert(0, nb);
+                    app.open_notebook(id);
+                }
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn delete_notebook(&mut self, id: String) {
         let gone = id.clone();
-        self.run(move |b| b.delete_notebook(&id), move |app, r| match r {
-            Ok(()) => {
-                app.notebooks.retain(|n| n.id != gone);
-                if app.open.as_ref().is_some_and(|o| o.id == gone) {
-                    app.open = None;
-                    app.route = Route::Home;
+        self.run(
+            move |b| b.delete_notebook(&id),
+            move |app, r| match r {
+                Ok(()) => {
+                    app.notebooks.retain(|n| n.id != gone);
+                    if app.open.as_ref().is_some_and(|o| o.id == gone) {
+                        app.open = None;
+                        app.route = Route::Home;
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn open_notebook(&mut self, id: String) {
@@ -401,6 +444,7 @@ impl App {
         self.refresh_sources();
         self.load_transformations();
         self.load_decks();
+        self.load_episodes();
         let i = id.clone();
         self.run(move |b| b.list_notes(&i), with_open(&id, |o, notes| o.notes = notes));
         let i = id.clone();
@@ -427,6 +471,9 @@ impl App {
             && o.insights.iter().any(|i| i.status.as_deref() == Some("running"))
         {
             self.load_insights(d.summary.id.clone());
+        }
+        if self.open.as_ref().is_some_and(|o| o.episodes_in_progress()) {
+            self.load_episodes();
         }
         let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let i = id.clone();
@@ -584,15 +631,15 @@ impl App {
                 None => b.delete_chat_session(&session_id),
             },
             move |app, r| match r {
-            Ok(()) => {
-                if let Some(o) = app.open.as_mut() {
-                    o.sessions.retain(|s| s.id != gone);
-                    if o.session.as_ref().is_some_and(|s| s.session.id == gone) {
-                        o.session = None;
+                Ok(()) => {
+                    if let Some(o) = app.open.as_mut() {
+                        o.sessions.retain(|s| s.id != gone);
+                        if o.session.as_ref().is_some_and(|s| s.session.id == gone) {
+                            o.session = None;
+                        }
                     }
                 }
-            }
-            Err(e) => app.fail(e),
+                Err(e) => app.fail(e),
             },
         );
     }
@@ -606,10 +653,13 @@ impl App {
             o.insight_picker = false;
         }
         self.load_insights(source_id.clone());
-        self.run(move |b| b.get_source(&source_id), with_open(&id, move |o, detail: SourceDetail| {
-            let passage = passage_query.and_then(|q| notebook_engine::citations::best_passage(&detail.full_text, &q));
-            o.reading = Some((detail, passage));
-        }));
+        self.run(
+            move |b| b.get_source(&source_id),
+            with_open(&id, move |o, detail: SourceDetail| {
+                let passage = passage_query.and_then(|q| notebook_engine::citations::best_passage(&detail.full_text, &q));
+                o.reading = Some((detail, passage));
+            }),
+        );
     }
 
     pub fn add_source(&mut self, input: SourceInput) {
@@ -645,24 +695,30 @@ impl App {
 
     pub fn delete_source(&mut self, source_id: String) {
         let gone = source_id.clone();
-        self.run(move |b| b.delete_source(&source_id), move |app, r| match r {
-            Ok(()) => {
-                if let Some(o) = app.open.as_mut() {
-                    o.sources.retain(|s| s.id != gone);
-                    if o.reading.as_ref().is_some_and(|(d, _)| d.summary.id == gone) {
-                        o.reading = None;
+        self.run(
+            move |b| b.delete_source(&source_id),
+            move |app, r| match r {
+                Ok(()) => {
+                    if let Some(o) = app.open.as_mut() {
+                        o.sources.retain(|s| s.id != gone);
+                        if o.reading.as_ref().is_some_and(|(d, _)| d.summary.id == gone) {
+                            o.reading = None;
+                        }
                     }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn retry_source(&mut self, source_id: String) {
-        self.run(move |b| b.retry_source(&source_id), |app, r| match r {
-            Ok(()) => app.refresh_sources(),
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.retry_source(&source_id),
+            |app, r| match r {
+                Ok(()) => app.refresh_sources(),
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     // Notes
@@ -693,25 +749,31 @@ impl App {
     pub fn save_reply_as_note(&mut self, content: String) {
         let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let title = notebook_engine::text::title_from(&content, 60);
-        self.run(move |b| b.create_note(&nb, Some(&title), &content, true), |app, r| match r {
-            Ok(_) => {
-                app.toast = Some("Saved to notes".into());
-                app.refresh_notes();
-            }
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.create_note(&nb, Some(&title), &content, true),
+            |app, r| match r {
+                Ok(_) => {
+                    app.toast = Some("Saved to notes".into());
+                    app.refresh_notes();
+                }
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn delete_note(&mut self, note_id: String) {
         let gone = note_id.clone();
-        self.run(move |b| b.delete_note(&note_id), move |app, r| match r {
-            Ok(()) => {
-                if let Some(o) = app.open.as_mut() {
-                    o.notes.retain(|n| n.id != gone);
+        self.run(
+            move |b| b.delete_note(&note_id),
+            move |app, r| match r {
+                Ok(()) => {
+                    if let Some(o) = app.open.as_mut() {
+                        o.notes.retain(|n| n.id != gone);
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     // Settings
@@ -732,11 +794,15 @@ impl App {
         };
         s.chat = model(form.chat_provider, &form.chat_model);
         s.embedding = model(form.embedding_provider, &form.embedding_model);
+        s.transcription = model(form.transcription_provider, &form.transcription_model);
         let mut errors = Vec::new();
         for (id, edit) in &form.keys {
             if let Err(e) = self.secrets.set(&settings::provider_secret(id.as_str()), &edit.text) {
                 errors.push(e.to_string());
             }
+        }
+        if let Err(e) = self.secrets.set(&settings::provider_secret("elevenlabs"), &form.elevenlabs.text) {
+            errors.push(e.to_string());
         }
         if let Err(e) = self.secrets.set(settings::SERVER_PASSWORD, &form.server_password.text) {
             errors.push(e.to_string());

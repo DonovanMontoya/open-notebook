@@ -21,9 +21,10 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         NotebookTab::Chat => chat(o, l),
         NotebookTab::Notes => notes(o, l),
         NotebookTab::Study => super::study::view(o, l),
+        NotebookTab::Listen => super::listen::view(s, o, l, layer),
     };
-    const TABS: [NotebookTab; 3] = [NotebookTab::Chat, NotebookTab::Notes, NotebookTab::Study];
-    let tabs = SegmentedControl::new(&["Chat", "Notes", "Study"], TABS.iter().position(|t| *t == o.tab))
+    const TABS: [NotebookTab; 4] = [NotebookTab::Chat, NotebookTab::Notes, NotebookTab::Study, NotebookTab::Listen];
+    let tabs = SegmentedControl::new(&["Chat", "Notes", "Study", "Listen"], TABS.iter().position(|t| *t == o.tab))
         .label("View")
         .fit()
         .on_pick(|s: &mut App, i, _: &mut Tx| {
@@ -123,9 +124,7 @@ fn sources(o: &Open, l: &Look) -> El {
         .child(add);
     let mut list = col().key("source-list").w_full().gap(2.0).px(8.0).pb(12.0);
     if o.sources.is_empty() {
-        list = list.child(
-            text("Add links, text or files. Chat answers from what you add here.").font(k.ty.ui).color(l.text3).wrap().px(8.0).py(12.0),
-        );
+        list = list.child(text("Add links, text or files. Chat answers from what you add here.").font(k.ty.ui).color(l.text3).wrap().px(8.0).py(12.0));
     }
     let reading = o.reading.as_ref().map(|(d, _)| d.summary.id.as_str());
     for src in &o.sources {
@@ -169,15 +168,7 @@ fn source_row(src: &SourceSummary, selected: bool, l: &Look) -> El {
     if !status.is_empty() {
         lines = lines.child(text(status).font(k.ty.small).color(if failed { l.danger } else { l.text3 }).max_lines(2));
     }
-    let mut r = row()
-        .key(format!("src-{}", src.id))
-        .w_full()
-        .px(8.0)
-        .py(7.0)
-        .gap(8.0)
-        .radius(8.0)
-        .child(rune::icon(icon, 16.0).color(l.text3))
-        .child(lines);
+    let mut r = row().key(format!("src-{}", src.id)).w_full().px(8.0).py(7.0).gap(8.0).radius(8.0).child(rune::icon(icon, 16.0).color(l.text3)).child(lines);
     if failed {
         let rid = id.clone();
         r = r.child(
@@ -258,17 +249,9 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
     } else {
         text(full.clone()).key("source-text").font(theme::READ_BODY).color(l.text2).wrap().selectable(true)
     };
-    col()
-        .key("reader")
-        .w(READER)
-        .shrink()
-        .min_w(260.0)
-        .h_full()
-        .min_h(0.0)
-        .fill(l.page)
-        .child(head)
-        .child(rule(l))
-        .child(col().w_full().px(20.0).py(16.0).gap(18.0).child(insights(o, l, layer)).child(body).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0))
+    col().key("reader").w(READER).shrink().min_w(260.0).h_full().min_h(0.0).fill(l.page).child(head).child(rule(l)).child(
+        col().w_full().px(20.0).py(16.0).gap(18.0).child(insights(o, l, layer)).child(body).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0),
+    )
 }
 
 /// The source's insights, above its text, and a menu to run a transformation on it.
@@ -388,11 +371,22 @@ fn add_sheet(a: &AddSource, l: &Look, layer: &mut Vec<El>) {
         }
         AddKind::Text => {
             body = body
-                .child(TextInput::new(&a.title).width(None).placeholder("Title (optional)").on_edit(move |s: &mut App| &mut add(s).title).build(k).key("add-title"))
-                .child(TextArea::new(&a.text).width(None).placeholder("Paste text").rows(8).on_edit(move |s: &mut App| &mut add(s).text).build(k).key("add-text"));
+                .child(
+                    TextInput::new(&a.title)
+                        .width(None)
+                        .placeholder("Title (optional)")
+                        .on_edit(move |s: &mut App| &mut add(s).title)
+                        .build(k)
+                        .key("add-title"),
+                )
+                .child(
+                    TextArea::new(&a.text).width(None).placeholder("Paste text").rows(8).on_edit(move |s: &mut App| &mut add(s).text).build(k).key("add-text"),
+                );
         }
         AddKind::File => {
-            body = body.child(text("PDF, Word, PowerPoint, Excel, EPUB, HTML, Markdown or plain text. The text is read on this Mac.").font(k.ty.ui).color(l.text2).wrap());
+            body = body.child(
+                text("PDF, Word, PowerPoint, Excel, EPUB, HTML, Markdown or plain text. The text is read on this Mac.").font(k.ty.ui).color(l.text2).wrap(),
+            );
         }
     }
     if let Some(e) = &a.error {
@@ -454,10 +448,8 @@ fn set_add_error(s: &mut App, e: &str) {
 }
 
 fn choose_file(_: &mut App, tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Add a source".into(), ..Default::default() }.filter(
-        "Documents",
-        &["pdf", "docx", "pptx", "xlsx", "epub", "html", "htm", "md", "markdown", "txt", "csv", "json"],
-    );
+    let options = FileDialogOptions { title: "Add a source".into(), ..Default::default() }
+        .filter("Documents", &["pdf", "docx", "pptx", "xlsx", "epub", "html", "htm", "md", "markdown", "txt", "csv", "json"]);
     tx.open_file(options, |s: &mut App, result, _| match result {
         Ok(Some(path)) => read_file(s, path),
         Ok(None) => {}
@@ -474,9 +466,9 @@ fn read_file(s: &mut App, path: std::path::PathBuf) {
     let inbox = s.inbox();
     std::thread::spawn(move || {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "File".into());
-        let result = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|bytes| {
-            notebook_engine::extract::extract(&name, None, &bytes).map(|x| (x, bytes)).map_err(|e| e.to_string())
-        });
+        let result = std::fs::read(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| notebook_engine::extract::extract(&name, None, &bytes).map(|x| (x, bytes)).map_err(|e| e.to_string()));
         inbox.send(move |app| match result {
             Ok((x, bytes)) => app.add_source(SourceInput::Document {
                 title: Some(x.title).filter(|t| !t.trim().is_empty()).unwrap_or_else(|| name.clone()),
@@ -550,13 +542,21 @@ fn chat(o: &Open, l: &Look) -> El {
                 .fill(l.amber_wash)
                 .center_y()
                 .child(text(format!("Chatting about {title}")).font(k.ty.ui).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
-                .child(Button::new("Back to notebook chat").variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(|s: &mut App| s.chat_scope(None)).build(k).key("scope-back")),
+                .child(
+                    Button::new("Back to notebook chat")
+                        .variant(ButtonVariant::Ghost)
+                        .control_size(ControlSize::Small)
+                        .on_press(|s: &mut App| s.chat_scope(None))
+                        .build(k)
+                        .key("scope-back"),
+                ),
         );
     }
     let messages = o.session.as_ref().map(|s| s.messages.as_slice()).unwrap_or(&[]);
     if messages.is_empty() && o.pending.is_none() {
         let hint = if o.sources.is_empty() { "Add a source, then ask about it." } else { "Ask about your sources. Answers cite the passages they come from." };
-        thread = thread.child(col().w_full().pt(80.0).items_center().child(text(hint).font(theme::READ_HEADING).color(l.text3).align(rune::Align::Center).wrap()));
+        thread =
+            thread.child(col().w_full().pt(80.0).items_center().child(text(hint).font(theme::READ_HEADING).color(l.text3).align(rune::Align::Center).wrap()));
     }
     for (i, m) in messages.iter().enumerate() {
         thread = thread.child(message(m.kind, &m.content, &sources, false, l).key(format!("msg-{i}-{}", m.id)));
@@ -569,14 +569,7 @@ fn chat(o: &Open, l: &Look) -> El {
     if let Some(e) = &o.error {
         thread = thread.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap().key("chat-error"));
     }
-    let scroller = col()
-        .key("thread-scroll")
-        .w_full()
-        .items_center()
-        .child(thread)
-        .scroll(ScrollSpec { stick_bottom: true })
-        .grow(1.0)
-        .min_h(0.0);
+    let scroller = col().key("thread-scroll").w_full().items_center().child(thread).scroll(ScrollSpec { stick_bottom: true }).grow(1.0).min_h(0.0);
     col().w_full().grow(1.0).min_h(0.0).child(scroller).child(composer(o, l))
 }
 
@@ -653,7 +646,13 @@ fn composer(o: &Open, l: &Look) -> El {
     let k = &l.k;
     let sending = o.sending.is_some();
     let field = TextArea::new(&o.draft)
-        .placeholder(if o.scope.is_some() { "Ask about this source" } else if o.sources.is_empty() { "Ask anything" } else { "Ask about your sources" })
+        .placeholder(if o.scope.is_some() {
+            "Ask about this source"
+        } else if o.sources.is_empty() {
+            "Ask anything"
+        } else {
+            "Ask about your sources"
+        })
         .label("Message")
         .width(None)
         .auto_grow(1, 8)
@@ -671,11 +670,20 @@ fn composer(o: &Open, l: &Look) -> El {
     let button = if sending {
         IconButton::new(&icons::STOP).variant(IconButtonVariant::Contrast).label("Stop").on_press(|s: &mut App| s.stop())
     } else {
-        IconButton::new(&icons::SEND).variant(IconButtonVariant::Contrast).label("Send").disabled(o.draft.text.trim().is_empty()).on_press(|s: &mut App| s.send())
+        IconButton::new(&icons::SEND)
+            .variant(IconButtonVariant::Contrast)
+            .label("Send")
+            .disabled(o.draft.text.trim().is_empty())
+            .on_press(|s: &mut App| s.send())
     };
-    col().key("composer").w_full().items_center().px(24.0).pb(16.0).pt(8.0).child(
-        row().w_full().max_w(720.0).gap(8.0).items_end().child(col().grow(1.0).min_w(0.0).child(field)).child(button.build(k).key("send")),
-    )
+    col()
+        .key("composer")
+        .w_full()
+        .items_center()
+        .px(24.0)
+        .pb(16.0)
+        .pt(8.0)
+        .child(row().w_full().max_w(720.0).gap(8.0).items_end().child(col().grow(1.0).min_w(0.0).child(field)).child(button.build(k).key("send")))
 }
 
 // Notes
@@ -754,8 +762,25 @@ fn note_editor(d: &NoteDraft, l: &Look) -> El {
         .radius(12.0)
         .border(1.0, l.line_strong)
         .fill(l.panel)
-        .child(TextInput::new(&d.title).width(None).placeholder("Title").plain().text_style(theme::READ_HEADING).on_edit(move |s: &mut App| &mut draft(s).title).build(k).key("note-title"))
-        .child(TextArea::new(&d.content).width(None).placeholder("Write a note").auto_grow(4, 24).on_edit(move |s: &mut App| &mut draft(s).content).build(k).key("note-content"))
+        .child(
+            TextInput::new(&d.title)
+                .width(None)
+                .placeholder("Title")
+                .plain()
+                .text_style(theme::READ_HEADING)
+                .on_edit(move |s: &mut App| &mut draft(s).title)
+                .build(k)
+                .key("note-title"),
+        )
+        .child(
+            TextArea::new(&d.content)
+                .width(None)
+                .placeholder("Write a note")
+                .auto_grow(4, 24)
+                .on_edit(move |s: &mut App| &mut draft(s).content)
+                .build(k)
+                .key("note-content"),
+        )
         .child(
             row()
                 .w_full()

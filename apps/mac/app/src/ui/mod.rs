@@ -2,6 +2,7 @@
 //! settings or the home screen.
 
 mod icons;
+mod listen;
 mod notebook;
 mod pages;
 mod server;
@@ -28,13 +29,16 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let l = look(cx, s);
     let mut layer = Vec::new();
     let (main, title) = match &s.route {
-        Route::Notebook(_) if s.open.is_some() => (notebook::view(s, &l, &mut layer), s.open.as_ref().and_then(|o| o.notebook.as_ref()).map(|n| n.name.clone()).unwrap_or_default()),
+        Route::Notebook(_) if s.open.is_some() => {
+            (notebook::view(s, &l, &mut layer), s.open.as_ref().and_then(|o| o.notebook.as_ref()).map(|n| n.name.clone()).unwrap_or_default())
+        }
         Route::Settings => (settings::view(s, &l, &mut layer), "Settings".to_owned()),
         Route::Ask => (pages::ask(s, &l, &mut layer), "Ask".to_owned()),
         Route::Library => (pages::library(s, &l), "Library".to_owned()),
         Route::Transformations => (pages::transformations(s, &l), "Transformations".to_owned()),
         Route::Usage => (pages::usage(s, &l), "Usage".to_owned()),
         Route::Server => (server::view(s, &l, &mut layer), "Server".to_owned()),
+        Route::Profiles => (listen::profiles(s, &l, &mut layer), "Podcast profiles".to_owned()),
         _ => (home(s, &l), String::new()),
     };
     if let Some((question, _)) = &s.confirm {
@@ -64,7 +68,10 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(message) = &s.toast {
         layer.push(toast(message, &l));
     }
-    let desk = col().key("desk").w_full().h_full().min_h(0.0).fill(l.panel).child(main);
+    let mut desk = col().key("desk").w_full().h_full().min_h(0.0).fill(l.panel).child(col().w_full().grow(1.0).min_h(0.0).child(main));
+    if let Some(p) = &s.playing {
+        desk = desk.child(listen::player_bar(p, &l));
+    }
     let split = SplitView::new(desk)
         .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, &l))
         .toolbar(Toolbar::new().title(title))
@@ -108,7 +115,13 @@ fn sidebar(s: &App, l: &Look) -> El {
     };
     let nav = |label: &str, icon: &'static rune::Icon, route: Route, key: &str| {
         let selected = s.route == route;
-        SidebarRow::new(label.to_owned()).icon(icon).height(30.0).selected(selected).on_select(move |s: &mut App, _| s.go(route.clone())).build(k).key(key.to_owned())
+        SidebarRow::new(label.to_owned())
+            .icon(icon)
+            .height(30.0)
+            .selected(selected)
+            .on_select(move |s: &mut App, _| s.go(route.clone()))
+            .build(k)
+            .key(key.to_owned())
     };
     sb = sb
         .header(nav("Ask", &rune_kit::glyphs::SEARCH, Route::Ask, "nav-ask"))

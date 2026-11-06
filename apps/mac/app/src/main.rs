@@ -3,13 +3,14 @@
 //! `cargo run -p open-notebook-mac` opens the window. Headless:
 //! `cargo run -p open-notebook-mac -- --snap notebook.png --scene notebook --size 1280x800`.
 
+mod listen;
 mod pages;
 mod scenes;
 mod server;
+mod state;
 mod study;
 #[cfg(test)]
 mod tests;
-mod state;
 mod theme;
 mod ui;
 
@@ -30,16 +31,28 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     } else {
         s.next_refresh = None;
     }
+    // A playing episode: redraw the clock and transcript a few times a second.
+    if s.playing.as_ref().is_some_and(|p| p.player.state() == rune::PlayerState::Playing) {
+        tx.wake_after(std::time::Duration::from_millis(250));
+        changed = true;
+    }
     changed
 }
 
-fn on_key(s: &mut App, ev: &KeyEvent, _: &mut Tx) -> bool {
+fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if rune_kit::shell::is_sidebar_toggle(ev) {
         s.sidebar.toggle();
         return true;
     }
     if ev.is_command('n') {
         s.new_chat();
+        return true;
+    }
+    if ev.key == rune::Key::Text(" ".into())
+        && tx.focused().is_none()
+        && let Some(e) = s.playing.as_ref().map(|p| p.episode.clone())
+    {
+        s.play(e);
         return true;
     }
     if ev.is_command(',') {

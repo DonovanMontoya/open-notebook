@@ -76,27 +76,33 @@ impl App {
             Route::Ask if self.ask.is_none() => self.ask = Some(AskPage::default()),
             Route::Library => {
                 self.library.get_or_insert_with(LibraryPage::default);
-                self.run(|b| b.list_all_sources(), |app, r| match r {
-                    Ok(sources) => {
-                        if let Some(p) = app.library.as_mut() {
-                            p.sources = sources;
-                            p.loaded = true;
+                self.run(
+                    |b| b.list_all_sources(),
+                    |app, r| match r {
+                        Ok(sources) => {
+                            if let Some(p) = app.library.as_mut() {
+                                p.sources = sources;
+                                p.loaded = true;
+                            }
                         }
-                    }
-                    Err(e) => app.fail(e),
-                });
+                        Err(e) => app.fail(e),
+                    },
+                );
             }
             Route::Transformations => {
                 self.transformations.get_or_insert_with(TransformationsPage::default);
                 self.load_transformations();
-                self.run(|b| b.transformation_instructions(), |app, r| match r {
-                    Ok(text) => {
-                        if let Some(p) = app.transformations.as_mut() {
-                            p.instructions = TextEdit::new(text);
+                self.run(
+                    |b| b.transformation_instructions(),
+                    |app, r| match r {
+                        Ok(text) => {
+                            if let Some(p) = app.transformations.as_mut() {
+                                p.instructions = TextEdit::new(text);
+                            }
                         }
-                    }
-                    Err(e) => app.fail(e),
-                });
+                        Err(e) => app.fail(e),
+                    },
+                );
             }
             Route::Usage => self.load_usage(self.usage.as_ref().map_or(30, |u| u.days)),
             Route::Server => self.load_server(),
@@ -121,14 +127,17 @@ impl App {
         p.hits = None;
         let scope = p.scope.clone();
         match p.mode {
-            AskMode::Search => self.run(move |b| b.search(&query, scope.as_deref()), |app, r| {
-                let Some(p) = app.ask.as_mut() else { return };
-                p.busy = None;
-                match r {
-                    Ok(hits) => p.hits = Some(hits),
-                    Err(e) => p.error = Some(e.to_string()),
-                }
-            }),
+            AskMode::Search => self.run(
+                move |b| b.search(&query, scope.as_deref()),
+                |app, r| {
+                    let Some(p) = app.ask.as_mut() else { return };
+                    p.busy = None;
+                    match r {
+                        Ok(hits) => p.hits = Some(hits),
+                        Err(e) => p.error = Some(e.to_string()),
+                    }
+                },
+            ),
             AskMode::Ask => {
                 let inbox = self.inbox();
                 self.run(
@@ -164,32 +173,38 @@ impl App {
             return;
         }
         let id = source_id.clone();
-        self.run(move |b| b.get_source(&id), move |app, r| match r {
-            Ok(detail) => match detail.summary.notebooks.first().cloned() {
-                Some(nb) => {
-                    app.open_notebook(nb);
-                    app.read_source(source_id, query);
-                }
-                None => app.fail("That source isn't in a notebook"),
+        self.run(
+            move |b| b.get_source(&id),
+            move |app, r| match r {
+                Ok(detail) => match detail.summary.notebooks.first().cloned() {
+                    Some(nb) => {
+                        app.open_notebook(nb);
+                        app.read_source(source_id, query);
+                    }
+                    None => app.fail("That source isn't in a notebook"),
+                },
+                Err(e) => app.fail(e),
             },
-            Err(e) => app.fail(e),
-        });
+        );
     }
 
     // Transformations
 
     pub fn load_transformations(&self) {
-        self.run(|b| b.list_transformations(), |app, r| match r {
-            Ok(list) => {
-                if let Some(o) = app.open.as_mut() {
-                    o.transformations = list.clone();
+        self.run(
+            |b| b.list_transformations(),
+            |app, r| match r {
+                Ok(list) => {
+                    if let Some(o) = app.open.as_mut() {
+                        o.transformations = list.clone();
+                    }
+                    if let Some(p) = app.transformations.as_mut() {
+                        p.list = list;
+                    }
                 }
-                if let Some(p) = app.transformations.as_mut() {
-                    p.list = list;
-                }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn save_transformation(&mut self) {
@@ -203,29 +218,38 @@ impl App {
             prompt: d.prompt.text.clone(),
             apply_default: d.apply_default,
         };
-        self.run(move |b| b.save_transformation(t), |app, r| match r {
-            Ok(_) => app.load_transformations(),
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.save_transformation(t),
+            |app, r| match r {
+                Ok(_) => app.load_transformations(),
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn delete_transformation(&mut self, id: String) {
-        self.run(move |b| b.delete_transformation(&id), |app, r| match r {
-            Ok(()) => app.load_transformations(),
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.delete_transformation(&id),
+            |app, r| match r {
+                Ok(()) => app.load_transformations(),
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn save_instructions(&mut self) {
         let Some(text) = self.transformations.as_ref().map(|p| p.instructions.text.clone()) else { return };
-        self.run(move |b| b.set_transformation_instructions(&text), |app, r| match r {
-            Ok(()) => {
-                if let Some(p) = app.transformations.as_mut() {
-                    p.instructions_saved = true;
+        self.run(
+            move |b| b.set_transformation_instructions(&text),
+            |app, r| match r {
+                Ok(()) => {
+                    if let Some(p) = app.transformations.as_mut() {
+                        p.instructions_saved = true;
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     // Usage
@@ -242,12 +266,12 @@ impl App {
                 Ok(report)
             },
             move |app, r| match r {
-            Ok(report) => {
-                if let Some(p) = app.usage.as_mut().filter(|p| p.days == days) {
-                    p.report = Some(report);
+                Ok(report) => {
+                    if let Some(p) = app.usage.as_mut().filter(|p| p.days == days) {
+                        p.report = Some(report);
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
+                Err(e) => app.fail(e),
             },
         );
     }

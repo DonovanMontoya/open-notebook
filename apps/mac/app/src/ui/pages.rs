@@ -26,7 +26,14 @@ fn page(key: &str, title: &str, intro: &str, body: El, l: &Look) -> El {
 }
 
 fn hit_row(key: String, title: &str, snippet: &str, l: &Look) -> El {
-    let mut c = col().key(key).w_full().gap(3.0).padding(12.0).radius(10.0).border(1.0, l.line).child(text(title.to_owned()).font(l.k.ty.ui_medium).color(l.text).max_lines(1));
+    let mut c = col()
+        .key(key)
+        .w_full()
+        .gap(3.0)
+        .padding(12.0)
+        .radius(10.0)
+        .border(1.0, l.line)
+        .child(text(title.to_owned()).font(l.k.ty.ui_medium).color(l.text).max_lines(1));
     if !snippet.is_empty() {
         c = c.child(text(snippet.to_owned()).font(theme::READ_BODY).color(l.text2).wrap().max_lines(3));
     }
@@ -78,12 +85,18 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .build(k, layer)
         .key("ask-scope");
     let busy = p.busy.is_some();
-    let go = Button::new(if busy { if asking { "Researching…" } else { "Searching…" } } else if asking { "Ask" } else { "Search" })
-        .variant(ButtonVariant::Contrast)
-        .disabled(busy || p.query.text.trim().is_empty())
-        .on_press(|s: &mut App| s.ask_submit())
-        .build(k)
-        .key("ask-go");
+    let go = Button::new(if busy {
+        if asking { "Researching…" } else { "Searching…" }
+    } else if asking {
+        "Ask"
+    } else {
+        "Search"
+    })
+    .variant(ButtonVariant::Contrast)
+    .disabled(busy || p.query.text.trim().is_empty())
+    .on_press(|s: &mut App| s.ask_submit())
+    .build(k)
+    .key("ask-go");
     let field = TextInput::new(&p.query)
         .width(None)
         .large()
@@ -117,7 +130,8 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     if let Some(r) = &p.result {
         let docs: Vec<CitableSource> = r.documents.iter().map(|d| CitableSource { id: d.id.clone(), title: Some(d.title.clone()) }).collect();
         let linked = citations::link_citations(&r.answer, &docs);
-        let cited: Vec<(String, Option<String>)> = linked.cited.iter().map(|c| (c.id.clone(), r.documents.iter().find(|d| d.id == c.id).and_then(|d| d.notebook_id.clone()))).collect();
+        let cited: Vec<(String, Option<String>)> =
+            linked.cited.iter().map(|c| (c.id.clone(), r.documents.iter().find(|d| d.id == c.id).and_then(|d| d.notebook_id.clone()))).collect();
         let style = MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).link(l.amber).text(l.text);
         body = body.child(
             Markdown::new(linked.markdown)
@@ -140,7 +154,8 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
             let mut list = col().w_full().gap(8.0).child(text("Documents it drew on").font(k.ty.ui_medium).color(l.text2));
             for d in &r.documents {
                 let (id, nb) = (d.id.clone(), d.notebook_id.clone());
-                list = list.child(hit_row(format!("doc-{}", d.id), &d.title, "", l).on_press(move |s: &mut App| open_document(s, id.clone(), nb.clone(), None)));
+                list =
+                    list.child(hit_row(format!("doc-{}", d.id), &d.title, "", l).on_press(move |s: &mut App| open_document(s, id.clone(), nb.clone(), None)));
             }
             body = body.child(list);
         }
@@ -206,9 +221,16 @@ pub fn library(s: &App, l: &Look) -> El {
         let names: Vec<&str> = src.notebooks.iter().filter_map(|id| s.notebooks.iter().find(|n| &n.id == id)).map(|n| n.name.as_str()).collect();
         let (id, nb) = (src.id.clone(), src.notebooks.first().cloned());
         let title = src.title.clone().unwrap_or_else(|| "Untitled source".into());
-        list = list.child(hit_row(format!("lib-{}", src.id), &title, &names.join(" · "), l).on_press(move |s: &mut App| s.open_source(id.clone(), nb.clone(), None)));
+        list = list
+            .child(hit_row(format!("lib-{}", src.id), &title, &names.join(" · "), l).on_press(move |s: &mut App| s.open_source(id.clone(), nb.clone(), None)));
     }
-    page("library", "Library", "Every source, in every notebook. A source can belong to several notebooks.", col().w_full().gap(14.0).child(filter).child(list), l)
+    page(
+        "library",
+        "Library",
+        "Every source, in every notebook. A source can belong to several notebooks.",
+        col().w_full().gap(14.0).child(filter).child(list),
+        l,
+    )
 }
 
 // Transformations
@@ -238,11 +260,8 @@ pub fn transformations(s: &App, l: &Look) -> El {
             continue;
         }
         let (edit, del) = (t.clone(), t.id.clone());
-        let mut head = row()
-            .w_full()
-            .gap(8.0)
-            .center_y()
-            .child(text(t.title.clone()).font(theme::READ_HEADING).color(l.text).grow(1.0).min_w(0.0).max_lines(1));
+        let mut head =
+            row().w_full().gap(8.0).center_y().child(text(t.title.clone()).font(theme::READ_HEADING).color(l.text).grow(1.0).min_w(0.0).max_lines(1));
         if t.apply_default {
             head = head.child(text("Runs on new sources").font(k.ty.small).color(l.text3));
         }
@@ -311,7 +330,10 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
         .radius(12.0)
         .border(1.0, l.line_strong)
         .child(field("Name", TextInput::new(&d.name).width(None).on_edit(|s: &mut App| &mut draft(s).name).build(k).key("t-name")))
-        .child(field("Insight title", TextInput::new(&d.title).width(None).placeholder("Shown on the insight").on_edit(|s: &mut App| &mut draft(s).title).build(k).key("t-title")))
+        .child(field(
+            "Insight title",
+            TextInput::new(&d.title).width(None).placeholder("Shown on the insight").on_edit(|s: &mut App| &mut draft(s).title).build(k).key("t-title"),
+        ))
         .child(field("Description", TextInput::new(&d.description).width(None).on_edit(|s: &mut App| &mut draft(s).description).build(k).key("t-description")))
         .child(field("Prompt", TextArea::new(&d.prompt).width(None).auto_grow(4, 16).on_edit(|s: &mut App| &mut draft(s).prompt).build(k).key("t-prompt")))
         .child(
@@ -319,7 +341,9 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
                 .w_full()
                 .gap(8.0)
                 .center_y()
-                .child(Switch::new(d.apply_default).label("Run on new sources").on_toggle(|s: &mut App| draft(s).apply_default ^= true).build(k).key("t-default"))
+                .child(
+                    Switch::new(d.apply_default).label("Run on new sources").on_toggle(|s: &mut App| draft(s).apply_default ^= true).build(k).key("t-default"),
+                )
                 .child(el().grow(1.0))
                 .child(
                     Button::new("Cancel")
@@ -332,7 +356,14 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
                         .build(k)
                         .key("t-cancel"),
                 )
-                .child(Button::new("Save").variant(ButtonVariant::Contrast).disabled(d.name.text.trim().is_empty() || d.prompt.text.trim().is_empty()).on_press(|s: &mut App| s.save_transformation()).build(k).key("t-save")),
+                .child(
+                    Button::new("Save")
+                        .variant(ButtonVariant::Contrast)
+                        .disabled(d.name.text.trim().is_empty() || d.prompt.text.trim().is_empty())
+                        .on_press(|s: &mut App| s.save_transformation())
+                        .build(k)
+                        .key("t-save"),
+                ),
         )
 }
 
@@ -372,7 +403,13 @@ pub fn usage(s: &App, l: &Look) -> El {
                         .key(format!("u-{}-{}", g.model, g.feature))
                         .w_full()
                         .gap(4.0)
-                        .child(row().w_full().justify_between().child(text(format!("{} · {}", g.feature, g.model)).font(k.ty.ui_medium).color(l.text)).child(text(detail).font(k.ty.small).color(l.text2)))
+                        .child(
+                            row()
+                                .w_full()
+                                .justify_between()
+                                .child(text(format!("{} · {}", g.feature, g.model)).font(k.ty.ui_medium).color(l.text))
+                                .child(text(detail).font(k.ty.small).color(l.text2)),
+                        )
                         .child(el().w_full().h(6.0).radius(3.0).fill(l.raised).child(el().w_frac(tokens as f32 / max).h(6.0).radius(3.0).fill(l.text3))),
                 );
             }
@@ -383,7 +420,6 @@ pub fn usage(s: &App, l: &Look) -> El {
     }
     page("usage", "Usage", "Calls to AI providers by feature and model, with an estimated cost from list prices.", body, l)
 }
-
 
 /// 432000 → "432,000".
 fn grouped(n: u64) -> String {

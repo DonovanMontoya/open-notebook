@@ -26,24 +26,19 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         })
         .build(k)
         .key("mode");
-    let mut c = col()
-        .key("settings-body")
-        .w_full()
-        .max_w(560.0)
-        .gap(18.0)
-        .px(24.0)
-        .py(28.0)
-        .child(text("Settings").font(theme::READ_TITLE).color(l.text))
-        .child(section("Notebooks", l).child(mode).child(
-            text(if local {
-                "Everything stays on this Mac. Questions go to the AI provider you pick, with your own key."
-            } else {
-                "Notebooks live on your server, which can use local models."
-            })
-            .font(k.ty.ui)
-            .color(l.text2)
-            .wrap(),
-        ));
+    let mut c =
+        col().key("settings-body").w_full().max_w(560.0).gap(18.0).px(24.0).py(28.0).child(text("Settings").font(theme::READ_TITLE).color(l.text)).child(
+            section("Notebooks", l).child(mode).child(
+                text(if local {
+                    "Everything stays on this Mac. Questions go to the AI provider you pick, with your own key."
+                } else {
+                    "Notebooks live on your server, which can use local models."
+                })
+                .font(k.ty.ui)
+                .color(l.text2)
+                .wrap(),
+            ),
+        );
     if local {
         let mut keys = section("API keys", l).child(text("Kept in a file only you can read, in this app's folder.").font(k.ty.small).color(l.text3).wrap());
         for (i, (id, edit)) in f.keys.iter().enumerate() {
@@ -61,6 +56,18 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 l,
             ));
         }
+        keys = keys.child(field_row(
+            "ElevenLabs (podcast voices)",
+            TextInput::new(&f.elevenlabs)
+                .label("ElevenLabs")
+                .width(None)
+                .placeholder("Not set")
+                .secure()
+                .on_edit(|s: &mut App| &mut form(s).elevenlabs)
+                .build(k)
+                .key("key-elevenlabs"),
+            l,
+        ));
         keys = keys.child(field_row(
             "OpenAI-compatible base URL",
             TextInput::new(&f.compatible_base_url).width(None).on_edit(|s: &mut App| &mut form(s).compatible_base_url).build(k).key("compatible-url"),
@@ -80,15 +87,36 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 l,
                 layer,
             ))
-            .child(text("For example claude-sonnet-4-5, gpt-5.1 or gemini-2.5-pro for chat, and text-embedding-3-small for embeddings.").font(k.ty.small).color(l.text3).wrap());
+            .child(model_row(
+                "Speech to text (audio and video sources)",
+                "transcription",
+                f.transcription_provider,
+                &f.transcription_model,
+                f.open_select == Some("transcription"),
+                |f| &mut f.transcription_model,
+                |f, p| f.transcription_provider = p,
+                l,
+                layer,
+            ))
+            .child(text("For example claude-sonnet-4-5, gpt-5.1 or gemini-2.5-pro for chat, and text-embedding-3-small for embeddings, whisper-1 or gpt-4o-transcribe for speech.").font(k.ty.small).color(l.text3).wrap());
         c = c.child(models);
     } else {
         c = c.child(
             section("Server", l)
-                .child(field_row("Server URL", TextInput::new(&f.server_url).width(None).on_edit(|s: &mut App| &mut form(s).server_url).build(k).key("server-url"), l))
+                .child(field_row(
+                    "Server URL",
+                    TextInput::new(&f.server_url).width(None).on_edit(|s: &mut App| &mut form(s).server_url).build(k).key("server-url"),
+                    l,
+                ))
                 .child(field_row(
                     "Password",
-                    TextInput::new(&f.server_password).width(None).secure().placeholder("If the server has one").on_edit(|s: &mut App| &mut form(s).server_password).build(k).key("server-password"),
+                    TextInput::new(&f.server_password)
+                        .width(None)
+                        .secure()
+                        .placeholder("If the server has one")
+                        .on_edit(|s: &mut App| &mut form(s).server_password)
+                        .build(k)
+                        .key("server-password"),
                     l,
                 )),
         );

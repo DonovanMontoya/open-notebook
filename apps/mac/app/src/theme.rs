@@ -36,6 +36,7 @@ pub struct Look {
     pub amber: Color,
     pub amber_wash: Color,
     pub danger: Color,
+    pub ok: Color,
 }
 
 fn c(s: &str) -> Color {
@@ -69,6 +70,7 @@ impl Look {
             amber,
             amber_wash: c("#f0b25a").alpha(if dark { 0.16 } else { 0.24 }),
             danger: if dark { c("#e5484d") } else { c("#c8322f") },
+            ok: if dark { c("#4cc38a") } else { c("#16a34a") },
             k,
         }
     }

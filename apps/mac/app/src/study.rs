@@ -36,14 +36,17 @@ impl App {
     pub fn load_insights(&self, source_id: String) {
         let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let sid = source_id.clone();
-        self.run(move |b| b.list_insights(&sid), move |app, r| match r {
-            Ok(list) => {
-                if let Some(o) = app.open.as_mut().filter(|o| o.id == nb && o.reading.as_ref().is_some_and(|(d, _)| d.summary.id == source_id)) {
-                    o.insights = list;
+        self.run(
+            move |b| b.list_insights(&sid),
+            move |app, r| match r {
+                Ok(list) => {
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == nb && o.reading.as_ref().is_some_and(|(d, _)| d.summary.id == source_id)) {
+                        o.insights = list;
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn run_insight(&mut self, transformation_id: String) {
@@ -51,33 +54,42 @@ impl App {
         o.insight_picker = false;
         let Some(source_id) = o.reading.as_ref().map(|(d, _)| d.summary.id.clone()) else { return };
         let sid = source_id.clone();
-        self.run(move |b| b.create_insight(&sid, &transformation_id), move |app, r| match r {
-            Ok(()) => app.load_insights(source_id),
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.create_insight(&sid, &transformation_id),
+            move |app, r| match r {
+                Ok(()) => app.load_insights(source_id),
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn delete_insight(&mut self, id: String) {
         let gone = id.clone();
-        self.run(move |b| b.delete_insight(&id), move |app, r| match r {
-            Ok(()) => {
-                if let Some(o) = app.open.as_mut() {
-                    o.insights.retain(|i| i.id != gone);
+        self.run(
+            move |b| b.delete_insight(&id),
+            move |app, r| match r {
+                Ok(()) => {
+                    if let Some(o) = app.open.as_mut() {
+                        o.insights.retain(|i| i.id != gone);
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn insight_to_note(&mut self, id: String) {
         let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
-        self.run(move |b| b.save_insight_as_note(&id, &nb), |app, r| match r {
-            Ok(_) => {
-                app.toast = Some("Saved to notes".into());
-                app.refresh_notes();
-            }
-            Err(e) => app.fail(e),
-        });
+        self.run(
+            move |b| b.save_insight_as_note(&id, &nb),
+            |app, r| match r {
+                Ok(_) => {
+                    app.toast = Some("Saved to notes".into());
+                    app.refresh_notes();
+                }
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     // Study decks
@@ -85,14 +97,17 @@ impl App {
     pub fn load_decks(&self) {
         let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let id = nb.clone();
-        self.run(move |b| b.list_study_decks(&id), move |app, r| match r {
-            Ok(decks) => {
-                if let Some(o) = app.open.as_mut().filter(|o| o.id == nb) {
-                    o.decks = decks;
+        self.run(
+            move |b| b.list_study_decks(&id),
+            move |app, r| match r {
+                Ok(decks) => {
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == nb) {
+                        o.decks = decks;
+                    }
                 }
-            }
-            Err(e) => app.fail(e),
-        });
+                Err(e) => app.fail(e),
+            },
+        );
     }
 
     pub fn new_study_form(&mut self) {
@@ -131,21 +146,24 @@ impl App {
         };
         let nb = o.id.clone();
         let id = nb.clone();
-        self.run(move |b| b.generate_study_deck(&id, request), move |app, r| {
-            let Some(o) = app.open.as_mut().filter(|o| o.id == nb) else { return };
-            match r {
-                Ok(_) => {
-                    o.study = None;
-                    app.load_decks();
-                    app.refresh_notes();
-                }
-                Err(e) => {
-                    if let Some(f) = o.study.as_mut() {
-                        f.busy = false;
-                        f.error = Some(e.to_string());
+        self.run(
+            move |b| b.generate_study_deck(&id, request),
+            move |app, r| {
+                let Some(o) = app.open.as_mut().filter(|o| o.id == nb) else { return };
+                match r {
+                    Ok(_) => {
+                        o.study = None;
+                        app.load_decks();
+                        app.refresh_notes();
+                    }
+                    Err(e) => {
+                        if let Some(f) = o.study.as_mut() {
+                            f.busy = false;
+                            f.error = Some(e.to_string());
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
     }
 }
