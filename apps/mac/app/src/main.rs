@@ -5,6 +5,7 @@
 
 mod pages;
 mod scenes;
+mod server;
 mod study;
 #[cfg(test)]
 mod tests;

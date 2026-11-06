@@ -44,6 +44,7 @@ pub enum Route {
     Library,
     Transformations,
     Usage,
+    Server,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,6 +185,9 @@ pub struct App {
     pub settings: AppSettings,
     pub secrets: Secrets,
     pub backend: Option<Arc<dyn Backend>>,
+    /// The same backend as `backend` in connected mode, for the admin calls only a server has.
+    pub remote: Option<Arc<RemoteBackend>>,
+    pub server: Option<crate::server::ServerPage>,
     pub backend_error: Option<String>,
     pub route: Route,
     pub sidebar: PaneState,
@@ -216,6 +220,8 @@ impl App {
             secrets: Secrets::new(&data_dir),
             data_dir,
             backend: None,
+            remote: None,
+            server: None,
             backend_error: None,
             route: Route::Home,
             sidebar: PaneState::new(248.0).range(180.0, 420.0),
@@ -277,11 +283,15 @@ impl App {
     /// (Re)opens the backend for the current mode.
     pub fn connect(&mut self) {
         self.backend_error = None;
+        self.remote = None;
+        self.server = None;
         let backend: Result<Arc<dyn Backend>, String> = match self.settings.mode {
             Mode::Local => LocalBackend::open(&self.data_dir).map(|b| Arc::new(b) as Arc<dyn Backend>).map_err(|e| e.to_string()),
             Mode::Remote => {
                 let password = self.secrets.get(settings::SERVER_PASSWORD).ok().flatten();
-                Ok(Arc::new(RemoteBackend::new(&self.settings.server_url, password.as_deref())) as Arc<dyn Backend>)
+                let remote = Arc::new(RemoteBackend::new(&self.settings.server_url, password.as_deref()));
+                self.remote = Some(remote.clone());
+                Ok(remote as Arc<dyn Backend>)
             }
         };
         match backend {

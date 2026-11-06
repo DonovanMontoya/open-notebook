@@ -4,6 +4,7 @@
 mod icons;
 mod notebook;
 mod pages;
+mod server;
 mod settings;
 mod study;
 
@@ -33,6 +34,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         Route::Library => (pages::library(s, &l), "Library".to_owned()),
         Route::Transformations => (pages::transformations(s, &l), "Transformations".to_owned()),
         Route::Usage => (pages::usage(s, &l), "Usage".to_owned()),
+        Route::Server => (server::view(s, &l, &mut layer), "Server".to_owned()),
         _ => (home(s, &l), String::new()),
     };
     if let Some((question, _)) = &s.confirm {
@@ -131,6 +133,9 @@ fn sidebar(s: &App, l: &Look) -> El {
                 .build(k)
                 .key(format!("nb-{}", nb.id)),
         );
+    }
+    if s.remote.is_some() {
+        sb = sb.footer(nav("Server", &icons::SERVER, Route::Server, "nav-server"));
     }
     sb.footer(
         SidebarRow::new("Settings")

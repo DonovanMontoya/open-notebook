@@ -99,6 +99,7 @@ impl App {
                 });
             }
             Route::Usage => self.load_usage(self.usage.as_ref().map_or(30, |u| u.days)),
+            Route::Server => self.load_server(),
             _ => {}
         }
         self.route = route;

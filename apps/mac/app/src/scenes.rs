@@ -23,6 +23,7 @@ pub const SCENES: &[Scene] = &[
     ("quiz", quiz),
     ("insights", insights),
     ("source-chat", source_chat),
+    ("server", server),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -226,4 +227,22 @@ fn source_chat(s: &mut App) {
     notebook(s);
     let o = s.open.as_mut().unwrap();
     o.scope = Some(("s1".into(), "Sleep spindles and memory consolidation".into()));
+}
+
+fn server(s: &mut App) {
+    s.notebooks = notebooks();
+    s.settings.mode = notebook_engine::settings::Mode::Remote;
+    s.remote = Some(std::sync::Arc::new(notebook_engine::remote::RemoteBackend::new("https://notebook.example.ts.net", None)));
+    s.route = Route::Server;
+    let m = |id: &str, name: &str, provider: &str, kind: &str| ServerModel { id: id.into(), name: name.into(), provider: provider.into(), kind: kind.into() };
+    let mut p = crate::server::ServerPage {
+        models: vec![m("model:1", "qwen3:14b", "ollama", "language"), m("model:2", "nomic-embed-text", "ollama", "embedding"), m("model:3", "gpt-4o-mini-tts", "openai", "text_to_speech")],
+        credentials: serde_json::from_value(serde_json::json!([{"id": "credential:1", "name": "OpenAI", "provider": "openai", "has_api_key": true, "model_count": 12}])).unwrap(),
+        jobs: serde_json::from_value(serde_json::json!([{"job_id": "command:9", "name": "process_source", "status": "running"}])).unwrap(),
+        ..Default::default()
+    };
+    p.defaults.insert("default_chat_model".into(), Some("model:1".into()));
+    p.defaults.insert("default_embedding_model".into(), Some("model:2".into()));
+    p.notes.insert("credential:1".into(), "Key works".into());
+    s.server = Some(p);
 }
