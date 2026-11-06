@@ -232,13 +232,37 @@ impl App {
     pub fn load_usage(&mut self, days: u32) {
         let p = self.usage.get_or_insert_with(UsagePage::default);
         p.days = days;
-        self.run(move |b| b.usage(days), move |app, r| match r {
+        self.run(
+            move |b| {
+                let mut report = b.usage(days)?;
+                if b.kind() == notebook_engine::BackendKind::Local {
+                    price(&mut report);
+                }
+                Ok(report)
+            },
+            move |app, r| match r {
             Ok(report) => {
                 if let Some(p) = app.usage.as_mut().filter(|p| p.days == days) {
                     p.report = Some(report);
                 }
             }
             Err(e) => app.fail(e),
-        });
+            },
+        );
     }
+}
+
+/// On device, cost comes from list prices (the server reports its own). Models without a
+/// price stay unpriced and out of the total.
+fn price(report: &mut UsageReport) {
+    let overrides = notebook_engine::pricing::PriceOverrides::new();
+    let mut total = None;
+    for g in &mut report.groups {
+        g.estimated_usd = notebook_engine::pricing::cost_of(&g.model, g.input_tokens, g.output_tokens, g.audio_seconds, &overrides);
+        if let Some(c) = g.estimated_usd {
+            *total.get_or_insert(0.0) += c;
+        }
+    }
+    report.estimated_usd = total;
+    report.groups.sort_by(|a, b| b.estimated_usd.unwrap_or(-1.0).total_cmp(&a.estimated_usd.unwrap_or(-1.0)).then(b.calls.cmp(&a.calls)));
 }
