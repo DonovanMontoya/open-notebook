@@ -10,6 +10,7 @@ pub mod db;
 pub mod error;
 pub mod extract;
 pub mod insights;
+pub mod local;
 pub mod net;
 pub mod pricing;
 pub mod providers;
