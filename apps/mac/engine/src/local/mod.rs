@@ -8,9 +8,11 @@
 
 mod backend_impl;
 mod chat;
+mod episodes;
 mod insights;
 mod jobs;
 mod notebooks;
+mod podcasts;
 mod research;
 mod sources;
 #[cfg(test)]
@@ -26,6 +28,8 @@ use time::OffsetDateTime;
 use crate::backend::{Cancel, Result};
 use crate::db::{self, Db};
 use crate::net::{SharedHttp, UreqHttp};
+use crate::podcast::live::OpenSocket;
+use crate::podcast::voices::{VoiceConfig, VoiceProvider, create_voice_provider};
 use crate::providers::{ChatRequest, Provider, ProviderConfig, ProviderKind, create_provider};
 use crate::settings::{AppSettings, ModelSetting, Secrets, provider_secret};
 use crate::Error;
@@ -37,6 +41,8 @@ pub type ProviderFactory = Arc<dyn Fn(&ProviderConfig) -> Arc<dyn Provider> + Se
 /// Downloads a link and returns its readable text.
 pub type UrlExtractor = Arc<dyn Fn(&str, &Cancel) -> Result<Extracted> + Send + Sync>;
 pub type Clock = Arc<dyn Fn() -> OffsetDateTime + Send + Sync>;
+/// Builds a voice provider for an episode. Tests swap in a fake.
+pub type VoiceFactory = Arc<dyn Fn(&VoiceConfig) -> Arc<dyn VoiceProvider> + Send + Sync>;
 
 /// Optional overrides for [`LocalBackend::open_with`]; the defaults are the real network and clock.
 #[derive(Default, Clone)]
@@ -47,6 +53,10 @@ pub struct LocalOptions {
     pub clock: Option<Clock>,
     /// Settings to start with instead of `settings.json`.
     pub settings: Option<AppSettings>,
+    /// Voice providers for episodes; the default speaks to the providers over `http`.
+    pub voices: Option<VoiceFactory>,
+    /// Opens the WebSocket OpenAI Live voices use; the default is a real TLS socket.
+    pub open_socket: Option<OpenSocket>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,6 +89,9 @@ impl AiConfig {
 
 /// Sources processed at the same time; the rest wait their turn.
 pub(crate) const SOURCE_CONCURRENCY: usize = 2;
+/// Episodes and claim checks running at the same time. They have their own pool so a
+/// long episode never holds up source processing, and a check can run while its episode is voiced.
+pub(crate) const PODCAST_CONCURRENCY: usize = 4;
 /// Notebooks up to this many characters of source text are sent to the model whole (about 40k tokens).
 pub const FULL_CONTEXT_CHARS: usize = 160_000;
 
@@ -90,12 +103,14 @@ pub struct Engine {
     http: SharedHttp,
     providers: ProviderFactory,
     extract_url: UrlExtractor,
+    voices: VoiceFactory,
     clock: Clock,
     /// Cancels for background work, by source or insight id, with a generation so a
     /// finished job never removes the cancel of a newer one.
     running: Mutex<HashMap<String, (u64, Cancel)>>,
     generation: AtomicU64,
     jobs: Arc<jobs::Jobs>,
+    podcast_jobs: Arc<jobs::Jobs>,
 }
 
 /// The on-device backend. Cheap to clone; clones share one database and job pool.
@@ -128,6 +143,11 @@ impl LocalBackend {
             let languages = caption_languages();
             Arc::new(move |url: &str, cancel: &Cancel| crate::extract::extract_url(&*http, url, &languages, cancel))
         });
+        let voices = options.voices.unwrap_or_else(|| {
+            let http = http.clone();
+            let open_socket = options.open_socket.unwrap_or_else(crate::podcast::live::websocket);
+            Arc::new(move |config: &VoiceConfig| create_voice_provider(config, http.clone(), Some(open_socket.clone())))
+        });
         let engine = Engine {
             data_dir: data_dir.to_path_buf(),
             db,
@@ -136,13 +156,16 @@ impl LocalBackend {
             http,
             providers,
             extract_url,
+            voices,
             clock: options.clock.unwrap_or_else(|| Arc::new(OffsetDateTime::now_utc)),
             running: Mutex::default(),
             generation: AtomicU64::new(0),
             jobs: Arc::new(jobs::Jobs::new(SOURCE_CONCURRENCY)),
+            podcast_jobs: Arc::new(jobs::Jobs::new(PODCAST_CONCURRENCY)),
         };
         engine.recover()?;
         engine.seed_transformations()?;
+        engine.seed_podcast_profiles()?;
         Ok(LocalBackend(Arc::new(engine)))
     }
 }
@@ -171,9 +194,13 @@ impl Engine {
         self.settings.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Waits until no source or insight is being processed. Used by tests and before quitting.
+    /// Waits until no source, insight, episode or claim check is being processed. Used by tests and before quitting.
     pub fn idle(&self) {
-        self.jobs.wait_idle();
+        // Each pool can queue work on the other (a source's insights, an episode's check), so go round twice.
+        for _ in 0..2 {
+            self.jobs.wait_idle();
+            self.podcast_jobs.wait_idle();
+        }
     }
 
     fn recover(&self) -> Result<()> {
@@ -307,7 +334,7 @@ fn caption_languages() -> Vec<String> {
 }
 
 /// Text length to estimated tokens, as the TypeScript engine counts them.
-fn tokens(chars: usize) -> u64 {
+pub(crate) fn tokens(chars: usize) -> u64 {
     chars.div_ceil(4) as u64
 }
 

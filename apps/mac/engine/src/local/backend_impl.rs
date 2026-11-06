@@ -3,11 +3,6 @@
 use super::LocalBackend;
 use crate::backend::{Backend, BackendKind, Cancel, EpisodeAudio, PodcastMode, Result, SendChat, SendChatResult, SendSourceChat};
 use crate::types::*;
-use crate::Error;
-
-fn no_podcasts<T>() -> Result<T> {
-    Err(Error::Setup("Podcasts aren't in the Mac app yet".into()))
-}
 
 impl Backend for LocalBackend {
     fn kind(&self) -> BackendKind {
@@ -165,43 +160,43 @@ impl Backend for LocalBackend {
         Ok(Vec::new())
     }
 
-    fn list_episodes(&self, _notebook_id: &str) -> Result<Vec<Episode>> {
-        no_podcasts()
+    fn list_episodes(&self, notebook_id: &str) -> Result<Vec<Episode>> {
+        self.0.list_episodes(notebook_id)
     }
-    fn get_episode(&self, _id: &str) -> Result<Episode> {
-        no_podcasts()
+    fn get_episode(&self, id: &str) -> Result<Episode> {
+        self.0.get_episode(id)
     }
-    fn create_episode(&self, _input: CreateEpisode) -> Result<Episode> {
-        no_podcasts()
+    fn create_episode(&self, input: CreateEpisode) -> Result<Episode> {
+        self.0.create_episode(input)
     }
-    fn delete_episode(&self, _id: &str) -> Result<()> {
-        no_podcasts()
+    fn delete_episode(&self, id: &str) -> Result<()> {
+        self.0.delete_episode(id)
     }
-    fn episode_audio(&self, _id: &str) -> Result<EpisodeAudio> {
-        no_podcasts()
+    fn episode_audio(&self, id: &str) -> Result<EpisodeAudio> {
+        self.0.episode_audio(id)
     }
-    fn episode_prompt(&self, _id: &str) -> Result<Option<EpisodePrompt>> {
-        no_podcasts()
+    fn episode_prompt(&self, id: &str) -> Result<Option<EpisodePrompt>> {
+        self.0.episode_prompt(id)
     }
-    fn check_episode(&self, _id: &str) -> Result<()> {
-        no_podcasts()
+    fn check_episode(&self, id: &str) -> Result<()> {
+        self.0.check_episode(id)
     }
-    fn retry_episode(&self, _id: &str) -> Result<()> {
-        no_podcasts()
+    fn retry_episode(&self, id: &str) -> Result<()> {
+        self.0.retry_episode(id)
     }
     fn podcast_profiles(&self) -> Result<PodcastProfiles> {
-        no_podcasts()
+        self.0.podcast_profiles()
     }
-    fn save_episode_profile(&self, _p: EpisodeProfile) -> Result<EpisodeProfile> {
-        no_podcasts()
+    fn save_episode_profile(&self, p: EpisodeProfile) -> Result<EpisodeProfile> {
+        self.0.save_episode_profile(p)
     }
-    fn delete_episode_profile(&self, _id: &str) -> Result<()> {
-        no_podcasts()
+    fn delete_episode_profile(&self, id: &str) -> Result<()> {
+        self.0.delete_episode_profile(id)
     }
-    fn save_speaker_profile(&self, _p: SpeakerProfile) -> Result<SpeakerProfile> {
-        no_podcasts()
+    fn save_speaker_profile(&self, p: SpeakerProfile) -> Result<SpeakerProfile> {
+        self.0.save_speaker_profile(p)
     }
-    fn delete_speaker_profile(&self, _id: &str) -> Result<()> {
-        no_podcasts()
+    fn delete_speaker_profile(&self, id: &str) -> Result<()> {
+        self.0.delete_speaker_profile(id)
     }
 }

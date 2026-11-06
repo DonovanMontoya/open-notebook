@@ -213,15 +213,49 @@ fn document_files_are_kept_downloadable_and_deleted_with_the_source() {
 }
 
 #[test]
-fn audio_without_text_fails_until_transcription_arrives() {
+fn audio_files_are_kept_transcribed_with_the_speech_to_text_model_and_downloadable() {
+    let dir = TempDir::new();
+    let fake = Fake::new();
+    let calls: Arc<Mutex<Vec<crate::net::Request>>> = Arc::default();
+    let mut opts = options(AppSettings { transcription: model("gpt-4o-transcribe"), ..both_models() }, &fake, &Pages::default());
+    let seen = calls.clone();
+    opts.http = Some(Arc::new(move |r: crate::net::Request| -> std::result::Result<crate::net::Response, crate::net::Transport> {
+        seen.lock().unwrap().push(r);
+        Ok(crate::net::Response::new(200, r#"{"text":"Welcome to the interview about dark patterns."}"#))
+    }));
+    crate::settings::Secrets::new(dir.path()).set("provider:openai", "k").unwrap();
+    let b = LocalBackend::open_with(dir.path(), opts).unwrap();
+    let nb = b.create_notebook("Interviews", "").unwrap();
+    let s = b.add_source(&nb.id, document("Interview", "", "interview.mp3", &[1, 2, 3, 4], "audio/mpeg")).unwrap();
+    b.idle();
+
+    let source = b.get_source(&s.id).unwrap();
+    assert_eq!(source.summary.status.as_deref(), Some("completed"), "{:?}", source.summary.error);
+    assert_eq!(source.full_text, "Welcome to the interview about dark patterns.");
+    assert_eq!(source.summary.asset.unwrap().file_path.as_deref(), Some("interview.mp3"));
+    let call = calls.lock().unwrap()[0].clone();
+    assert!(call.url.ends_with("/audio/transcriptions"), "{}", call.url);
+    assert_eq!(call.header_value("authorization"), Some("Bearer k"));
+    assert!(call.body_text().contains("gpt-4o-transcribe"), "the model from Settings is used");
+    let usage = Backend::usage(&b, 30).unwrap();
+    assert!(usage.groups.iter().any(|g| g.feature == "transcription" && g.model == "gpt-4o-transcribe" && g.output_tokens > 0));
+
+    let original = b.download_source(&s.id).unwrap().unwrap();
+    assert_eq!((original.data.as_slice(), original.name.as_str()), (&[1u8, 2, 3, 4][..], "interview.mp3"));
+    b.delete_source(&s.id).unwrap();
+    assert!(std::fs::read_dir(dir.path().join("originals")).unwrap().next().is_none(), "deleting the source deletes the file");
+}
+
+#[test]
+fn audio_without_a_speech_to_text_model_fails_with_a_clear_reason() {
     let env = setup();
     let nb = env.backend.create_notebook("Interviews", "").unwrap();
-    let s = env.backend.add_source(&nb.id, document("Interview", "", "interview.mp3", &[1, 2, 3, 4], "audio/mpeg")).unwrap();
+    let s = env.backend.add_source(&nb.id, document("Clip", "", "clip.m4a", &[0, 0, 0, 0], "")).unwrap();
     env.backend.idle();
     let source = env.backend.get_source(&s.id).unwrap();
     assert_eq!(source.summary.status.as_deref(), Some("failed"));
-    assert_eq!(source.summary.error.as_deref(), Some("Transcription isn't in the Mac app yet"));
-    assert_eq!(env.backend.download_source(&s.id).unwrap().unwrap().data, [1, 2, 3, 4], "the recording is kept");
+    assert_eq!(source.summary.error.as_deref(), Some("Choose a speech to text model in Settings to transcribe audio and video."));
+    assert_eq!(env.backend.download_source(&s.id).unwrap().unwrap().data, [0, 0, 0, 0], "the recording is kept");
     let kind: String = env.backend.db.lock().query_row("SELECT kind FROM source WHERE id = ?1", [&s.id], |r| r.get(0)).unwrap();
     assert_eq!(kind, "media");
 }

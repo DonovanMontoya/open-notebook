@@ -11,7 +11,7 @@ use super::Engine;
 use crate::backend::{Cancel, Result};
 use crate::db::int;
 use crate::text::{chunk_source_text, encode_vector, title_from};
-use crate::transcribe::is_media;
+use crate::transcribe::{Recording, SpeechProvider, is_media, transcribe};
 use crate::types::{NewSource, SourceAsset, SourceDetail, SourceFile, SourceInput, SourceSummary};
 use crate::Error;
 
@@ -334,9 +334,29 @@ impl Engine {
         Ok(())
     }
 
-    /// Text for an audio or video source with no text yet. Transcription is not
-    /// in the Mac app yet; this is where it plugs in.
-    fn transcribe_source(&self, _id: &str, _cancel: &Cancel) -> Result<String> {
-        Err(Error::Setup("Transcription isn't in the Mac app yet".into()))
+    /// Text for an audio or video source with no text yet, from the speech to text model in Settings.
+    fn transcribe_source(&self, id: &str, cancel: &Cancel) -> Result<String> {
+        let (file_ref, name, mime): (Option<String>, Option<String>, Option<String>) =
+            self.db.lock().query_row("SELECT file_ref, file_name, file_type FROM source WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        let config = self.ai_config()?;
+        let Some(choice) = config.transcription else {
+            return Err(Error::Setup("Choose a speech to text model in Settings to transcribe audio and video.".into()));
+        };
+        let path = file_ref
+            .and_then(|f| self.original(&f))
+            .ok_or_else(|| Error::other("The original file is missing or outside the app's files"))?;
+        let data = std::fs::read(path)?;
+        let provider = SpeechProvider {
+            kind: choice.provider.kind.as_str(),
+            base_url: choice.provider.base_url.as_deref(),
+            api_key: choice.provider.api_key.as_deref(),
+        };
+        let file = Recording { data: &data, name: name.as_deref().unwrap_or("recording"), mime: mime.as_deref().unwrap_or_default() };
+        let text = transcribe(&*self.http, provider, &choice.model, file, cancel)?;
+        if text.is_empty() {
+            return Err(Error::other("No speech was found in this recording."));
+        }
+        self.record_usage("transcription", &choice.model, 0, super::tokens(text.chars().count()), 0.0);
+        Ok(text)
     }
 }

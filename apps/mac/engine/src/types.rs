@@ -340,20 +340,30 @@ pub enum ClaimVerdict {
     Unsupported,
 }
 
+/// One factual claim from an episode script, as the claim check judged it.
+/// Same shape as `CheckedClaim` in `packages/engine/src/podcast/check.ts`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CheckedClaim {
+    /// 1-based number of the spoken line the claim comes from.
+    pub line: usize,
+    /// The spoken line, as written.
+    #[serde(default)]
+    pub said: String,
+    /// The claim, restated briefly.
     pub claim: String,
     pub verdict: ClaimVerdict,
-    #[serde(default)]
-    pub line: Option<usize>,
-    #[serde(default)]
-    pub source_id: Option<String>,
-    #[serde(default)]
+    /// The passage the checker gave as evidence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quote: Option<String>,
+    /// The title of the source the quote was found in, when it was found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Whether the quote was found in the material.
     #[serde(default)]
-    pub quote_verified: bool,
-    #[serde(default)]
+    pub quote_found: bool,
+    /// Why the claim is overstated or unsupported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
 
@@ -425,6 +435,9 @@ pub struct CreateEpisode {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Speaker {
     pub name: String,
+    /// Voice id for the provider (OpenAI voice name, Gemini voice, ElevenLabs voice id).
+    /// Saved on device as `voice`, the Tauri app's key; the server calls it `voice_id`.
+    #[serde(rename = "voice", alias = "voice_id")]
     pub voice_id: String,
     #[serde(default)]
     pub backstory: String,

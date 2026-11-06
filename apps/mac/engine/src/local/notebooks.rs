@@ -79,7 +79,15 @@ impl Engine {
     }
 
     pub fn delete_notebook(&self, id: &str) -> Result<()> {
-        // Episodes go with the notebook's row (ON DELETE CASCADE); their audio files are the podcast feature's.
+        // Episodes first, so their jobs stop and their audio files are deleted too.
+        let episodes: Vec<String> = {
+            let conn = self.db.lock();
+            let mut stmt = conn.prepare("SELECT id FROM podcast_episode WHERE notebook_id = ?1")?;
+            stmt.query_map([id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        for e in episodes {
+            self.delete_episode(&e)?;
+        }
         // Sources only in this notebook go with it; shared ones just lose the link, like on the server.
         let sources: Vec<(String, i64)> = {
             let conn = self.db.lock();

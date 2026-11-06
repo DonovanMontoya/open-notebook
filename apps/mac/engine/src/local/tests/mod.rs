@@ -3,6 +3,7 @@
 
 mod chat;
 mod insights;
+mod podcasts;
 mod sources;
 
 use std::collections::HashMap;
@@ -178,6 +179,8 @@ pub fn options(settings: AppSettings, fake: &Arc<Fake>, pages: &Pages) -> LocalO
         })),
         clock: Some(ticking_clock()),
         settings: Some(settings),
+        voices: None,
+        open_socket: None,
     }
 }
 
@@ -291,10 +294,8 @@ fn notes_are_titled_from_their_first_line_and_can_be_edited() {
 }
 
 #[test]
-fn podcasts_say_they_are_not_in_the_mac_app_yet() {
+fn the_mac_app_lists_no_server_models() {
     let env = setup();
-    let err = Backend::list_episodes(&env.backend, "x").unwrap_err();
-    assert_eq!(err.to_string(), "Podcasts aren't in the Mac app yet");
     assert!(Backend::list_models(&env.backend).unwrap().is_empty());
 }
 
