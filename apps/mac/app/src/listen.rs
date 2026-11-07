@@ -14,6 +14,34 @@ pub const EFFORTS: [(PodcastEffort, &str, &str); 4] = [
     (PodcastEffort::Thorough, "Thorough", "Study notes on each source first, then up to two rounds of fixes."),
 ];
 
+/// Languages an episode can be written in: (code, name). An empty code follows the sources.
+pub const LANGUAGES: [(&str, &str); 16] = [
+    ("", "Same as the sources"),
+    ("en", "English"),
+    ("es", "Spanish"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("it", "Italian"),
+    ("pt", "Portuguese"),
+    ("nl", "Dutch"),
+    ("pl", "Polish"),
+    ("tr", "Turkish"),
+    ("ru", "Russian"),
+    ("ja", "Japanese"),
+    ("zh", "Chinese"),
+    ("hi", "Hindi"),
+    ("bn", "Bengali"),
+    ("ca", "Catalan"),
+];
+
+/// The name of a language code; an unknown code shows as itself.
+pub fn language_name(code: Option<&str>) -> String {
+    match code.filter(|c| !c.is_empty()) {
+        None => LANGUAGES[0].1.into(),
+        Some(c) => LANGUAGES.iter().find(|(k, _)| *k == c).map_or_else(|| c.to_owned(), |(_, n)| (*n).to_owned()),
+    }
+}
+
 pub const RATES: [f32; 5] = [1.0, 1.25, 1.5, 2.0, 0.75];
 
 pub struct NewEpisode {
@@ -67,6 +95,8 @@ pub struct EpisodeDraft {
     pub speaker_profile_id: String,
     pub briefing: TextEdit,
     pub segments: u32,
+    /// None writes in the sources' language.
+    pub language: Option<String>,
 }
 
 #[derive(Default)]
@@ -334,7 +364,7 @@ impl App {
             name: d.name.text.trim().to_owned(),
             description: d.description.text.trim().to_owned(),
             speaker_profile_id: d.speaker_profile_id,
-            language: None,
+            language: d.language,
             briefing: d.briefing.text.clone(),
             segments: d.segments,
         };
@@ -391,6 +421,7 @@ impl EpisodeDraft {
             speaker_profile_id: p.speaker_profile_id.clone(),
             briefing: TextEdit::new(p.briefing.clone()),
             segments: p.segments.max(1),
+            language: p.language.clone().filter(|l| !l.is_empty()),
         }
     }
 }
@@ -408,5 +439,16 @@ mod tests {
         assert_eq!(super::clock(0.0), "0:00");
         assert_eq!(super::clock(65.4), "1:05");
         assert_eq!(super::clock(3725.0), "1:02:05");
+    }
+
+    #[test]
+    fn editing_an_episode_profile_keeps_its_language() {
+        use notebook_engine::types::EpisodeProfile;
+        let p = EpisodeProfile { id: "ep1".into(), language: Some("de".into()), segments: 4, ..Default::default() };
+        let d = super::EpisodeDraft::from(&p);
+        assert_eq!(d.language.as_deref(), Some("de"));
+        assert_eq!(super::language_name(d.language.as_deref()), "German");
+        assert_eq!(super::language_name(None), "Same as the sources");
+        assert_eq!(super::language_name(Some("eo")), "eo");
     }
 }

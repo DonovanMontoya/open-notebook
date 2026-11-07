@@ -6,7 +6,7 @@ use rune::{El, PlayerState, ScrollSpec, TextEdit, Tx, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, SegmentedControl, Select, TextArea, TextInput};
 
 use super::icons;
-use crate::listen::{EFFORTS, EpisodeDraft, NewEpisode, NowPlaying, ProfilesPage, RATES, SpeakerDraft, clock};
+use crate::listen::{EFFORTS, EpisodeDraft, LANGUAGES, NewEpisode, NowPlaying, ProfilesPage, RATES, SpeakerDraft, clock, language_name};
 use crate::state::{App, Open};
 use crate::theme::{self, Look};
 
@@ -616,6 +616,26 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
         })
         .build(k, layer)
         .key("ep-speakers");
+    let language_names: Vec<&str> = LANGUAGES.iter().map(|(_, n)| *n).collect();
+    let language_now = language_name(d.language.as_deref());
+    let language = Select::new("ep-language", &language_names)
+        .label("Language")
+        .current(Some(language_now.as_str()))
+        .width(200.0)
+        .open(p.open_select == Some("ep-language"))
+        .on_toggle(|s: &mut App| {
+            let p = page(s);
+            p.open_select = if p.open_select == Some("ep-language") { None } else { Some("ep-language") };
+        })
+        .on_close(|s: &mut App| page(s).open_select = None)
+        .on_choose(|s: &mut App, name: &str, _: &mut Tx| {
+            if let Some((code, _)) = LANGUAGES.iter().find(|(_, n)| *n == name) {
+                draft(s).language = Some((*code).to_owned()).filter(|c| !c.is_empty());
+            }
+            page(s).open_select = None;
+        })
+        .build(k, layer)
+        .key("ep-language");
     let segments = row()
         .gap(6.0)
         .center_y()
@@ -629,7 +649,7 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
             TextInput::new(&d.description).width(None).on_edit(|s: &mut App| &mut draft(s).description).build(k).key("ep-description"),
             l,
         ))
-        .child(row().w_full().gap(12.0).center_y().child(speakers).child(segments))
+        .child(row().w_full().gap(12.0).center_y().child(speakers).child(language).child(segments))
         .child(field(
             "Briefing: the angle and style of the episode",
             TextArea::new(&d.briefing).width(None).auto_grow(4, 14).on_edit(|s: &mut App| &mut draft(s).briefing).build(k).key("ep-briefing"),
