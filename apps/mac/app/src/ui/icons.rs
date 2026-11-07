@@ -84,3 +84,8 @@ icon!(
     "on-download",
     r#"<path d="M8 2.5V10M4.5 6.5L8 10L11.5 6.5M3 13H13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
 );
+icon!(
+    PENCIL,
+    "on-pencil",
+    r#"<path d="M10.5 3L13 5.5L6 12.5L3 13L3.5 10L10.5 3Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#
+);

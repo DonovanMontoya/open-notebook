@@ -283,6 +283,13 @@ pub struct Open {
     pub insight_open: Option<String>,
     /// Insights saved to notes since the reader opened.
     pub saved_insights: std::collections::BTreeSet<String>,
+    /// Chat models to pick from (value sent as the override, label), once loaded.
+    pub models: Option<Vec<(String, String)>>,
+    pub models_open: bool,
+    /// The conversation's name being edited.
+    pub renaming_chat: Option<TextEdit>,
+    /// The citation last clicked (message id, citation index), marked until the rail goes back to the list.
+    pub active_cite: Option<(String, usize)>,
 }
 
 impl Open {
@@ -330,7 +337,25 @@ impl Open {
             scroll_to_passage: false,
             insight_open: None,
             saved_insights: Default::default(),
+            models: None,
+            models_open: false,
+            renaming_chat: None,
+            active_cite: None,
         }
+    }
+
+    /// Where the conversation's model choice is kept: its session, or new chats in this scope.
+    pub fn override_key(&self) -> String {
+        match (&self.session, &self.scope) {
+            (Some(s), _) => s.session.id.clone(),
+            (None, Some((source, _))) => format!("new:{source}"),
+            (None, None) => format!("new:{}", self.id),
+        }
+    }
+
+    /// Whether chat can answer: a source chat, or a notebook with a source that has been read.
+    pub fn chat_ready(&self) -> bool {
+        self.scope.is_some() || self.sources.iter().any(|s| matches!(s.status.as_deref(), None | Some("completed")))
     }
 
     /// How much of a source chat reads: as chosen, else its insights when it has some, else all of it.
@@ -411,6 +436,22 @@ pub fn next_mode(mode: SourceContext, has_insights: bool) -> SourceContext {
         (SourceContext::Off, true) => SourceContext::Insights,
         (SourceContext::Off, false) => SourceContext::Full,
     }
+}
+
+/// The prefs key for the model chosen per conversation.
+const MODELS_KEY: &str = "chat.models";
+
+/// Labels for a picker: duplicates get " (2)", " (3)" so each names one entry.
+pub fn unique_labels(labels: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    labels
+        .into_iter()
+        .map(|l| {
+            let n = seen.entry(l.clone()).or_insert(0);
+            *n += 1;
+            if *n == 1 { l } else { format!("{l} ({n})") }
+        })
+        .collect()
 }
 
 /// The prefs key for a notebook's chat context.
@@ -847,6 +888,10 @@ impl App {
         let session_id = o.session.as_ref().map(|s| s.session.id.clone());
         let scope = o.scope.as_ref().map(|(sid, _)| sid.clone());
         let context = Some(o.context.clone()).filter(|c| !c.sources.is_empty() || !c.notes.is_empty());
+        let key = o.override_key();
+        let model_override =
+            self.prefs.get::<std::collections::BTreeMap<String, String>>(MODELS_KEY).and_then(|m| m.get(&key).cloned()).filter(|m| !m.is_empty());
+        let carried = model_override.clone().filter(|_| session_id.is_none());
         let inbox = self.inbox.clone();
         let id = notebook_id.clone();
         self.run(
@@ -865,7 +910,7 @@ impl App {
                         source_id,
                         session_id,
                         message,
-                        model_override: None,
+                        model_override,
                         on_text: Some(&mut on_text),
                         cancel,
                     }),
@@ -874,7 +919,7 @@ impl App {
                         session_id,
                         message,
                         context,
-                        model_override: None,
+                        model_override,
                         on_text: Some(&mut on_text),
                         cancel,
                     }),
@@ -887,6 +932,14 @@ impl App {
                     Ok(result) => {
                         o.pending = None;
                         let session = result.session.clone();
+                        // A model picked for a new chat stays with the conversation it started.
+                        if let Some(m) = carried {
+                            let mut map: std::collections::BTreeMap<String, String> = app.prefs.get(MODELS_KEY).unwrap_or_default();
+                            map.remove(&key);
+                            map.insert(session.id.clone(), m);
+                            let _ = app.prefs.set(MODELS_KEY, &map);
+                        }
+                        let Some(o) = app.open.as_mut() else { return };
                         if !o.sessions.iter().any(|s| s.id == session.id) {
                             o.sessions.insert(0, session.clone());
                         }
@@ -1134,6 +1187,91 @@ impl App {
         });
     }
 
+    /// The model chosen for the current conversation, if any.
+    pub fn model_override(&self) -> Option<String> {
+        let key = self.open.as_ref()?.override_key();
+        self.prefs.get::<std::collections::BTreeMap<String, String>>(MODELS_KEY)?.get(&key).cloned().filter(|m| !m.is_empty())
+    }
+
+    /// Picks a model for the current conversation; empty goes back to the default.
+    pub fn set_model_override(&mut self, value: String) {
+        let Some(key) = self.open.as_ref().map(|o| o.override_key()) else { return };
+        let mut map: std::collections::BTreeMap<String, String> = self.prefs.get(MODELS_KEY).unwrap_or_default();
+        if value.is_empty() {
+            map.remove(&key);
+        } else {
+            map.insert(key, value);
+        }
+        if let Err(e) = self.prefs.set(MODELS_KEY, &map) {
+            self.fail(e);
+        }
+    }
+
+    /// What the default model is called in the picker.
+    pub fn default_model_label(&self) -> String {
+        if self.remote.is_some() {
+            "Server default model".into()
+        } else {
+            self.settings.chat.as_ref().map(|m| m.model.clone()).filter(|m| !m.is_empty()).unwrap_or_else(|| "No chat model chosen".into())
+        }
+    }
+
+    /// Loads the models a conversation can use: the server's language models, or the chat
+    /// provider's models on device, as "provider::model".
+    pub fn load_models(&mut self) {
+        let Some(o) = self.open.as_mut() else { return };
+        if o.models.is_some() {
+            return;
+        }
+        o.models = Some(Vec::new());
+        let id = o.id.clone();
+        let provider = match &self.remote {
+            Some(_) => None,
+            None => {
+                let Some(kind) = self.settings.chat.as_ref().and_then(|m| ProviderKind::parse(&m.provider)) else { return };
+                let key = self.secrets.get(&settings::provider_secret(kind.as_str())).ok().flatten();
+                let base = (kind == ProviderKind::OpenAiCompatible).then(|| self.settings.compatible_base_url.clone());
+                Some(notebook_engine::providers::ProviderConfig { kind, api_key: key, base_url: base })
+            }
+        };
+        self.run(
+            move |b| match provider {
+                None => Ok(b.list_models()?.into_iter().filter(|m| m.kind == "language").map(|m| (m.id, format!("{} ({})", m.name, m.provider))).collect()),
+                Some(config) => {
+                    let kind = config.kind;
+                    let models = notebook_engine::providers::create_provider(&config, notebook_engine::net::UreqHttp::shared()).list_models()?;
+                    Ok(models
+                        .into_iter()
+                        .filter(|m| m.capabilities.is_empty() || m.capabilities.contains(&notebook_engine::providers::Capability::Chat))
+                        .map(|m| (format!("{}::{}", kind.as_str(), m.id), m.label.unwrap_or(m.id)))
+                        .collect::<Vec<_>>())
+                }
+            },
+            with_open(&id, |o, list| o.models = Some(list)),
+        );
+    }
+
+    /// Renames the open conversation.
+    pub fn rename_chat(&mut self, title: String) {
+        let Some(o) = self.open.as_mut() else { return };
+        o.renaming_chat = None;
+        let Some(sid) = o.session.as_ref().map(|s| s.session.id.clone()) else { return };
+        let title = if title.trim().is_empty() { "Untitled conversation".to_owned() } else { title.trim().to_owned() };
+        let (id, t) = (o.id.clone(), title.clone());
+        let s2 = sid.clone();
+        self.run(
+            move |b| b.rename_chat_session(&s2, &t),
+            with_open(&id, move |o, ()| {
+                if let Some(s) = o.sessions.iter_mut().find(|s| s.id == sid) {
+                    s.title = title.clone();
+                }
+                if let Some(s) = o.session.as_mut().filter(|s| s.session.id == sid) {
+                    s.session.title = title;
+                }
+            }),
+        );
+    }
+
     /// Sets how much of a source chat reads, and remembers it for the notebook.
     pub fn set_source_context(&mut self, source_id: String, mode: SourceContext) {
         let Some(o) = self.open.as_mut() else { return };
@@ -1286,21 +1424,6 @@ impl App {
             },
             |app, r| match r {
                 Ok(_) => app.refresh_notes(),
-                Err(e) => app.fail(e),
-            },
-        );
-    }
-
-    pub fn save_reply_as_note(&mut self, content: String) {
-        let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
-        let title = notebook_engine::text::title_from(&content, 60);
-        self.run(
-            move |b| b.create_note(&nb, Some(&title), &content, true),
-            |app, r| match r {
-                Ok(_) => {
-                    app.toast = Some("Saved to notes".into());
-                    app.refresh_notes();
-                }
                 Err(e) => app.fail(e),
             },
         );
@@ -1616,6 +1739,34 @@ mod tests {
         std::fs::write(dir.join("paper.pdf"), b"x").unwrap();
         assert_eq!(free_path(&dir, "paper.pdf"), dir.join("paper 2.pdf"));
         assert_eq!(free_path(&dir, ""), dir.join("source"));
+    }
+
+    #[test]
+    fn picker_labels_are_unique() {
+        let l = unique_labels(["Plan".to_owned(), "Plan".to_owned(), "Other".to_owned(), "Plan".to_owned()]);
+        assert_eq!(l, ["Plan", "Plan (2)", "Other", "Plan (3)"]);
+    }
+
+    #[test]
+    fn a_model_picked_for_a_new_chat_moves_to_its_session() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let nb = app.open.as_ref().unwrap().id.clone();
+        app.set_model_override("openai::gpt-x".into());
+        assert_eq!(app.model_override().as_deref(), Some("openai::gpt-x"));
+        assert_eq!(app.open.as_ref().unwrap().override_key(), format!("new:{nb}"));
+        app.set_model_override(String::new());
+        assert_eq!(app.model_override(), None);
+    }
+
+    #[test]
+    fn chat_is_ready_once_a_source_is_read() {
+        let mut o = Open::new("nb".into());
+        assert!(!o.chat_ready());
+        o.sources.push(SourceSummary { status: Some("processing".into()), ..Default::default() });
+        assert!(!o.chat_ready());
+        o.sources.push(SourceSummary { status: Some("completed".into()), ..Default::default() });
+        assert!(o.chat_ready());
     }
 
     #[test]

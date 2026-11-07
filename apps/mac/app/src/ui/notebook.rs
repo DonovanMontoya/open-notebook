@@ -17,7 +17,7 @@ const READER: f32 = 380.0;
 pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let o = s.open.as_ref().expect("a notebook is open");
     let center = match o.tab {
-        NotebookTab::Chat => chat(o, l),
+        NotebookTab::Chat => chat(s, o, l, layer),
         NotebookTab::Notes => notes(o, l),
         NotebookTab::Study => super::study::view(o, l),
         NotebookTab::Listen => super::listen::view(s, o, l, layer),
@@ -35,29 +35,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .key("tabs");
     let mut head = row().key("center-head").w_full().h(44.0).px(16.0).gap(8.0).center_y().child(tabs).child(el().grow(1.0));
     if o.tab == NotebookTab::Chat {
-        if let Some(sid) = o.session.as_ref().map(|s| s.session.id.clone()) {
-            head = head.child(
-                IconButton::new(&icons::TRASH)
-                    .variant(IconButtonVariant::GhostMuted)
-                    .label("Delete this chat")
-                    .help("Delete this chat")
-                    .on_press(move |s: &mut App| {
-                        let sid = sid.clone();
-                        s.ask("Delete this chat?", move |s| s.delete_session(sid.clone()));
-                    })
-                    .build(&l.k)
-                    .key("delete-chat"),
-            );
-        }
-        head = head.child(session_picker(o, l, layer)).child(
-            IconButton::new(&icons::PLUS)
-                .variant(IconButtonVariant::GhostMuted)
-                .label("New chat")
-                .help("New chat")
-                .on_press(|s: &mut App| s.new_chat())
-                .build(&l.k)
-                .key("new-chat"),
-        );
+        head = chat_bar(o, head, l, layer);
     } else if o.tab == NotebookTab::Notes {
         head = head.child(
             Button::new("New note")
@@ -66,9 +44,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 .control_size(ControlSize::Small)
                 .on_press(|s: &mut App| {
                     if let Some(o) = s.open.as_mut() {
-                        let mut content = TextEdit::new("");
-                        content.focused = true;
-                        o.note = Some(NoteDraft { id: None, title: TextEdit::new(""), content });
+                        o.new_note(String::new(), String::new(), false);
                     }
                 })
                 .build(&l.k)
@@ -510,6 +486,7 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
                     if let Some(o) = s.open.as_mut() {
                         o.reading = None;
                         o.renaming_source = None;
+                        o.active_cite = None;
                     }
                 })
                 .build(k)
@@ -630,8 +607,7 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
                         s.run_insight(id);
                     }
                 })
-                .build(k, layer)
-                .key("run-insight"),
+                .build(k, layer),
         );
     }
     let mut c = col().key("insights").w_full().gap(8.0).child(head);
@@ -716,18 +692,108 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
 
 // Chat
 
+/// The conversation bar: which conversation, its rename and delete, and a new chat.
+fn chat_bar(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
+    let k = &l.k;
+    if let Some(edit) = &o.renaming_chat {
+        let field = TextInput::new(edit)
+            .label("Conversation name")
+            .width(Some(220.0))
+            .on_edit(|s: &mut App| s.open.as_mut().and_then(|o| o.renaming_chat.as_mut()).expect("renaming"))
+            .on_submit(|s: &mut App, _: &mut Tx| submit_rename(s))
+            .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
+                if ev.key == rune::Key::Escape {
+                    if let Some(o) = s.open.as_mut() {
+                        o.renaming_chat = None;
+                    }
+                    return true;
+                }
+                false
+            })
+            .build(k)
+            .key("rename-chat");
+        return head.child(field).child(Button::new("Save").control_size(ControlSize::Small).on_press(submit_rename).build(k).key("rename-save")).child(
+            Button::new("Cancel")
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut App| {
+                    if let Some(o) = s.open.as_mut() {
+                        o.renaming_chat = None;
+                    }
+                })
+                .build(k)
+                .key("rename-cancel"),
+        );
+    }
+    head = head.child(session_picker(o, l, layer));
+    if let Some(session) = o.session.as_ref().map(|s| s.session.clone()) {
+        let sid = session.id.clone();
+        // Source chats can't be renamed on a server, so only notebook chats offer it.
+        if o.scope.is_none() {
+            head = head.child(
+                IconButton::new(&icons::PENCIL)
+                    .variant(IconButtonVariant::GhostMuted)
+                    .label("Rename conversation")
+                    .help("Rename conversation")
+                    .on_press(move |s: &mut App| {
+                        if let Some(o) = s.open.as_mut() {
+                            let mut e = TextEdit::new(session.title.clone());
+                            e.focused = true;
+                            o.renaming_chat = Some(e);
+                        }
+                    })
+                    .build(k)
+                    .key("rename-chat-button"),
+            );
+        }
+        head = head.child(
+            IconButton::new(&icons::TRASH)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Delete conversation")
+                .help("Delete conversation")
+                .on_press(move |s: &mut App| {
+                    let sid = sid.clone();
+                    s.ask("Delete this conversation?", move |s| s.delete_session(sid.clone()));
+                })
+                .build(k)
+                .key("delete-chat"),
+        );
+    }
+    head.child(
+        IconButton::new(&icons::PLUS)
+            .variant(IconButtonVariant::GhostMuted)
+            .label("New chat")
+            .help("New chat")
+            .disabled(o.session.is_none())
+            .on_press(|s: &mut App| s.new_chat())
+            .build(k)
+            .key("new-chat"),
+    )
+}
+
+fn submit_rename(s: &mut App) {
+    let t = s.open.as_ref().and_then(|o| o.renaming_chat.as_ref()).map(|e| e.text.clone()).unwrap_or_default();
+    s.rename_chat(t);
+}
+
 fn session_picker(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
-    let labels: Vec<String> = o.sessions.iter().map(|s| s.title.clone()).collect();
-    if labels.is_empty() {
+    if o.sessions.is_empty() {
         return el();
     }
-    let current = o.session.as_ref().map(|s| s.session.title.as_str());
+    let titles = o.sessions.iter().map(|s| if s.title.trim().is_empty() { "Untitled conversation".to_owned() } else { s.title.clone() });
+    let labels = crate::state::unique_labels(titles);
+    let details: Vec<Option<String>> =
+        o.sessions.iter().map(|s| Some(crate::format::relative_time(if s.updated.is_empty() { &s.created } else { &s.updated }))).collect();
+    let current = o.session.as_ref().and_then(|cur| o.sessions.iter().position(|s| s.id == cur.session.id)).map(|i| labels[i].as_str());
     let ids: Vec<String> = o.sessions.iter().map(|s| s.id.clone()).collect();
+    let picks = labels.clone();
     rune_kit::Select::new("sessions", &labels)
-        .label("Conversation")
+        .details(&details)
+        .label(format!("Conversations, {}", o.sessions.len()))
+        .placeholder(format!("New chat · {}", o.sessions.len()))
         .current(current)
-        .width(200.0)
+        .width(220.0)
         .open(o.sessions_open)
         .on_toggle(|s: &mut App| {
             if let Some(o) = s.open.as_mut() {
@@ -740,20 +806,19 @@ fn session_picker(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
             }
         })
         .on_choose(move |s: &mut App, label: &str, _: &mut Tx| {
-            let picked = s.open.as_ref().and_then(|o| o.sessions.iter().position(|x| x.title == label)).and_then(|i| ids.get(i).cloned());
-            if let Some(id) = picked {
+            // Labels are unique, so the position names the conversation.
+            if let Some(id) = picks.iter().position(|x| x == label).and_then(|i| ids.get(i).cloned()) {
                 s.open_session(id);
             }
         })
         .build(k, layer)
-        .key("session-picker")
 }
 
 fn citable(o: &Open) -> Vec<CitableSource> {
     o.sources.iter().map(|s| CitableSource { id: s.id.clone(), title: s.title.clone() }).collect()
 }
 
-fn chat(o: &Open, l: &Look) -> El {
+fn chat(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let sources = citable(o);
     let mut thread = col().key("thread").w_full().max_w(720.0).gap(18.0).px(24.0).py(20.0);
@@ -781,26 +846,65 @@ fn chat(o: &Open, l: &Look) -> El {
     }
     let messages = o.session.as_ref().map(|s| s.messages.as_slice()).unwrap_or(&[]);
     if messages.is_empty() && o.pending.is_none() {
-        let hint = if o.sources.is_empty() { "Add a source, then ask about it." } else { "Ask about your sources. Answers cite the passages they come from." };
-        thread =
-            thread.child(col().w_full().pt(80.0).items_center().child(text(hint).font(theme::READ_HEADING).color(l.text3).align(rune::Align::Center).wrap()));
+        let ready = o.chat_ready();
+        let (title, body) = if o.scope.is_some() {
+            ("Ask about this source", "Questions here are answered from this source alone.")
+        } else if ready {
+            ("Ask about your sources", "Answers cite the source they come from. Click a citation to read the passage.")
+        } else {
+            ("Add a source to ask about", "Answers come from the pages, PDFs and text you add to this notebook.")
+        };
+        let mut empty = col()
+            .key("chat-empty")
+            .w_full()
+            .pt(80.0)
+            .gap(8.0)
+            .items_center()
+            .child(text(title).font(theme::READ_HEADING).color(l.text2).align(rune::Align::Center).wrap())
+            .child(text(body).font(k.ty.ui).color(l.text3).align(rune::Align::Center).wrap());
+        if !ready {
+            empty = empty.child(
+                row().pt(6.0).child(Button::new("Add a source").icon(&icons::PLUS).on_press(|s: &mut App| s.open_add(&[])).build(k).key("chat-add-source")),
+            );
+        }
+        thread = thread.child(empty);
     }
+    let active = |id: &str| o.active_cite.as_ref().filter(|(m, _)| m == id).map(|(_, i)| *i);
     for (i, m) in messages.iter().enumerate() {
-        thread = thread.child(message(m.kind, &m.content, &sources, false, l).key(format!("msg-{i}-{}", m.id)));
+        thread = thread.child(message(&m.id, m.kind, &m.content, &sources, None, active(&m.id), l).key(format!("msg-{i}-{}", m.id)));
     }
     if let Some((question, reply)) = &o.pending {
-        thread = thread.child(message(MessageKind::Human, question, &sources, false, l).key("pending-q"));
-        let shown = if reply.is_empty() { "…" } else { reply.as_str() };
-        thread = thread.child(message(MessageKind::Ai, shown, &sources, true, l).key("pending-a"));
+        thread = thread.child(message("pending-q", MessageKind::Human, question, &sources, None, None, l).key("pending-q"));
+        let writing = if reply.is_empty() { "Reading your sources" } else { "Writing" };
+        thread = thread.child(message("pending", MessageKind::Ai, reply, &sources, Some(writing), None, l).key("pending-a"));
     }
     if let Some(e) = &o.error {
         thread = thread.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap().key("chat-error"));
     }
     let scroller = col().key("thread-scroll").w_full().items_center().child(thread).scroll(ScrollSpec { stick_bottom: true }).grow(1.0).min_h(0.0);
-    col().w_full().grow(1.0).min_h(0.0).child(scroller).child(composer(o, l))
+    col().w_full().grow(1.0).min_h(0.0).child(scroller).child(composer(s, o, l, layer))
 }
 
-fn message(kind: MessageKind, content: &str, sources: &[CitableSource], streaming: bool, l: &Look) -> El {
+/// Marks the clicked citation: its links in the answer turn bold.
+fn mark_cite(markdown: &str, index: usize) -> String {
+    let tail = format!("](cite:{index})");
+    let mut out = String::with_capacity(markdown.len() + 8);
+    let mut rest = markdown;
+    while let Some(end) = rest.find(&tail) {
+        let Some(open) = rest[..end].rfind('[') else { break };
+        out.push_str(&rest[..open]);
+        out.push_str("**");
+        out.push_str(&rest[open..end + tail.len()]);
+        out.push_str("**");
+        rest = &rest[end + tail.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A message. `writing` is the status while a reply streams in, when only its finished
+/// blocks show; `active` is the citation last clicked in it.
+fn message(id: &str, kind: MessageKind, content: &str, sources: &[CitableSource], writing: Option<&str>, active: Option<usize>, l: &Look) -> El {
     let k = &l.k;
     match kind {
         MessageKind::Human => row().w_full().justify_end().child(
@@ -815,71 +919,83 @@ fn message(kind: MessageKind, content: &str, sources: &[CitableSource], streamin
                 .child(text(content.to_owned()).font(k.ty.body).color(l.text).wrap().selectable(true)),
         ),
         MessageKind::Ai => {
-            let linked = citations::link_citations(content, sources);
+            let shown = if writing.is_some() { notebook_engine::blocks::finished_blocks(content) } else { content };
+            let linked = citations::link_citations(shown, sources);
             let cited: Vec<String> = linked.cited.iter().map(|c| c.id.clone()).collect();
             let md = linked.markdown.clone();
+            let marked = match active {
+                Some(i) => mark_cite(&linked.markdown, i),
+                None => linked.markdown,
+            };
             let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).link(l.amber).text(l.text);
-            let body = Markdown::new(linked.markdown)
-                .style(style)
-                .streaming(streaming)
-                .selectable(true)
-                .on_link_tx(move |s: &mut App, url: &str, tx: &mut Tx| {
-                    if let Some(i) = url.strip_prefix("cite:").and_then(|n| n.parse::<usize>().ok()) {
-                        if let Some(id) = cited.get(i) {
-                            let at = md.find(&format!("](cite:{i})")).unwrap_or(0);
-                            let query = citations::sentence_around(&md, at);
-                            s.read_source(id.clone(), Some(query));
-                        }
-                    } else {
-                        let _ = tx.open_url(url);
-                    }
-                })
-                .build(k);
-            let mut c = col().w_full().gap(6.0).child(body);
-            if !streaming {
-                let copy = content.to_owned();
-                let save = content.to_owned();
+            let mid = id.to_owned();
+            let mut c = col().w_full().gap(6.0);
+            if !marked.is_empty() {
                 c = c.child(
-                    row()
-                        .gap(2.0)
-                        .child(
-                            IconButton::new(&rune_kit::glyphs::COPY)
-                                .variant(IconButtonVariant::GhostMuted)
-                                .control_size(ControlSize::Small)
-                                .label("Copy")
-                                .help("Copy")
-                                .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(copy.clone()))
-                                .build(k)
-                                .key("copy"),
-                        )
-                        .child(
-                            IconButton::new(&icons::SAVE)
-                                .variant(IconButtonVariant::GhostMuted)
-                                .control_size(ControlSize::Small)
-                                .label("Save to notes")
-                                .help("Save to notes")
-                                .on_press(move |s: &mut App| s.save_reply_as_note(save.clone()))
-                                .build(k)
-                                .key("save"),
-                        ),
+                    Markdown::new(marked)
+                        .style(style)
+                        .selectable(true)
+                        .on_link_tx(move |s: &mut App, url: &str, tx: &mut Tx| {
+                            if let Some(i) = url.strip_prefix("cite:").and_then(|n| n.parse::<usize>().ok()) {
+                                if let Some(id) = cited.get(i) {
+                                    let at = md.find(&format!("](cite:{i})")).unwrap_or(0);
+                                    let query = citations::sentence_around(&md, at);
+                                    if let Some(o) = s.open.as_mut() {
+                                        o.active_cite = Some((mid.clone(), i));
+                                    }
+                                    s.read_source(id.clone(), Some(query));
+                                }
+                            } else if is_web(url) {
+                                let _ = tx.open_url(url);
+                            }
+                        })
+                        .build(k),
                 );
             }
-            c
+            if let Some(w) = writing {
+                return c.child(text(w).font(k.ty.small).color(l.text3).key("writing"));
+            }
+            let copy = content.to_owned();
+            let save = content.to_owned();
+            c.child(
+                row()
+                    .gap(2.0)
+                    .child(
+                        IconButton::new(&rune_kit::glyphs::COPY)
+                            .variant(IconButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .label("Copy")
+                            .help("Copy")
+                            .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(copy.clone()))
+                            .build(k)
+                            .key("copy"),
+                    )
+                    .child(
+                        IconButton::new(&icons::SAVE)
+                            .variant(IconButtonVariant::GhostMuted)
+                            .control_size(ControlSize::Small)
+                            .label("Save as note")
+                            .help("Save as note")
+                            .on_press(move |s: &mut App| {
+                                // Opens in the editor so it can be changed before it is saved.
+                                if let Some(o) = s.open.as_mut() {
+                                    o.new_note(notebook_engine::text::title_from(&save, 60), save.clone(), true);
+                                }
+                            })
+                            .build(k)
+                            .key("save"),
+                    ),
+            )
         }
     }
 }
 
-fn composer(o: &Open, l: &Look) -> El {
+fn composer(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let sending = o.sending.is_some();
+    let streams = s.backend.as_ref().is_none_or(|b| b.streams_chat());
     let field = TextArea::new(&o.draft)
-        .placeholder(if o.scope.is_some() {
-            "Ask about this source"
-        } else if o.sources.is_empty() {
-            "Ask anything"
-        } else {
-            "Ask about your sources"
-        })
+        .placeholder(if o.scope.is_some() { "Ask about this source" } else { "Ask about these sources" })
         .label("Message")
         .width(None)
         .auto_grow(1, 8)
@@ -894,23 +1010,76 @@ fn composer(o: &Open, l: &Look) -> El {
         .on_submit(|s: &mut App, _: &mut Tx| s.send())
         .build(k)
         .key("draft");
-    let button = if sending {
-        IconButton::new(&icons::STOP).variant(IconButtonVariant::Contrast).label("Stop").on_press(|s: &mut App| s.stop())
+    let button = if sending && streams {
+        IconButton::new(&icons::STOP).variant(IconButtonVariant::Contrast).label("Stop").help("Stop").on_press(|s: &mut App| s.stop())
     } else {
         IconButton::new(&icons::SEND)
             .variant(IconButtonVariant::Contrast)
-            .label("Send")
-            .disabled(o.draft.text.trim().is_empty())
+            .label("Ask")
+            .help("Ask")
+            .disabled(sending || o.draft.text.trim().is_empty())
             .on_press(|s: &mut App| s.send())
     };
+    let meta = row()
+        .key("composer-meta")
+        .w_full()
+        .max_w(720.0)
+        .gap(8.0)
+        .center_y()
+        .child(model_menu(s, o, l, layer))
+        .child(el().grow(1.0))
+        .child(text("Shift Return for a new line").font(k.ty.small).color(l.text3));
     col()
         .key("composer")
         .w_full()
         .items_center()
         .px(24.0)
-        .pb(16.0)
+        .pb(12.0)
         .pt(8.0)
+        .gap(6.0)
         .child(row().w_full().max_w(720.0).gap(8.0).items_end().child(col().grow(1.0).min_w(0.0).child(field)).child(button.build(k).key("send")))
+        .child(meta)
+}
+
+/// The model for this conversation: the default, or one of the server's or provider's models.
+fn model_menu(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
+    let default = format!("Default: {}", s.default_model_label());
+    let models = o.models.clone().unwrap_or_default();
+    let chosen = s.model_override();
+    let mut labels = vec![default.clone()];
+    labels.extend(crate::state::unique_labels(models.iter().map(|(_, l)| l.clone())));
+    let values: Vec<String> = std::iter::once(String::new()).chain(models.iter().map(|(v, _)| v.clone())).collect();
+    let current = match &chosen {
+        Some(v) => values.iter().position(|x| x == v).map(|i| labels[i].clone()).unwrap_or_else(|| v.clone()),
+        None => s.default_model_label(),
+    };
+    let picks = labels.clone();
+    rune_kit::Select::new("chat-model", &labels)
+        .label("Model for this conversation")
+        .placeholder(current.clone())
+        .current(Some(current.as_str()).filter(|c| labels.iter().any(|x| x == c)))
+        .width(240.0)
+        .open(o.models_open)
+        .on_toggle(|s: &mut App| {
+            s.load_models();
+            if let Some(o) = s.open.as_mut() {
+                o.models_open = !o.models_open;
+            }
+        })
+        .on_close(|s: &mut App| {
+            if let Some(o) = s.open.as_mut() {
+                o.models_open = false;
+            }
+        })
+        .on_choose(move |s: &mut App, label: &str, _: &mut Tx| {
+            if let Some(v) = picks.iter().position(|x| x == label).and_then(|i| values.get(i).cloned()) {
+                s.set_model_override(v);
+            }
+            if let Some(o) = s.open.as_mut() {
+                o.models_open = false;
+            }
+        })
+        .build(&l.k, layer)
 }
 
 // Notes
@@ -1026,4 +1195,20 @@ fn note_editor(d: &NoteDraft, l: &Look) -> El {
                 )
                 .child(Button::new("Save").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.save_note()).build(k).key("note-save")),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_clicked_citation_is_marked() {
+        let md = "One [A](cite:0) two [B](cite:1) and [A](cite:0).";
+        assert_eq!(super::mark_cite(md, 0), "One **[A](cite:0)** two [B](cite:1) and **[A](cite:0)**.");
+        assert_eq!(super::mark_cite(md, 2), md);
+    }
+
+    #[test]
+    fn only_web_links_open() {
+        assert!(super::is_web("https://example.com") && super::is_web("HTTP://x.y"));
+        assert!(!super::is_web("file:///etc/passwd") && !super::is_web("javascript:alert(1)"));
+    }
 }

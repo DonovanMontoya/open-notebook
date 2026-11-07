@@ -36,6 +36,9 @@ pub const SCENES: &[Scene] = &[
     ("drop", dropping),
     ("reader", reader),
     ("reader-passage", reader_passage),
+    ("chat-models", chat_models),
+    ("chat-rename", chat_rename),
+    ("chat-empty", chat_empty),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -550,4 +553,30 @@ fn reader_passage(s: &mut App) {
     let summary = o.sources[0].clone();
     o.reading = Some((SourceDetail { summary, full_text: text }, passage));
     o.scroll_to_passage = true;
+}
+
+fn chat_models(s: &mut App) {
+    notebook(s);
+    s.settings.chat = Some(notebook_engine::settings::ModelSetting { provider: "anthropic".into(), model: "claude-sonnet-4-5".into() });
+    let o = s.open.as_mut().unwrap();
+    o.reading = None;
+    o.active_cite = Some(("m2".into(), 0));
+    o.models = Some(vec![("anthropic::claude-opus-4-1".into(), "Claude Opus 4.1".into()), ("anthropic::claude-haiku-4-5".into(), "Claude Haiku 4.5".into())]);
+}
+
+fn chat_rename(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    o.renaming_chat = Some(TextEdit::new("What do spindles do?"));
+    let mut twin = o.sessions[0].clone();
+    twin.id = "c2".into();
+    twin.updated = "2026-10-01T10:00:00Z".into();
+    o.sessions.push(twin);
+}
+
+fn chat_empty(s: &mut App) {
+    open(s);
+    for src in &mut s.open.as_mut().unwrap().sources {
+        src.status = Some("processing".into());
+    }
 }
