@@ -44,7 +44,7 @@ pub fn deck_details(d: &StoredDeck) -> String {
 
 pub fn view(o: &Open, l: &Look) -> El {
     let k = &l.k;
-    let mut c = col().key("study").w_full().max_w(720.0).gap(14.0).px(24.0).py(20.0);
+    let mut c = col().key("study").w_full().max_w(720.0).gap(14.0).px(l.pad()).py(20.0);
     if let Some(v) = &o.viewing
         && let Some(deck) = o.decks.get(v.index)
     {

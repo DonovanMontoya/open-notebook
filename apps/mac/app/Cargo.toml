@@ -5,6 +5,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# The library is the whole app; the Mac binary opens it in a window and the iPhone shell
+# (apps/mac/ios) links the static library and draws it into a CAMetalLayer.
+[lib]
+name = "open_notebook"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
 [[bin]]
 name = "open-notebook"
 path = "src/main.rs"

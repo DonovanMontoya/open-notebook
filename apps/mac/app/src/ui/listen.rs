@@ -23,7 +23,7 @@ fn small(label: &str, key: &str, l: &Look, f: impl Fn(&mut App) + 'static) -> El
 
 pub fn view(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
-    let mut c = col().key("listen").w_full().max_w(720.0).gap(14.0).px(24.0).py(20.0);
+    let mut c = col().key("listen").w_full().max_w(720.0).gap(14.0).px(l.pad()).py(20.0);
     let mut actions = row().gap(4.0);
     if o.new_episode.is_none() {
         actions = actions.child(
@@ -428,7 +428,13 @@ fn prompt_dialog(e: &Episode, v: &PromptView, l: &Look, layer: &mut Vec<El>) {
         buttons = buttons.child(c);
     }
     buttons = buttons.child(Button::new("Done").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.close_prompt()).build(k).key("prompt-done"));
-    Dialog::new("prompt-dialog", "Script prompt").open(true).width(640.0).child(body).child(buttons).on_close(|s: &mut App| s.close_prompt()).build(k, layer);
+    Dialog::new("prompt-dialog", "Script prompt")
+        .open(true)
+        .width(l.dialog(640.0))
+        .child(body)
+        .child(buttons)
+        .on_close(|s: &mut App| s.close_prompt())
+        .build(k, layer);
 }
 
 /// 12345 as "12,345".
@@ -686,6 +692,30 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
             p.followed = None;
         }
     });
+    if l.phone() {
+        // A phone: play, what's playing and how long is left, and close. The title opens the full
+        // player, which has the rest.
+        let play = IconButton::new(if on { &icons::PAUSE } else { &icons::PLAY })
+            .variant(IconButtonVariant::Contrast)
+            .label(if on { "Pause" } else { "Play" })
+            .on_press(move |s: &mut App| s.play(ep.clone()))
+            .build(k)
+            .key("player-play");
+        let info = col().grow(1.0).min_w(0.0).gap(2.0).child(name).child(text(status).font(theme::tnum(k.ty.small)).color(l.text3).max_lines(1));
+        let close = IconButton::new(&icons::CLOSE)
+            .variant(IconButtonVariant::GhostMuted)
+            .label("Close player")
+            .on_press(|s: &mut App| s.stop_playing())
+            .build(k)
+            .key("player-close");
+        return col()
+            .key("player")
+            .w_full()
+            .fill(l.panel)
+            .child(el().w_full().h(1.0).fill(l.line))
+            .child(row().w_full().h(56.0).px(12.0).gap(10.0).center_y().child(play).child(info).child(close))
+            .child(scrubber(p, l, "player-track"));
+    }
     let mut r = row().key("player").w_full().h(56.0).px(16.0).gap(4.0).center_y().fill(l.panel).border(1.0, l.line).child(
         IconButton::new(if on { &icons::PAUSE } else { &icons::PLAY })
             .variant(IconButtonVariant::Contrast)
@@ -917,7 +947,7 @@ fn page(s: &mut App) -> &mut ProfilesPage {
 pub fn profiles(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.profiles else { return col() };
-    let mut c = col().w_full().max_w(720.0).gap(14.0).px(24.0).py(28.0).child(text("Podcast profiles").font(theme::READ_TITLE).color(l.text)).child(
+    let mut c = col().w_full().max_w(720.0).gap(14.0).px(l.pad()).py(l.pad_top()).child(text("Podcast profiles").font(theme::READ_TITLE).color(l.text)).child(
         text("An episode profile sets the angle, length and voices of an episode. A speaker profile is the cast: who speaks and in which voice.")
             .font(k.ty.ui)
             .color(l.text2)

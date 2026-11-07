@@ -594,6 +594,7 @@ impl App {
         }
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn resume_playing(&self) {
         if let Some(p) = self.playing.as_ref().filter(|p| !p.is_playing()) {
             p.player.play();

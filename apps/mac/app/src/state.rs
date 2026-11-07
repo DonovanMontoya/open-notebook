@@ -291,6 +291,8 @@ pub struct Open {
     pub renaming_chat: Option<TextEdit>,
     /// The citation last clicked (message id, citation index), marked until the rail goes back to the list.
     pub active_cite: Option<(String, usize)>,
+    /// On a phone, the Sources tab is showing in place of the notebook's other tabs.
+    pub sources_tab: bool,
 }
 
 impl Open {
@@ -342,6 +344,7 @@ impl Open {
             models_open: false,
             renaming_chat: None,
             active_cite: None,
+            sources_tab: false,
         }
     }
 
@@ -674,6 +677,9 @@ pub struct App {
     inbox: Inbox,
     rx: Receiver<Apply>,
     pub live: crate::live::LiveTalk,
+    /// The fold of a partly folded iPhone Duo, `[x, y, w, h]` in window points, while it divides
+    /// the screen. The two pages of the notebook sit either side of it.
+    pub fold: Option<[f32; 4]>,
     /// The sidebar's archived notebooks are showing.
     pub show_archived: bool,
     /// The new-notebook dialog's "What it's for", beside `new_notebook`'s name.
@@ -715,6 +721,7 @@ impl App {
             inbox: Inbox { tx, waker: None },
             rx,
             live: Default::default(),
+            fold: None,
             show_archived: false,
             new_notebook_description: TextEdit::new(""),
         }

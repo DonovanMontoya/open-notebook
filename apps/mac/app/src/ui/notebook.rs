@@ -16,24 +16,61 @@ const READER: f32 = 380.0;
 
 pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let o = s.open.as_ref().expect("a notebook is open");
-    let center = match o.tab {
+    let mut middle = col().key("center").grow(1.0).h_full().min_w(380.0).min_h(0.0).child(header(o, l));
+    if o.search_open
+        && let Some(hits) = &o.hits
+    {
+        middle = middle.child(search_results(hits, l));
+    }
+    let middle = middle.child(tab_head(o, l, layer)).child(rule(l)).child(tab_body(s, o, l, layer));
+    // A cited passage opens in the rail, beside the answer that cites it, as in the Tauri app.
+    let body = droppable(row().key("notebook").w_full().h_full().min_h(0.0).child(rail(o, l, layer)).child(vrule(l)).child(middle));
+    overlays(o, l, layer);
+    body
+}
+
+/// What the current tab shows: chat, notes, study decks or podcasts.
+pub(super) fn tab_body(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
+    match o.tab {
         NotebookTab::Chat => chat(s, o, l, layer),
         NotebookTab::Notes => notes(o, l),
         NotebookTab::Study => super::study::view(o, l),
         NotebookTab::Listen => super::listen::view(s, o, l, layer),
-    };
+    }
+}
+
+/// The row above the tab's content: the tab picker (not on a phone, which has tabs at the
+/// bottom), then the chat's conversation picker or the New note button.
+pub(super) fn tab_head(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     const TABS: [NotebookTab; 4] = [NotebookTab::Chat, NotebookTab::Notes, NotebookTab::Study, NotebookTab::Listen];
-    let tabs = SegmentedControl::new(&["Chat", "Notes", "Study", "Listen"], TABS.iter().position(|t| *t == o.tab))
-        .label("View")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
-            if let Some(o) = s.open.as_mut() {
-                o.tab = TABS[i];
-            }
-        })
-        .build(&l.k)
-        .key("tabs");
-    let mut head = row().key("center-head").w_full().h(44.0).px(16.0).gap(8.0).center_y().child(tabs).child(el().grow(1.0));
+    let mut head = row().key("center-head").w_full().h(44.0).px(if l.phone() { 8.0 } else { 16.0 }).gap(8.0).center_y();
+    if !l.phone() {
+        let tabs = SegmentedControl::new(&["Chat", "Notes", "Study", "Listen"], TABS.iter().position(|t| *t == o.tab))
+            .label("View")
+            .fit()
+            .on_pick(|s: &mut App, i, _: &mut Tx| {
+                if let Some(o) = s.open.as_mut() {
+                    o.tab = TABS[i];
+                }
+            })
+            .build(&l.k)
+            .key("tabs");
+        head = head.child(tabs);
+    }
+    // On the Duo's narrower page the tab picker gets its own row, and the conversation picker
+    // or New note sits on a second one.
+    if l.size == crate::theme::Size::Pages && matches!(o.tab, NotebookTab::Chat | NotebookTab::Notes) {
+        let first = head;
+        head = row().key("center-head-2").w_full().h(40.0).px(16.0).gap(8.0).center_y();
+        let second = tab_actions(o, head.child(el().grow(1.0)), l, layer);
+        return col().w_full().child(first).child(second);
+    }
+    head = head.child(el().grow(1.0));
+    tab_actions(o, head, l, layer)
+}
+
+/// The chat's conversation controls, or the New note button, at the end of `head`.
+fn tab_actions(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
     if o.tab == NotebookTab::Chat {
         head = chat_bar(o, head, l, layer);
     } else if o.tab == NotebookTab::Notes {
@@ -51,38 +88,35 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 .key("new-note"),
         );
     }
-    let mut middle = col().key("center").grow(1.0).h_full().min_w(380.0).min_h(0.0).child(header(o, l));
-    if o.search_open
-        && let Some(hits) = &o.hits
-    {
-        middle = middle.child(search_results(hits, l));
-    }
-    let middle = middle.child(head).child(rule(l)).child(center);
-    // A cited passage opens in the rail, beside the answer that cites it, as in the Tauri app.
-    let rail = match &o.reading {
+    head
+}
+
+/// The left page: the source being read, or the list of sources.
+pub(super) fn rail(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
+    match &o.reading {
         Some((detail, passage)) => reader(o, detail, *passage, l, layer),
         None => sources(o, l),
-    };
-    let body = row()
-        .key("notebook")
-        .w_full()
-        .h_full()
-        .min_h(0.0)
-        .child(rail)
-        .child(vrule(l))
-        .child(middle)
-        .on_drop_files(|s: &mut App, files: &[std::path::PathBuf], _: &mut Tx| {
-            if let Some(o) = s.open.as_mut() {
-                o.drop_over = false;
-            }
-            s.open_add(files);
-        })
-        .accepts_extensions(&crate::state::accepted())
-        .on_drop_hover(|s: &mut App, over, _: &mut Tx| {
-            if let Some(o) = s.open.as_mut() {
-                o.drop_over = over;
-            }
-        });
+    }
+}
+
+/// Files dropped on the notebook open the add dialog with them.
+pub(super) fn droppable(body: El) -> El {
+    body.on_drop_files(|s: &mut App, files: &[std::path::PathBuf], _: &mut Tx| {
+        if let Some(o) = s.open.as_mut() {
+            o.drop_over = false;
+        }
+        s.open_add(files);
+    })
+    .accepts_extensions(&crate::state::accepted())
+    .on_drop_hover(|s: &mut App, over, _: &mut Tx| {
+        if let Some(o) = s.open.as_mut() {
+            o.drop_over = over;
+        }
+    })
+}
+
+/// The add dialog, the drop overlay and the notebook's details, over everything.
+pub(super) fn overlays(o: &Open, l: &Look, layer: &mut Vec<El>) {
     if let Some(add) = &o.add {
         super::add::sheet(o, add, l, layer);
     } else if o.drop_over {
@@ -94,11 +128,10 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     if let Some(d) = &o.details {
         details(o, d, l, layer);
     }
-    body
 }
 
 /// The notebook's name and what it's for, its settings, and a search box.
-fn header(o: &Open, l: &Look) -> El {
+pub(super) fn header(o: &Open, l: &Look) -> El {
     let k = &l.k;
     let nb = o.notebook.as_ref();
     let mut title = col()
@@ -114,7 +147,11 @@ fn header(o: &Open, l: &Look) -> El {
         .placeholder("Search notebook")
         .label("Search this notebook")
         .leading_icon(&rune_kit::glyphs::SEARCH)
-        .width(Some(220.0))
+        .width(match l.size {
+            crate::theme::Size::Phone => None,
+            crate::theme::Size::Pages => Some(170.0),
+            crate::theme::Size::Desk => Some(220.0),
+        })
         .on_edit(|s: &mut App| &mut s.open.as_mut().expect("open").search)
         .on_change(|s: &mut App, _: &mut Tx| s.search_changed())
         .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
@@ -128,6 +165,10 @@ fn header(o: &Open, l: &Look) -> El {
         })
         .build(k)
         .key("notebook-search");
+    if l.phone() {
+        // The back bar holds the settings button; the search box gets the full width.
+        return col().key("notebook-head").w_full().px(16.0).pt(4.0).pb(8.0).gap(10.0).child(title).child(search);
+    }
     row()
         .key("notebook-head")
         .w_full()
@@ -148,7 +189,7 @@ fn header(o: &Open, l: &Look) -> El {
         .child(search)
 }
 
-fn open_details(s: &mut App) {
+pub(super) fn open_details(s: &mut App) {
     if let Some(o) = s.open.as_mut()
         && let Some(nb) = &o.notebook
     {
@@ -157,7 +198,7 @@ fn open_details(s: &mut App) {
 }
 
 /// The search's hits under the header: a source opens in the reader at the passage, a note in the editor.
-fn search_results(hits: &crate::state::Hits, l: &Look) -> El {
+pub(super) fn search_results(hits: &crate::state::Hits, l: &Look) -> El {
     let k = &l.k;
     let (query, result) = hits;
     let mut list = col().key("search-results").w_full().gap(2.0).px(8.0).py(6.0);
@@ -275,10 +316,15 @@ fn details(o: &Open, d: &NotebookDetails, l: &Look, layer: &mut Vec<El>) {
                         .key("details-save"),
                 ),
         );
-    Dialog::new("notebook-details", "Notebook").open(true).width(460.0).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    Dialog::new("notebook-details", "Notebook").open(true).width(l.dialog(460.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
 }
 
-fn rule(l: &Look) -> El {
+/// A rail's width on the Mac; on a phone or a page of the Duo it fills its page.
+fn rail_width(c: El, want: f32, min: f32, l: &Look) -> El {
+    if l.size == crate::theme::Size::Desk { c.w(want).shrink().min_w(min) } else { c.w_full() }
+}
+
+pub(super) fn rule(l: &Look) -> El {
     el().w_full().h(1.0).fill(l.line)
 }
 
@@ -313,11 +359,7 @@ fn sources(o: &Open, l: &Look) -> El {
     for src in &o.sources {
         list = list.child(source_row(o, src, reading == Some(src.id.as_str()), l));
     }
-    col()
-        .key("sources")
-        .w(RAIL)
-        .shrink()
-        .min_w(240.0)
+    rail_width(col().key("sources"), RAIL, 240.0, l)
         .h_full()
         .min_h(0.0)
         .fill(l.page)
@@ -557,11 +599,7 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
         .child(insights(o, !full.trim().is_empty(), l, layer))
         .child(body)
         .child(actions);
-    col()
-        .key("reader")
-        .w(READER)
-        .shrink()
-        .min_w(260.0)
+    rail_width(col().key("reader"), READER, 260.0, l)
         .h_full()
         .min_h(0.0)
         .fill(l.page)
@@ -824,7 +862,7 @@ fn citable(o: &Open) -> Vec<CitableSource> {
 fn chat(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let sources = citable(o);
-    let mut thread = col().key("thread").w_full().max_w(720.0).gap(18.0).px(24.0).py(20.0);
+    let mut thread = col().key("thread").w_full().max_w(720.0).gap(18.0).px(l.pad()).py(20.0);
     if let Some((_, title)) = &o.scope {
         thread = thread.child(
             row()
@@ -1098,10 +1136,10 @@ fn model_menu(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
 fn notes(o: &Open, l: &Look) -> El {
     let k = &l.k;
     if let Some(d) = &o.note {
-        let editor = col().key("notes-editor").w_full().max_w(720.0).px(24.0).py(20.0).child(note_editor(o, d, l));
+        let editor = col().key("notes-editor").w_full().max_w(720.0).px(l.pad()).py(20.0).child(note_editor(o, d, l));
         return col().key("notes").w_full().items_center().child(editor).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0);
     }
-    let mut list = col().key("notes-list").w_full().max_w(720.0).gap(12.0).px(24.0).py(20.0);
+    let mut list = col().key("notes-list").w_full().max_w(720.0).gap(12.0).px(l.pad()).py(20.0);
     // Study decks are kept as notes; the Study tab shows them.
     let shown: Vec<&Note> = o.notes.iter().filter(|n| !n.content.as_deref().unwrap_or_default().starts_with(notebook_engine::studio::STUDY_PREFIX)).collect();
     if shown.is_empty() {

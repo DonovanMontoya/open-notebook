@@ -1,6 +1,8 @@
 //! The system's Now Playing panel, media keys and headphone controls (macOS), through
 //! MPNowPlayingInfoCenter and MPRemoteCommandCenter. Elsewhere, and in tests and headless
 //! scenes, every call does nothing.
+// Parts of this only run on macOS; elsewhere they are compiled but unused.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::listen::NowPlaying;
 use crate::state::Inbox;

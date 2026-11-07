@@ -5,6 +5,7 @@ mod add;
 mod icons;
 mod listen;
 mod live;
+mod mobile;
 mod notebook;
 mod pages;
 mod server;
@@ -16,7 +17,7 @@ use rune_kit::shell::{PaneMotion, Sidebar, SidebarRow, SidebarSection, SidebarTo
 use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, TextInput};
 
 use crate::state::{App, Route};
-use crate::theme::{self, Look};
+use crate::theme::{self, Look, Size};
 
 pub fn look(cx: &Cx<App>, s: &App) -> Look {
     let dark = match s.settings.appearance.as_str() {
@@ -28,27 +29,18 @@ pub fn look(cx: &Cx<App>, s: &App) -> Look {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let l = look(cx, s);
+    // The window's own width picks the layout; until the first layout, guess by platform.
+    let width = cx.layout_with("app-root", |r| r[2]).unwrap_or(if cfg!(target_os = "ios") { 400.0 } else { 1280.0 });
+    let l = look(cx, s).sized(width);
     let mut layer = Vec::new();
-    // Every page has its own heading, so the title bar stays empty.
-    let main = match &s.route {
-        Route::Notebook(_) if s.open.is_some() => {
-            // The notebook draws its own name and description.
-            notebook::view(s, &l, &mut layer)
-        }
-        Route::Settings => settings::view(s, &l, &mut layer),
-        Route::Ask => pages::ask(s, &l, &mut layer),
-        Route::Library => pages::library(s, &l, &mut layer),
-        Route::Transformations => pages::transformations(s, &l),
-        Route::Usage => pages::usage(s, &l, &mut layer),
-        Route::Server => server::view(s, &l, &mut layer),
-        Route::Profiles => listen::profiles(s, &l, &mut layer),
-        _ => home(s, &l),
+    let body = match l.size {
+        Size::Desk => desk(s, cx, &l, &mut layer),
+        Size::Phone | Size::Pages => mobile::view(s, &l, &mut layer),
     };
     if let Some(c) = &s.confirm {
         Dialog::new("confirm", c.question.clone())
             .open(true)
-            .width(360.0)
+            .width(l.dialog(360.0))
             .child(
                 row()
                     .gap(8.0)
@@ -75,20 +67,43 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(message) = &s.toast {
         layer.push(toast(message, &l));
     }
+    rune_kit::root(col().key("app-root").w_full().h_full().fill(l.page).child(body), layer)
+}
+
+/// The page a route shows, other than a notebook.
+fn page(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
+    match &s.route {
+        Route::Settings => settings::view(s, l, layer),
+        Route::Ask => pages::ask(s, l, layer),
+        Route::Library => pages::library(s, l, layer),
+        Route::Transformations => pages::transformations(s, l),
+        Route::Usage => pages::usage(s, l, layer),
+        Route::Server => server::view(s, l, layer),
+        Route::Profiles => listen::profiles(s, l, layer),
+        _ => home(s, l),
+    }
+}
+
+/// The Mac: a sidebar of notebooks beside the desk.
+fn desk(s: &App, cx: &mut Cx<App>, l: &Look, layer: &mut Vec<El>) -> El {
+    let main = match &s.route {
+        // The notebook draws its own name and description; every page has its own heading.
+        Route::Notebook(_) if s.open.is_some() => notebook::view(s, l, layer),
+        _ => page(s, l, layer),
+    };
     let mut desk = col().key("desk").w_full().h_full().min_h(0.0).fill(l.panel).child(col().w_full().grow(1.0).min_h(0.0).child(main));
     if let Some(p) = &s.playing {
-        desk = desk.child(listen::player_bar(p, &l));
+        desk = desk.child(listen::player_bar(p, l));
     }
-    let split = SplitView::new(desk)
-        .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, &l))
+    SplitView::new(desk)
+        .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, l))
         .toolbar(Toolbar::new())
         .titlebar_inset(cx.titlebar_inset())
         .sidebar_padding(12.0, 8.0)
         .sidebar_toggle(SidebarToggle::new().size(ControlSize::Large).past_lights(16.0).edge(16.0).gap(4.0).in_header())
         .pane_motion(PaneMotion::new().spring(Spring::new(0.3, 0.0)))
         .reduced_motion(cx.is_reduced_motion())
-        .build(&l.k);
-    rune_kit::root(col().w_full().h_full().fill(l.page).child(split), layer)
+        .build(&l.k)
 }
 
 fn sidebar(s: &App, l: &Look) -> El {
@@ -210,7 +225,7 @@ fn new_notebook(s: &App, l: &Look, layer: &mut Vec<El>) {
         );
     Dialog::new("new-notebook", "New notebook")
         .open(true)
-        .width(440.0)
+        .width(l.dialog(440.0))
         .fit()
         .child(body.px(20.0).pb(20.0))
         .on_close(|s: &mut App| s.new_notebook = None)
@@ -283,21 +298,23 @@ fn home(s: &App, l: &Look) -> El {
         .key("home")
         .w_full()
         .max_w(760.0)
-        .px(32.0)
-        .pt(40.0)
+        .px(l.gutter())
+        .pt(if l.phone() { 16.0 } else { 40.0 })
         .pb(32.0)
         .gap(24.0)
         .child(row().w_full().center_y().child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0)).child(new_button(ButtonVariant::Ghost)));
+    if l.size != Size::Desk {
+        c = c.child(ask_field(l));
+    }
     if needs_model {
         c = c.child(
-            row()
+            if l.phone() { col().items_start() } else { row().center_y() }
                 .key("home-model")
                 .w_full()
                 .gap(16.0)
                 .padding(16.0)
                 .radius(12.0)
                 .fill(l.raised)
-                .center_y()
                 .child(
                     text("Add a chat model to start asking. Questions go to the provider you choose, with your own key.")
                         .font(k.ty.ui)
@@ -335,7 +352,65 @@ fn home(s: &App, l: &Look) -> El {
         }
         list = list.child(k.interactive(item).on_press(move |s: &mut App| s.open_notebook(id.clone())));
     }
-    col().w_full().h_full().items_center().child(c.child(list)).scroll(rune::ScrollSpec { stick_bottom: false }).window_drag()
+    c = c.child(list);
+    if l.size != Size::Desk {
+        c = c.child(tools(s, l));
+    }
+    col().w_full().h_full().items_center().child(c).scroll(rune::ScrollSpec { stick_bottom: false }).window_drag()
+}
+
+/// Without a sidebar: a field that opens Ask, at the top of home.
+fn ask_field(l: &Look) -> El {
+    let k = &l.k;
+    let field = row()
+        .key("home-ask")
+        .w_full()
+        .h(44.0)
+        .px(12.0)
+        .gap(8.0)
+        .radius(10.0)
+        .fill(l.raised)
+        .center_y()
+        .role("button")
+        .label("Ask your notebooks")
+        .child(rune::icon(&rune_kit::glyphs::SEARCH, 16.0).color(l.text3))
+        .child(text("Ask your notebooks").font(k.ty.body).color(l.text3));
+    k.interactive(field).on_press(|s: &mut App| s.go(Route::Ask))
+}
+
+/// Without a sidebar: everything the sidebar holds besides the notebooks, below them.
+fn tools(s: &App, l: &Look) -> El {
+    let k = &l.k;
+    let item = |label: &str, icon: &'static rune::Icon, route: Route, key: &str| {
+        let r = row()
+            .key(key.to_owned())
+            .w_full()
+            .h(48.0)
+            .px(12.0)
+            .gap(12.0)
+            .radius(10.0)
+            .center_y()
+            .child(rune::icon(icon, 18.0).color(l.text2))
+            .child(text(label.to_owned()).font(k.ty.body).color(l.text).grow(1.0))
+            .child(rune::icon(&rune_kit::glyphs::CARET_RIGHT, 14.0).color(l.text3));
+        k.interactive(r).on_press(move |s: &mut App| match &route {
+            Route::Settings => s.open_settings(),
+            r => s.go(r.clone()),
+        })
+    };
+    let mut c = col()
+        .key("home-tools")
+        .w_full()
+        .gap(2.0)
+        .pt(8.0)
+        .child(text("Tools").font(k.ty.ui_medium).color(l.text2).px(12.0).pb(4.0))
+        .child(item("Library", &icons::DOC, Route::Library, "tool-library"))
+        .child(item("Transformations", &rune_kit::glyphs::SPARKLE, Route::Transformations, "tool-transformations"))
+        .child(item("Usage", &icons::GAUGE, Route::Usage, "tool-usage"));
+    if s.remote.is_some() {
+        c = c.child(item("Server", &icons::SERVER, Route::Server, "tool-server"));
+    }
+    c.child(item("Settings", &icons::GEAR, Route::Settings, "tool-settings"))
 }
 
 fn toast(message: &str, l: &Look) -> El {

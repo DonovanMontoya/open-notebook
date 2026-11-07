@@ -55,8 +55,15 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         })
         .build(k)
         .key("mode");
-    let mut c =
-        col().key("settings-body").w_full().max_w(560.0).gap(18.0).px(24.0).py(28.0).child(text("Settings").font(theme::READ_TITLE).color(l.text)).child(
+    let mut c = col()
+        .key("settings-body")
+        .w_full()
+        .max_w(560.0)
+        .gap(18.0)
+        .px(l.pad())
+        .py(l.pad_top())
+        .child(text("Settings").font(theme::READ_TITLE).color(l.text))
+        .child(
             section("Notebooks", l).child(row().child(mode)).child(
                 text(if local {
                     "Everything stays on this Mac. Questions go to the AI provider you pick, with your own key."
@@ -249,14 +256,20 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
         .placeholder(if list == Some(&ModelList::Loading) { "Loading models" } else { "Choose or type a model" })
         .search_placeholder("Search or type a model name")
         .empty_message("No models; type a name")
-        .width(320.0)
+        .width(if l.phone() { (l.width - 2.0 * l.pad()).max(200.0) } else { 320.0 })
         .on_choose(move |s: &mut App, id: &str, _: &mut Tx| {
             let f = form(s);
             *f.slot(role).1 = rune::TextEdit::new(id);
             f.saved = false;
         })
         .build(k, layer);
-    let mut c = field_row(label, row().w_full().gap(8.0).center_y().child(select).child(col().grow(1.0).min_w(0.0).child(picker)), l);
+    // Provider beside the model on a wide window, above it on a phone.
+    let pair = if l.phone() {
+        col().w_full().gap(6.0).child(row().child(select)).child(picker)
+    } else {
+        row().w_full().gap(8.0).center_y().child(select).child(col().grow(1.0).min_w(0.0).child(picker))
+    };
+    let mut c = field_row(label, pair, l);
     if let Some(ModelList::Failed(e)) = list {
         c = c.child(text(format!("Could not list models: {e}")).font(k.ty.small).color(l.danger).wrap());
     } else if let Some(help) = role_help(role) {

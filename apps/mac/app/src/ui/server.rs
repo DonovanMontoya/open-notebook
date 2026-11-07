@@ -34,8 +34,8 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .w_full()
         .max_w(720.0)
         .gap(14.0)
-        .px(24.0)
-        .py(28.0)
+        .px(l.pad())
+        .py(l.pad_top())
         .child(text("Server").font(theme::READ_TITLE).color(l.text))
         .child(text(format!("Admin for {}.", s.settings.server_url)).font(k.ty.ui).color(l.text2).wrap());
 

@@ -96,7 +96,7 @@ pub fn sheet(o: &Open, a: &AddSource, l: &Look, layer: &mut Vec<El>) {
                 Button::new(label).variant(ButtonVariant::Contrast).disabled(count == 0).on_press(|s: &mut App| s.submit_add()).build(k).key("add-submit"),
             ),
         );
-    Dialog::new("add-source", "Add sources").open(true).width(520.0).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    Dialog::new("add-source", "Add sources").open(true).width(l.dialog(520.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
 }
 
 /// The chosen files, a button to choose more, and a drop target for them.
@@ -251,7 +251,7 @@ fn batch(a: &AddSource, items: &[BatchItem], l: &Look, layer: &mut Vec<El>) {
         foot = foot.child(Button::new(p).variant(ButtonVariant::Contrast).disabled(true).build(k).key("add-submit"));
     }
     let body = col().w_full().gap(16.0).child(list).child(foot);
-    Dialog::new("add-source", "Add sources").open(true).width(520.0).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    Dialog::new("add-source", "Add sources").open(true).width(l.dialog(520.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
 }
 
 fn close(s: &mut App) {

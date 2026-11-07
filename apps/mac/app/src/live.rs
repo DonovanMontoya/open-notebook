@@ -2,6 +2,8 @@
 //! Port of `apps/desktop/src/components/LiveTalk.tsx`. The protocol lives in the engine
 //! (`podcast::live_talk`); here a worker thread opens the socket and the audio, runs the
 //! call, records its usage and reports each state change back to the card.
+// Parts of this only run on macOS; elsewhere they are compiled but unused.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;

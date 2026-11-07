@@ -18,8 +18,8 @@ fn page(key: &str, title: &str, intro: &str, body: El, l: &Look) -> El {
         .w_full()
         .max_w(720.0)
         .gap(16.0)
-        .px(24.0)
-        .py(28.0)
+        .px(l.pad())
+        .py(l.pad_top())
         .child(text(title.to_owned()).font(theme::READ_TITLE).color(l.text))
         .child(text(intro.to_owned()).font(l.k.ty.ui).color(l.text2).wrap())
         .child(body);
@@ -618,7 +618,7 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                     .child(text(caption).font(k.ty.ui).color(l.text2).wrap())
                     .child(text(facts).font(k.ty.small).color(l.text3).wrap()),
             );
-            if !r.groups.is_empty() {
+            if !r.groups.is_empty() && !l.phone() {
                 let head = |t: &str| text(t.to_owned()).font(k.ty.small).color(l.text3);
                 body = body.child(
                     row()
@@ -674,11 +674,26 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                                         .child(text(feature_label(&g.feature).to_owned()).font(k.ty.ui_medium).color(l.text).max_lines(1))
                                         .child(text(g.model.clone()).font(k.ty.small).color(l.text3).max_lines(1)),
                                 )
-                                .child(num(grouped(g.calls), 56.0))
-                                .child(num(if audio { String::new() } else { grouped(g.input_tokens) }, 84.0))
-                                .child(num(if audio { format!("{} audio", audio_time(g.audio_seconds)) } else { grouped(g.output_tokens) }, 96.0))
+                                .children(if l.phone() {
+                                    Vec::new()
+                                } else {
+                                    vec![
+                                        num(grouped(g.calls), 56.0),
+                                        num(if audio { String::new() } else { grouped(g.input_tokens) }, 84.0),
+                                        num(if audio { format!("{} audio", audio_time(g.audio_seconds)) } else { grouped(g.output_tokens) }, 96.0),
+                                    ]
+                                })
                                 .child(cost),
                         )
+                        .children(l.phone().then(|| {
+                            // A phone has no room for columns: the figures go on a line of their own.
+                            let used = if audio {
+                                format!("{} calls, {} audio", grouped(g.calls), audio_time(g.audio_seconds))
+                            } else {
+                                format!("{} calls, {} in, {} out", grouped(g.calls), grouped(g.input_tokens), grouped(g.output_tokens))
+                            };
+                            text(used).font(theme::tnum(k.ty.small)).color(l.text3)
+                        }))
                         .child(
                             el().w_full().h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(used as f32 / max).h(4.0).radius(2.0).fill(if top == Some(gi) {
                                 l.text
@@ -772,7 +787,7 @@ fn price_dialog(d: &PriceDraft, l: &Look, layer: &mut Vec<El>) {
         );
     Dialog::new("price", format!("Price for {}", d.model))
         .open(true)
-        .width(460.0)
+        .width(l.dialog(460.0))
         .fit()
         .child(
             col()
