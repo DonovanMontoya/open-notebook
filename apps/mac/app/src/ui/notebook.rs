@@ -3,12 +3,12 @@
 
 use notebook_engine::citations::{self, CitableSource};
 use notebook_engine::types::*;
-use rune::{El, ScrollSpec, TextEdit, Tx, col, el, rich, row, text};
+use rune::{El, ScrollSpec, TextEdit, Tx, col, el, row, text};
 use rune_kit::markdown::Markdown;
 use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, TextArea, TextInput};
 
 use super::icons;
-use crate::state::{App, NoteDraft, NotebookDetails, NotebookTab, Open, is_failed, is_processing};
+use crate::state::{App, NoteDraft, NotebookDetails, NotebookTab, Open, is_failed, is_processing, next_mode};
 use crate::theme::{self, Look};
 
 const RAIL: f32 = 300.0;
@@ -335,7 +335,7 @@ fn sources(o: &Open, l: &Look) -> El {
     }
     let reading = o.reading.as_ref().map(|(d, _)| d.summary.id.as_str());
     for src in &o.sources {
-        list = list.child(source_row(src, reading == Some(src.id.as_str()), l));
+        list = list.child(source_row(o, src, reading == Some(src.id.as_str()), l));
     }
     col()
         .key("sources")
@@ -349,22 +349,55 @@ fn sources(o: &Open, l: &Look) -> El {
         .child(list.scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0))
 }
 
-fn source_row(src: &SourceSummary, selected: bool, l: &Look) -> El {
+/// A source's icon by what it came from: a link, a file or pasted text.
+fn kind_icon(src: &SourceSummary) -> &'static rune::Icon {
+    match &src.asset {
+        Some(a) if a.url.is_some() => &icons::LINK,
+        Some(a) if a.file_path.is_some() => &icons::DOC,
+        _ if src.file_available => &icons::DOC,
+        _ => &icons::TEXT,
+    }
+}
+
+/// "example.com, added 3 days ago".
+fn source_meta(src: &SourceSummary) -> String {
+    let host = src.asset.as_ref().and_then(|a| a.url.as_deref()).map(|u| format!("{}, ", crate::format::host_of(u))).unwrap_or_default();
+    format!("{host}added {}", crate::format::relative_time(&src.created))
+}
+
+fn mode_label(m: SourceContext) -> &'static str {
+    match m {
+        SourceContext::Full => "Full text",
+        SourceContext::Insights => "Insights",
+        SourceContext::Off => "Left out",
+    }
+}
+
+fn mode_hint(m: SourceContext) -> &'static str {
+    match m {
+        SourceContext::Full => "Chat reads the whole source",
+        SourceContext::Insights => "Chat reads only this source's insights",
+        SourceContext::Off => "Chat ignores this source",
+    }
+}
+
+fn source_row(o: &Open, src: &SourceSummary, selected: bool, l: &Look) -> El {
     let k = &l.k;
     let id = src.id.clone();
     let title = src.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled source".into());
-    let icon = if src.asset.as_ref().is_some_and(|a| a.url.is_some()) { &icons::LINK } else { &icons::DOC };
-    let (status, failed) = match src.status.as_deref() {
-        s if is_failed(s) => (src.error.clone().unwrap_or_else(|| "Couldn't read this source".into()), true),
-        s if is_processing(s) => ("Reading…".into(), false),
-        _ if src.insights_count > 0 => (format!("{} insights", src.insights_count), false),
-        _ => (String::new(), false),
+    let failed = is_failed(src.status.as_deref());
+    let mode = o.source_mode(src);
+    let off = mode == SourceContext::Off && !failed;
+    let meta = if is_processing(src.status.as_deref()) {
+        row().gap(6.0).center_y().child(rune_kit::Spinner::new().size(10.0).build(k)).child(text("Reading and indexing").font(k.ty.small).color(l.text3))
+    } else if failed {
+        row().child(text(src.error.clone().unwrap_or_else(|| "Could not be read".into())).font(k.ty.small).color(l.danger).max_lines(2).shrink().min_w(0.0))
+    } else {
+        row().child(text(source_meta(src)).font(k.ty.small).color(l.text3).max_lines(1).shrink().min_w(0.0))
     };
-    let mut lines = col().grow(1.0).min_w(0.0).gap(1.0).child(text(title).font(k.ty.ui).color(l.text).max_lines(2));
-    if !status.is_empty() {
-        lines = lines.child(text(status).font(k.ty.small).color(if failed { l.danger } else { l.text3 }).max_lines(2));
-    }
-    let mut r = row().key(format!("src-{}", src.id)).w_full().px(8.0).py(7.0).gap(8.0).radius(8.0).child(rune::icon(icon, 16.0).color(l.text3)).child(lines);
+    let lines = col().grow(1.0).min_w(0.0).gap(2.0).child(text(title).font(k.ty.ui).color(if off { l.text3 } else { l.text }).max_lines(2)).child(meta);
+    let mut r =
+        row().key(format!("src-{}", src.id)).w_full().px(8.0).py(7.0).gap(8.0).radius(8.0).child(rune::icon(kind_icon(src), 16.0).color(l.text3)).child(lines);
     if failed {
         let rid = id.clone();
         r = r.child(
@@ -377,19 +410,19 @@ fn source_row(src: &SourceSummary, selected: bool, l: &Look) -> El {
                 .build(k)
                 .key("retry"),
         );
+    } else {
+        let next = next_mode(mode, src.insights_count > 0);
+        let sid = id.clone();
+        r = r.child(
+            Button::new(mode_label(mode))
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .help(format!("{}. Click for {}.", mode_hint(mode), mode_label(next).to_lowercase()))
+                .on_press(move |s: &mut App| s.set_source_context(sid.clone(), next))
+                .build(k)
+                .key("context-mode"),
+        );
     }
-    let did = id.clone();
-    let remove = if src.notebooks.len() > 1 { "Remove from this notebook" } else { "Delete source" };
-    r = r.child(
-        IconButton::new(&icons::TRASH)
-            .variant(IconButtonVariant::GhostMuted)
-            .control_size(ControlSize::Small)
-            .label(remove)
-            .help(remove)
-            .on_press(move |s: &mut App| s.ask_delete_source(did.clone()))
-            .build(k)
-            .key("delete"),
-    );
     if selected {
         r = r.fill(l.amber_wash);
     } else {
@@ -400,16 +433,64 @@ fn source_row(src: &SourceSummary, selected: bool, l: &Look) -> El {
 
 fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
-    let title = detail.summary.title.clone().unwrap_or_else(|| "Untitled source".into());
-    let head = row()
-        .w_full()
-        .h(44.0)
-        .px(16.0)
-        .gap(8.0)
-        .center_y()
-        .child(text(title).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
+    let src = &detail.summary;
+    let title = src.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled source".into());
+    let sid = src.id.clone();
+    let title_el = match &o.renaming_source {
+        Some(edit) => {
+            let a = sid.clone();
+            TextInput::new(edit)
+                .label("Source title")
+                .width(None)
+                .on_edit(|s: &mut App| s.open.as_mut().and_then(|o| o.renaming_source.as_mut()).expect("renaming"))
+                .on_submit(move |s: &mut App, _: &mut Tx| {
+                    let t = s.open.as_ref().and_then(|o| o.renaming_source.as_ref()).map(|e| e.text.clone()).unwrap_or_default();
+                    s.rename_source(a.clone(), t);
+                })
+                .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
+                    if ev.key == rune::Key::Escape {
+                        if let Some(o) = s.open.as_mut() {
+                            o.renaming_source = None;
+                        }
+                        return true;
+                    }
+                    false
+                })
+                .build(k)
+                .key("rename-source")
+                .grow(1.0)
+                .min_w(0.0)
+        }
+        None => {
+            let t = title.clone();
+            text(title.clone()).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1).help("Double-click to rename").on_double_press(
+                move |s: &mut App| {
+                    if let Some(o) = s.open.as_mut() {
+                        let mut e = TextEdit::new(t.clone());
+                        e.focused = true;
+                        o.renaming_source = Some(e);
+                    }
+                },
+            )
+        }
+    };
+    let mut head = row().w_full().h(44.0).px(16.0).gap(8.0).center_y().child(title_el);
+    if let Some(url) = src.asset.as_ref().and_then(|a| a.url.clone()).filter(|u| is_web(u)) {
+        head = head.child(
+            IconButton::new(&icons::EXTERNAL)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Open original")
+                .help("Open original")
+                .on_press_tx(move |_: &mut App, tx: &mut Tx| {
+                    let _ = tx.open_url(&url);
+                })
+                .build(k)
+                .key("open-original"),
+        );
+    }
+    head = head
         .child({
-            let (sid, t) = (detail.summary.id.clone(), detail.summary.title.clone().unwrap_or_else(|| "Untitled source".into()));
+            let (sid, t) = (sid.clone(), title.clone());
             let on = o.scope.as_ref().is_some_and(|(id, _)| *id == sid);
             IconButton::new(&icons::CHAT)
                 .variant(IconButtonVariant::GhostMuted)
@@ -428,39 +509,107 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
                 .on_press(|s: &mut App| {
                     if let Some(o) = s.open.as_mut() {
                         o.reading = None;
+                        o.renaming_source = None;
                     }
                 })
                 .build(k)
                 .key("close-reader"),
         );
+    let mut meta = source_meta(src);
+    if src.embedded_chunks > 0 {
+        let n = src.embedded_chunks;
+        meta.push_str(&format!(", {n} {} indexed", if n == 1 { "passage" } else { "passages" }));
+    }
     let full = &detail.full_text;
     let body = if full.trim().is_empty() {
-        text("No text yet. It appears here once the source has been read.").font(k.ty.ui).color(l.text3).wrap()
-    } else if let Some((start, end)) = passage.filter(|(s, e)| s < e && *e <= full.len()) {
-        // The passage is a span in the same text block, so it wraps with the paragraph around it.
-        let spans = vec![rune::Span::new(start, end).bg(l.amber_wash, 2.0).color(l.text)];
-        rich(full.clone(), spans).key("source-text").font(theme::READ_BODY).color(l.text2).wrap().selectable(true)
+        let empty = if is_processing(src.status.as_deref()) { "Still reading this source" } else { "No text was found" };
+        text(empty).font(theme::READ_HEADING).color(l.text3).wrap()
     } else {
-        text(full.clone()).key("source-text").font(theme::READ_BODY).color(l.text2).wrap().selectable(true)
+        let mut t = text(full.clone()).font(theme::READ_BODY).color(l.text2).wrap().selectable(true);
+        if let Some((start, end)) = passage.filter(|(s, e)| s < e && *e <= full.len()) {
+            // Paint-only, so the text wraps the same; keyed so the reader can scroll to it.
+            t = t
+                .key(format!("source-text-{}-{start}", src.id))
+                .text_highlight(rune::TextHighlight::new(start..end, l.amber_wash).color(l.text).key("passage"))
+                .on_layout_tx(|s: &mut App, _, tx: &mut Tx| {
+                    if let Some(o) = s.open.as_mut()
+                        && std::mem::take(&mut o.scroll_to_passage)
+                    {
+                        tx.scroll_center("passage");
+                    }
+                });
+        } else {
+            t = t.key(format!("source-text-{}", src.id));
+        }
+        t
     };
-    col().key("reader").w(READER).shrink().min_w(260.0).h_full().min_h(0.0).fill(l.page).child(head).child(rule(l)).child(
-        col().w_full().px(20.0).py(16.0).gap(18.0).child(insights(o, l, layer)).child(body).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0),
-    )
+    let shared = o.reading.as_ref().is_some_and(|(d, _)| d.summary.notebooks.len() > 1);
+    let mut actions = row().w_full().gap(8.0);
+    if src.file_available {
+        let id = sid.clone();
+        actions = actions.child(
+            Button::new(if o.downloading { "Saving" } else { "Download original" })
+                .icon(&icons::DOWNLOAD)
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .disabled(o.downloading)
+                .on_press(move |s: &mut App| s.download_source(id.clone()))
+                .build(k)
+                .key("download"),
+        );
+    }
+    let id = sid.clone();
+    actions = actions.child(
+        Button::new(if shared { "Remove from this notebook" } else { "Delete source" })
+            .icon(&icons::TRASH)
+            .variant(ButtonVariant::Ghost)
+            .control_size(ControlSize::Small)
+            .on_press(move |s: &mut App| s.ask_delete_source(id.clone()))
+            .build(k)
+            .key("delete-source"),
+    );
+    let content = col()
+        .w_full()
+        .px(20.0)
+        .py(16.0)
+        .gap(18.0)
+        .child(text(meta).font(k.ty.small).color(l.text3).wrap())
+        .child(insights(o, !full.trim().is_empty(), l, layer))
+        .child(body)
+        .child(actions);
+    col()
+        .key("reader")
+        .w(READER)
+        .shrink()
+        .min_w(260.0)
+        .h_full()
+        .min_h(0.0)
+        .fill(l.page)
+        .child(head)
+        .child(rule(l))
+        .child(content.scroll(ScrollSpec { stick_bottom: false }).key("reader-scroll").grow(1.0).min_h(0.0))
 }
 
-/// The source's insights, above its text, and a menu to run a transformation on it.
-fn insights(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
+/// Links that open in the browser: web pages only.
+fn is_web(url: &str) -> bool {
+    let u = url.trim_start().to_ascii_lowercase();
+    u.starts_with("http://") || u.starts_with("https://")
+}
+
+/// The source's insights above its text, each opening to show it in full, and a menu to run a
+/// transformation once there is text to run it on.
+fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let names: Vec<String> = o.transformations.iter().map(|t| t.title.clone()).collect();
     let ids: Vec<String> = o.transformations.iter().map(|t| t.id.clone()).collect();
-    let mut c = col().key("insights").w_full().gap(8.0);
-    if !names.is_empty() {
-        c = c.child(
+    let mut head = row().w_full().gap(8.0).center_y().child(text("Insights").font(k.ty.ui_medium).color(l.text2).grow(1.0));
+    if has_text && !names.is_empty() {
+        head = head.child(
             rune_kit::Select::new("run-insight", &names)
                 .label("Run a transformation")
-                .placeholder("Run a transformation…")
+                .placeholder("Transform")
                 .current(None)
-                .width(220.0)
+                .width(160.0)
                 .open(o.insight_picker)
                 .on_toggle(|s: &mut App| {
                     if let Some(o) = s.open.as_mut() {
@@ -485,34 +634,72 @@ fn insights(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
                 .key("run-insight"),
         );
     }
-    for i in &o.insights {
-        let (del, save) = (i.id.clone(), i.id.clone());
-        let status = match i.status.as_deref() {
-            Some("running") => "Writing…".to_owned(),
-            Some("failed") => i.error.clone().unwrap_or_else(|| "Failed".into()),
-            _ => String::new(),
+    let mut c = col().key("insights").w_full().gap(8.0).child(head);
+    if o.insights.is_empty() {
+        let hint = if has_text {
+            "Run a transformation to get a summary, key points or questions from this source."
+        } else {
+            "Insights can be made once the text is ready."
         };
-        let head = row()
-            .w_full()
-            .gap(4.0)
-            .center_y()
-            .child(text(i.kind.clone()).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
-            .child(text(status).font(k.ty.small).color(l.text3))
-            .child(
-                IconButton::new(&icons::SAVE)
-                    .variant(IconButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Small)
-                    .label("Save as note")
-                    .help("Save as note")
-                    .on_press(move |s: &mut App| s.insight_to_note(save.clone()))
-                    .build(k)
-                    .key("save"),
+        c = c.child(text(hint).font(k.ty.small).color(l.text3).wrap());
+    }
+    for i in &o.insights {
+        let running = i.status.as_deref() == Some("running");
+        let failed = i.status.as_deref() == Some("failed");
+        let open = o.insight_open.as_deref() == Some(i.id.as_str());
+        let status = if running {
+            rune_kit::Spinner::new().size(12.0).build(k)
+        } else if failed {
+            text("Failed").font(k.ty.small).color(l.danger)
+        } else {
+            rune::icon(if open { &rune_kit::glyphs::CHEVRON_UP } else { &rune_kit::glyphs::CHEVRON_DOWN }, 14.0).color(l.text3)
+        };
+        let tid = i.id.clone();
+        let top = k
+            .interactive(
+                row()
+                    .w_full()
+                    .gap(6.0)
+                    .center_y()
+                    .radius(6.0)
+                    .child(text(i.kind.clone()).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
+                    .child(status),
             )
-            .child(
-                IconButton::new(&icons::TRASH)
-                    .variant(IconButtonVariant::GhostMuted)
+            .on_press(move |s: &mut App| {
+                if let Some(o) = s.open.as_mut() {
+                    o.insight_open = if o.insight_open.as_deref() == Some(tid.as_str()) { None } else { Some(tid.clone()) };
+                }
+            })
+            .key("insight-head");
+        let mut card = col().key(format!("insight-{}", i.id)).w_full().gap(6.0).padding(12.0).radius(10.0).fill(l.raised).child(top);
+        if failed {
+            card = card.child(text(i.error.clone().unwrap_or_default()).font(k.ty.small).color(l.danger).wrap());
+        } else if !running {
+            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).text(l.text2);
+            let md = Markdown::new(i.content.clone()).style(style).selectable(true).build(k);
+            card = card.child(if open { md } else { col().w_full().max_h(78.0).clip_fade(0.0, 0.0, 0.0, 28.0).child(md) });
+        }
+        if open && !running {
+            let (del, save) = (i.id.clone(), i.id.clone());
+            let mut acts = row().gap(4.0);
+            if !failed {
+                let saved = o.saved_insights.contains(&i.id);
+                acts = acts.child(
+                    Button::new(if saved { "Saved to notes" } else { "Save as note" })
+                        .icon(&icons::SAVE)
+                        .variant(ButtonVariant::Ghost)
+                        .control_size(ControlSize::Small)
+                        .disabled(saved)
+                        .on_press(move |s: &mut App| s.save_insight(save.clone()))
+                        .build(k)
+                        .key("save"),
+                );
+            }
+            acts = acts.child(
+                Button::new("Delete")
+                    .icon(&icons::TRASH)
+                    .variant(ButtonVariant::Ghost)
                     .control_size(ControlSize::Small)
-                    .label("Delete insight")
                     .on_press(move |s: &mut App| {
                         let id = del.clone();
                         s.ask("Delete this insight?", move |s| s.delete_insight(id.clone()));
@@ -520,18 +707,9 @@ fn insights(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
                     .build(k)
                     .key("delete"),
             );
-        let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).text(l.text2);
-        c = c.child(
-            col()
-                .key(format!("insight-{}", i.id))
-                .w_full()
-                .gap(6.0)
-                .padding(12.0)
-                .radius(10.0)
-                .fill(l.raised)
-                .child(head)
-                .child(Markdown::new(i.content.clone()).style(style).streaming(i.status.as_deref() == Some("running")).selectable(true).build(k)),
-        );
+            card = card.child(acts);
+        }
+        c = c.child(card);
     }
     c
 }

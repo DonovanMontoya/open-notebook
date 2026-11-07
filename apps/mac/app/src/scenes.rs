@@ -34,6 +34,8 @@ pub const SCENES: &[Scene] = &[
     ("new-notebook", new_notebook),
     ("archived", archived),
     ("drop", dropping),
+    ("reader", reader),
+    ("reader-passage", reader_passage),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -513,4 +515,39 @@ fn archived(s: &mut App) {
 fn dropping(s: &mut App) {
     open(s);
     s.open.as_mut().unwrap().drop_over = true;
+}
+
+fn reader(s: &mut App) {
+    insights(s);
+    let o = s.open.as_mut().unwrap();
+    o.context.sources.insert("s2".into(), SourceContext::Off);
+    if let Some((d, _)) = o.reading.as_mut() {
+        d.summary.file_available = true;
+        d.summary.embedded_chunks = 6;
+        d.summary.notebooks = vec!["nb1".into(), "nb2".into()];
+    }
+    let more = |id: &str, kind: &str, status: &str, error: Option<&str>| Insight {
+        id: id.into(),
+        source_id: "s1".into(),
+        kind: kind.into(),
+        content: String::new(),
+        created: None,
+        status: Some(status.into()),
+        error: error.map(Into::into),
+    };
+    o.insights.push(more("i2", "Key Insights", "running", None));
+    o.insights.push(more("i3", "Questions", "failed", Some("The model returned nothing")));
+    o.insight_open = Some("i1".into());
+    o.saved_insights.insert("i1".into());
+}
+
+fn reader_passage(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    let filler = "Earlier sections cover how sleep stages are scored, the history of EEG and how spindles were first described.\n\n".repeat(40);
+    let text = format!("{filler}{SOURCE_TEXT}");
+    let passage = notebook_engine::citations::best_passage(&text, "spindle density after learning predicted recall of a word list");
+    let summary = o.sources[0].clone();
+    o.reading = Some((SourceDetail { summary, full_text: text }, passage));
+    o.scroll_to_passage = true;
 }

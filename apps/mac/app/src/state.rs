@@ -271,6 +271,18 @@ pub struct Open {
     pub note_base: (String, String),
     /// The note being written came from a chat answer.
     pub note_ai: bool,
+    /// How much of each source and note chat reads, kept per notebook in prefs.
+    pub context: ContextSelection,
+    /// The reader's title being renamed.
+    pub renaming_source: Option<TextEdit>,
+    /// The reader's original file is being saved to Downloads.
+    pub downloading: bool,
+    /// The reader should scroll the lit passage into view once it is laid out.
+    pub scroll_to_passage: bool,
+    /// The insight shown in full, with its actions.
+    pub insight_open: Option<String>,
+    /// Insights saved to notes since the reader opened.
+    pub saved_insights: std::collections::BTreeSet<String>,
 }
 
 impl Open {
@@ -312,7 +324,23 @@ impl Open {
             note_read: false,
             note_base: (String::new(), String::new()),
             note_ai: false,
+            context: ContextSelection::default(),
+            renaming_source: None,
+            downloading: false,
+            scroll_to_passage: false,
+            insight_open: None,
+            saved_insights: Default::default(),
         }
+    }
+
+    /// How much of a source chat reads: as chosen, else its insights when it has some, else all of it.
+    pub fn source_mode(&self, s: &SourceSummary) -> SourceContext {
+        self.context.sources.get(&s.id).copied().unwrap_or(if s.insights_count > 0 { SourceContext::Insights } else { SourceContext::Full })
+    }
+
+    /// Whether chat reads a note; notes are in unless left out.
+    pub fn note_included(&self, id: &str) -> bool {
+        self.context.notes.get(id).copied().unwrap_or(true)
     }
 
     /// Opens a saved note in the editor, rendered until double-clicked.
@@ -373,6 +401,21 @@ impl Open {
             .iter()
             .any(|e| !matches!(e.status, EpisodeStatus::Completed | EpisodeStatus::Failed) || e.check.as_ref().is_some_and(|c| c.status == "checking"))
     }
+}
+
+/// The next chat context for a source, in the order the pill cycles: insights only once there are some.
+pub fn next_mode(mode: SourceContext, has_insights: bool) -> SourceContext {
+    match (mode, has_insights) {
+        (SourceContext::Insights, _) => SourceContext::Full,
+        (SourceContext::Full, _) => SourceContext::Off,
+        (SourceContext::Off, true) => SourceContext::Insights,
+        (SourceContext::Off, false) => SourceContext::Full,
+    }
+}
+
+/// The prefs key for a notebook's chat context.
+fn context_key(notebook_id: &str) -> String {
+    format!("context.{notebook_id}")
 }
 
 /// A source status that means it is still being read: the engine's and the server's words.
@@ -669,7 +712,9 @@ impl App {
             self.route = Route::Notebook(id);
             return;
         }
-        self.open = Some(Open::new(id.clone()));
+        let mut o = Open::new(id.clone());
+        o.context = self.prefs.get(&context_key(&id)).unwrap_or_default();
+        self.open = Some(o);
         self.route = Route::Notebook(id.clone());
         self.load_notebook(id);
     }
@@ -801,6 +846,7 @@ impl App {
         let notebook_id = o.id.clone();
         let session_id = o.session.as_ref().map(|s| s.session.id.clone());
         let scope = o.scope.as_ref().map(|(sid, _)| sid.clone());
+        let context = Some(o.context.clone()).filter(|c| !c.sources.is_empty() || !c.notes.is_empty());
         let inbox = self.inbox.clone();
         let id = notebook_id.clone();
         self.run(
@@ -827,7 +873,7 @@ impl App {
                         notebook_id,
                         session_id,
                         message,
-                        context: None,
+                        context,
                         model_override: None,
                         on_text: Some(&mut on_text),
                         cancel,
@@ -892,7 +938,12 @@ impl App {
     pub fn read_source(&mut self, source_id: String, passage_query: Option<String>) {
         let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         if let Some(o) = self.open.as_mut() {
-            o.insights.clear();
+            if o.reading.as_ref().is_none_or(|(d, _)| d.summary.id != source_id) {
+                o.insights.clear();
+                o.insight_open = None;
+                o.saved_insights.clear();
+                o.renaming_source = None;
+            }
             o.insight_picker = false;
         }
         self.load_insights(source_id.clone());
@@ -900,6 +951,7 @@ impl App {
             move |b| b.get_source(&source_id),
             with_open(&id, move |o, detail: SourceDetail| {
                 let passage = passage_query.and_then(|q| notebook_engine::citations::best_passage(&detail.full_text, &q));
+                o.scroll_to_passage = passage.is_some();
                 o.reading = Some((detail, passage));
             }),
         );
@@ -1082,6 +1134,91 @@ impl App {
         });
     }
 
+    /// Sets how much of a source chat reads, and remembers it for the notebook.
+    pub fn set_source_context(&mut self, source_id: String, mode: SourceContext) {
+        let Some(o) = self.open.as_mut() else { return };
+        o.context.sources.insert(source_id, mode);
+        let (key, value) = (context_key(&o.id), o.context.clone());
+        if let Err(e) = self.prefs.set(&key, &value) {
+            self.fail(e);
+        }
+    }
+
+    /// Puts a note in chat or leaves it out, and remembers it for the notebook.
+    pub fn set_note_included(&mut self, note_id: String, on: bool) {
+        let Some(o) = self.open.as_mut() else { return };
+        o.context.notes.insert(note_id, on);
+        let (key, value) = (context_key(&o.id), o.context.clone());
+        if let Err(e) = self.prefs.set(&key, &value) {
+            self.fail(e);
+        }
+    }
+
+    /// Renames the source in the reader.
+    pub fn rename_source(&mut self, source_id: String, title: String) {
+        let title = title.trim().to_owned();
+        if let Some(o) = self.open.as_mut() {
+            o.renaming_source = None;
+        }
+        if title.is_empty() {
+            return;
+        }
+        let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
+        self.run(
+            move |b| b.rename_source(&source_id, &title),
+            with_open(&id, |o, detail: SourceDetail| {
+                if let Some(s) = o.sources.iter_mut().find(|s| s.id == detail.summary.id) {
+                    s.title = detail.summary.title.clone();
+                }
+                if let Some((d, _)) = o.reading.as_mut().filter(|(d, _)| d.summary.id == detail.summary.id) {
+                    d.summary.title = detail.summary.title;
+                }
+            }),
+        );
+    }
+
+    /// Saves the source's original file to Downloads and shows it in Finder.
+    pub fn download_source(&mut self, source_id: String) {
+        let Some(o) = self.open.as_mut() else { return };
+        if o.downloading {
+            return;
+        }
+        o.downloading = true;
+        let id = o.id.clone();
+        self.run(
+            move |b| {
+                let file = b.download_source(&source_id)?.ok_or_else(|| notebook_engine::Error::other("This source has no original file."))?;
+                let dir = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("Downloads");
+                std::fs::create_dir_all(&dir)?;
+                let path = free_path(&dir, &file.name);
+                std::fs::write(&path, &file.data)?;
+                Ok(path)
+            },
+            move |app, r| {
+                if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
+                    o.downloading = false;
+                }
+                match r {
+                    Ok(path) => {
+                        #[cfg(target_os = "macos")]
+                        let _ = std::process::Command::new("open").arg("-R").arg(&path).spawn();
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        app.toast = Some(format!("Saved {name} to Downloads"));
+                    }
+                    Err(e) => app.fail(e),
+                }
+            },
+        );
+    }
+
+    /// Saves an insight as a note; its button then says so.
+    pub fn save_insight(&mut self, insight_id: String) {
+        if let Some(o) = self.open.as_mut() {
+            o.saved_insights.insert(insight_id.clone());
+        }
+        self.insight_to_note(insight_id);
+    }
+
     /// Whether a source is in other notebooks too, so removing it here leaves it there.
     pub fn source_is_shared(&self, source_id: &str) -> bool {
         let Some(o) = self.open.as_ref() else { return false };
@@ -1232,6 +1369,16 @@ impl App {
         // Reopening reads the new settings and keys; on device that's the same database file.
         self.connect();
     }
+}
+
+/// `name` in `dir`, numbered ("report 2.pdf") when the name is taken.
+pub fn free_path(dir: &std::path::Path, name: &str) -> PathBuf {
+    let name = if name.trim().is_empty() { "source" } else { name };
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (name, String::new()),
+    };
+    (1..1000).map(|i| dir.join(if i == 1 { name.to_owned() } else { format!("{stem} {i}{ext}") })).find(|p| !p.exists()).unwrap_or_else(|| dir.join(name))
 }
 
 fn set_item(app: &mut App, notebook_id: &str, i: usize, state: ItemState) {
@@ -1439,6 +1586,36 @@ mod tests {
         settle(&mut app, |a| a.notebooks[0].archived);
         assert!(app.notebooks[0].archived);
         assert_eq!(app.open.as_ref().unwrap().notebook.as_ref().unwrap().description, "For the exam");
+    }
+
+    #[test]
+    fn chat_context_cycles_and_is_remembered_per_notebook() {
+        assert_eq!(next_mode(SourceContext::Full, false), SourceContext::Off);
+        assert_eq!(next_mode(SourceContext::Off, false), SourceContext::Full);
+        assert_eq!(next_mode(SourceContext::Off, true), SourceContext::Insights);
+        assert_eq!(next_mode(SourceContext::Insights, true), SourceContext::Full);
+
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let id = app.open.as_ref().unwrap().id.clone();
+        let with = SourceSummary { id: "s1".into(), insights_count: 2, ..Default::default() };
+        assert_eq!(app.open.as_ref().unwrap().source_mode(&with), SourceContext::Insights);
+        app.set_source_context("s1".into(), SourceContext::Off);
+        app.set_note_included("n1".into(), false);
+        app.open = None;
+        app.open_notebook(id);
+        let o = app.open.as_ref().unwrap();
+        assert_eq!(o.source_mode(&with), SourceContext::Off);
+        assert!(!o.note_included("n1") && o.note_included("n2"));
+    }
+
+    #[test]
+    fn downloads_take_a_free_name() {
+        let dir = scratch();
+        assert_eq!(free_path(&dir, "paper.pdf"), dir.join("paper.pdf"));
+        std::fs::write(dir.join("paper.pdf"), b"x").unwrap();
+        assert_eq!(free_path(&dir, "paper.pdf"), dir.join("paper 2.pdf"));
+        assert_eq!(free_path(&dir, ""), dir.join("source"));
     }
 
     #[test]

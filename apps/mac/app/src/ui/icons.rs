@@ -73,3 +73,14 @@ icon!(
     "on-device",
     r#"<rect x="2.5" y="3.5" width="11" height="7.5" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 13H14.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#
 );
+icon!(TEXT, "on-text", r#"<path d="M3 4H13M3 6.67H13M3 9.33H13M3 12H9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#);
+icon!(
+    EXTERNAL,
+    "on-external",
+    r#"<path d="M9 3H13V7M13 3L7.5 8.5M11 9.5V12.5C11 12.78 10.78 13 10.5 13H3.5C3.22 13 3 12.78 3 12.5V5.5C3 5.22 3.22 5 3.5 5H6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);
+icon!(
+    DOWNLOAD,
+    "on-download",
+    r#"<path d="M8 2.5V10M4.5 6.5L8 10L11.5 6.5M3 13H13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);
