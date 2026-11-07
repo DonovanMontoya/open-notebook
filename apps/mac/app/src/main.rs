@@ -62,6 +62,11 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.new_chat();
         return true;
     }
+    // A flashcard deck on screen takes Space, ← and → before the player does.
+    let plain = !(ev.mods.cmd || ev.mods.ctrl || ev.mods.alt || ev.mods.logo);
+    if plain && tx.focused().is_none() && showing_flashcards(s) && ui::study::flashcard_key(s, ev, tx) {
+        return true;
+    }
     if s.playing.is_some() && tx.focused().is_none() && player_key(s, ev) {
         return true;
     }
@@ -70,6 +75,14 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     false
+}
+
+fn showing_flashcards(s: &App) -> bool {
+    let Some(o) = s.open.as_ref() else { return false };
+    let Some(v) = o.viewing.as_ref() else { return false };
+    matches!(s.route, state::Route::Notebook(_))
+        && o.tab == state::NotebookTab::Study
+        && o.decks.get(v.index).is_some_and(|d| d.deck.kind == notebook_engine::types::StudyKind::Flashcards)
 }
 
 /// The player's keys, unless a field has focus or a modifier is held: Space, ← back 15 s,

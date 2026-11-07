@@ -213,7 +213,7 @@ fn source_links(o: &Open, ids: &[String], l: &Look) -> El {
 }
 
 /// Space flips the card; with the answer showing, Right is Got it and Left is Again.
-fn flashcard_key(s: &mut App, ev: &KeyEvent, _: &mut Tx) -> bool {
+pub fn flashcard_key(s: &mut App, ev: &KeyEvent, _: &mut Tx) -> bool {
     let Some(v) = viewing(s) else { return false };
     if v.item().is_none() {
         return false;

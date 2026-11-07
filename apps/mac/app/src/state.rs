@@ -981,8 +981,15 @@ impl App {
             self.notebooks.clear();
             self.route = Route::Settings;
         }
-        // Reopening reads the new settings and keys; on device that's the same database file.
-        self.connect();
+        // On device with the same mode, the running engine re-reads settings.json in place, so
+        // sources and episodes being made keep going. Keys are read on every call. Anything else
+        // (a mode or server change) reconnects.
+        if !mode_changed && let Some(local) = self.backend.as_ref().and_then(|b| b.local()) {
+            local.reload_settings();
+            self.refresh_notebooks();
+        } else {
+            self.connect();
+        }
     }
 }
 

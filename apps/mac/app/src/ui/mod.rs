@@ -8,7 +8,7 @@ mod notebook;
 mod pages;
 mod server;
 mod settings;
-mod study;
+pub mod study;
 
 use rune::{Cx, El, Spring, TextEdit, Tx, col, row, text};
 use rune_kit::shell::{PaneMotion, Sidebar, SidebarRow, SidebarToggle, SplitView, Toolbar};
