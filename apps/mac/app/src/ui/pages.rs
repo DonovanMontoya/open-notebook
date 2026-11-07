@@ -83,8 +83,7 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 p.scope_open = false;
             }
         })
-        .build(k, layer)
-        .key("ask-scope");
+        .build(k, layer);
     let busy = p.busy.is_some();
     let go = Button::new(if busy {
         if asking { "Researching…" } else { "Searching…" }
@@ -170,7 +169,10 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
             let (id, nb, kind, q) = (h.id.clone(), h.notebook_id.clone(), h.kind, query.clone());
             body = body.child(hit_row(format!("hit-{}", h.id), &h.title, &h.snippet, l).on_press(move |s: &mut App| match kind {
                 HitKind::Source => s.open_source(id.clone(), nb.clone(), Some(q.clone())),
-                HitKind::Note => open_note(s, nb.clone()),
+                HitKind::Note => match nb.clone() {
+                    Some(nb) => s.open_note(nb, id.clone()),
+                    None => open_note(s, None),
+                },
             }));
         }
     }
@@ -185,7 +187,10 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
 /// Ask's documents are sources, or notes with ids starting `note:`.
 fn open_document(s: &mut App, id: String, notebook: Option<String>, query: Option<String>) {
     if id.starts_with("note:") {
-        open_note(s, notebook);
+        match notebook {
+            Some(nb) => s.open_note(nb, id),
+            None => open_note(s, None),
+        }
     } else {
         s.open_source(id, notebook, query);
     }
@@ -202,16 +207,9 @@ fn open_note(s: &mut App, notebook: Option<String>) {
 
 // Library
 
-/// A page with its popups and dialogs layered over it, for pages the window builds without a
-/// layer of their own.
-fn layered(page: El, layer: Vec<El>) -> El {
-    col().w_full().grow(1.0).min_h(0.0).child(page).children(layer)
-}
-
-pub fn library(s: &App, l: &Look) -> El {
+pub fn library(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.library else { return col() };
-    let mut layer = Vec::new();
     let filter = TextInput::new(&p.filter)
         .width(None)
         .placeholder("Filter by title")
@@ -232,17 +230,14 @@ pub fn library(s: &App, l: &Look) -> El {
         list = list.child(text(if p.sources.is_empty() { "No sources yet" } else { "No titles match" }).font(k.ty.ui).color(l.text3));
     }
     for src in shown {
-        list = list.child(library_row(s, src, p.add_open.as_deref() == Some(src.id.as_str()), l, &mut layer));
+        list = list.child(library_row(s, src, p.add_open.as_deref() == Some(src.id.as_str()), l, layer));
     }
-    layered(
-        page(
-            "library",
-            "Library",
-            "Every source, in every notebook. A source can be in more than one notebook; removing it from one keeps it here.",
-            col().w_full().gap(14.0).child(filter).child(list),
-            l,
-        ),
-        layer,
+    page(
+        "library",
+        "Library",
+        "Every source, in every notebook. A source can be in more than one notebook; removing it from one keeps it here.",
+        col().w_full().gap(14.0).child(filter).child(list),
+        l,
     )
 }
 
@@ -329,8 +324,7 @@ fn library_row(s: &App, src: &SourceSummary, add_open: bool, l: &Look, layer: &m
                         s.link_source(sid.clone(), nb, true);
                     }
                 })
-                .build(k, layer)
-                .key("add-to"),
+                .build(k, layer),
         );
     }
     col()
@@ -583,11 +577,10 @@ pub fn audio_time(seconds: f64) -> String {
     if seconds >= 60.0 { format!("{} min", grouped((seconds / 60.0).round() as u64)) } else { format!("{} s", seconds.round() as u64) }
 }
 
-pub fn usage(s: &App, l: &Look) -> El {
+pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.usage else { return col() };
     let local = s.backend.as_ref().is_none_or(|b| b.kind() == notebook_engine::BackendKind::Local);
-    let mut layer = Vec::new();
     const DAYS: [u32; 3] = [7, 30, 90];
     let range = SegmentedControl::new(&["7 days", "30 days", "90 days"], DAYS.iter().position(|d| *d == p.days))
         .label("Period")
@@ -687,14 +680,14 @@ pub fn usage(s: &App, l: &Look) -> El {
         }
     }
     if let Some(d) = &p.pricing {
-        price_dialog(d, l, &mut layer);
+        price_dialog(d, l, layer);
     }
     let intro = if local {
         "What model calls from this Mac cost, at list prices or your own. Tokens are estimated from text length, so treat totals as close, not exact."
     } else {
         "What the server spent on models, with its price estimates."
     };
-    layered(page("usage", "Usage", intro, body, l), layer)
+    page("usage", "Usage", intro, body, l)
 }
 
 fn pricing(s: &mut App) -> &mut PriceDraft {

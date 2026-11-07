@@ -1,6 +1,7 @@
 //! The window: a sidebar of notebooks beside the desk, which shows the open notebook,
 //! settings or the home screen.
 
+mod add;
 mod icons;
 mod listen;
 mod live;
@@ -31,13 +32,14 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let mut layer = Vec::new();
     let (main, title) = match &s.route {
         Route::Notebook(_) if s.open.is_some() => {
-            (notebook::view(s, &l, &mut layer), s.open.as_ref().and_then(|o| o.notebook.as_ref()).map(|n| n.name.clone()).unwrap_or_default())
+            // The notebook draws its own name and description.
+            (notebook::view(s, &l, &mut layer), String::new())
         }
         Route::Settings => (settings::view(s, &l, &mut layer), "Settings".to_owned()),
         Route::Ask => (pages::ask(s, &l, &mut layer), "Ask".to_owned()),
-        Route::Library => (pages::library(s, &l), "Library".to_owned()),
+        Route::Library => (pages::library(s, &l, &mut layer), "Library".to_owned()),
         Route::Transformations => (pages::transformations(s, &l), "Transformations".to_owned()),
-        Route::Usage => (pages::usage(s, &l), "Usage".to_owned()),
+        Route::Usage => (pages::usage(s, &l, &mut layer), "Usage".to_owned()),
         Route::Server => (server::view(s, &l, &mut layer), "Server".to_owned()),
         Route::Profiles => (listen::profiles(s, &l, &mut layer), "Podcast profiles".to_owned()),
         _ => (home(s, &l), String::new()),
@@ -66,6 +68,9 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
             .on_close(|s: &mut App| s.confirm = None)
             .build(&l.k, &mut layer);
     }
+    if s.new_notebook.is_some() {
+        new_notebook(s, &l, &mut layer);
+    }
     if let Some(message) = &s.toast {
         layer.push(toast(message, &l));
     }
@@ -88,32 +93,33 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
 fn sidebar(s: &App, l: &Look) -> El {
     let k = &l.k;
     let mut sb = Sidebar::new().label("Notebooks").row_gap(2.0);
-    let new_row = if let Some(edit) = &s.new_notebook {
-        TextInput::new(edit)
-            .placeholder("Notebook name")
-            .on_edit(|s: &mut App| s.new_notebook.as_mut().expect("editing"))
-            .on_submit(|s: &mut App, _: &mut Tx| s.create_notebook())
-            .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
-                if ev.key == rune::Key::Escape {
-                    s.new_notebook = None;
-                    return true;
-                }
-                false
-            })
-            .build(k)
-            .key("new-notebook-name")
-    } else {
-        SidebarRow::new("New notebook")
-            .icon(&icons::PLUS)
-            .height(30.0)
-            .on_select(|s: &mut App, _| {
-                let mut edit = TextEdit::new("");
-                edit.focused = true;
-                s.new_notebook = Some(edit);
-            })
-            .build(k)
-            .key("new-notebook")
+    let new_row = SidebarRow::new("New notebook")
+        .icon(&icons::PLUS)
+        .height(30.0)
+        .on_select(|s: &mut App, _| {
+            let mut edit = TextEdit::new("");
+            edit.focused = true;
+            s.new_notebook = Some(edit);
+            s.new_notebook_description = TextEdit::new("");
+        })
+        .build(k)
+        .key("new-notebook");
+    // Where the notebooks are kept: on this Mac, or the server's host.
+    let place = match &s.remote {
+        Some(_) => crate::format::host_of(&s.settings.server_url).split('.').next().unwrap_or_default().to_owned(),
+        None => "This device".to_owned(),
     };
+    let place_help = if s.remote.is_some() { s.settings.server_url.clone() } else { "Stored on this device".into() };
+    let where_row = row()
+        .key("data-place")
+        .w_full()
+        .px(8.0)
+        .pb(4.0)
+        .gap(6.0)
+        .center_y()
+        .help(place_help)
+        .child(rune::icon(if s.remote.is_some() { &icons::SERVER } else { &icons::DEVICE }, 12.0).color(l.text3))
+        .child(text(place).font(k.ty.small).color(l.text3).max_lines(1));
     let nav = |label: &str, icon: &'static rune::Icon, route: Route, key: &str| {
         let selected = s.route == route;
         SidebarRow::new(label.to_owned())
@@ -125,28 +131,30 @@ fn sidebar(s: &App, l: &Look) -> El {
             .key(key.to_owned())
     };
     sb = sb
+        .header(where_row)
         .header(nav("Ask", &rune_kit::glyphs::SEARCH, Route::Ask, "nav-ask"))
         .header(nav("Library", &icons::DOC, Route::Library, "nav-library"))
         .header(nav("Transformations", &rune_kit::glyphs::SPARKLE, Route::Transformations, "nav-transformations"))
         .header(nav("Usage", &icons::GAUGE, Route::Usage, "nav-usage"))
         .header(new_row);
     for nb in s.notebooks.iter().filter(|n| !n.archived) {
-        let id = nb.id.clone();
-        let selected = matches!(&s.route, Route::Notebook(open) if *open == nb.id);
-        let detail = match nb.source_count {
-            0 => String::new(),
-            n => n.to_string(),
-        };
+        sb = sb.child(notebook_row(s, nb, l));
+    }
+    let archived: Vec<&notebook_engine::types::Notebook> = s.notebooks.iter().filter(|n| n.archived).collect();
+    if !archived.is_empty() {
         sb = sb.child(
-            SidebarRow::new(nb.name.clone())
-                .icon(&icons::BOOK)
-                .detail(detail)
+            SidebarRow::new(format!("Archived ({})", archived.len()))
+                .icon(if s.show_archived { &rune_kit::glyphs::CHEVRON_DOWN } else { &rune_kit::glyphs::CARET_RIGHT })
                 .height(30.0)
-                .selected(selected)
-                .on_select(move |s: &mut App, _| s.open_notebook(id.clone()))
+                .on_select(|s: &mut App, _| s.show_archived = !s.show_archived)
                 .build(k)
-                .key(format!("nb-{}", nb.id)),
+                .key("archived"),
         );
+        if s.show_archived {
+            for nb in archived {
+                sb = sb.child(notebook_row(s, nb, l));
+            }
+        }
     }
     if s.remote.is_some() {
         sb = sb.footer(nav("Server", &icons::SERVER, Route::Server, "nav-server"));
@@ -161,6 +169,76 @@ fn sidebar(s: &App, l: &Look) -> El {
             .key("settings"),
     )
     .build(k)
+}
+
+/// A name and what it's for, which the assistant reads before answering.
+fn new_notebook(s: &App, l: &Look, layer: &mut Vec<El>) {
+    let k = &l.k;
+    let Some(name) = &s.new_notebook else { return };
+    let body = col()
+        .w_full()
+        .gap(12.0)
+        .child(text("Name").font(k.ty.ui_medium).color(l.text2))
+        .child(
+            TextInput::new(name)
+                .label("Name")
+                .placeholder("Dark patterns literature review")
+                .width(None)
+                .on_edit(|s: &mut App| s.new_notebook.as_mut().expect("naming"))
+                .on_submit(|s: &mut App, _: &mut Tx| s.create_notebook())
+                .build(k)
+                .key("new-notebook-name"),
+        )
+        .child(text("What it's for").font(k.ty.ui_medium).color(l.text2))
+        .child(
+            rune_kit::TextArea::new(&s.new_notebook_description)
+                .label("What it's for")
+                .placeholder("Optional. The assistant reads this before answering.")
+                .width(None)
+                .rows(3)
+                .on_edit(|s: &mut App| &mut s.new_notebook_description)
+                .build(k)
+                .key("new-notebook-description"),
+        )
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .justify_end()
+                .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.new_notebook = None).build(k).key("new-notebook-cancel"))
+                .child(
+                    Button::new("Create notebook")
+                        .variant(ButtonVariant::Contrast)
+                        .disabled(name.text.trim().is_empty())
+                        .on_press(|s: &mut App| s.create_notebook())
+                        .build(k)
+                        .key("new-notebook-create"),
+                ),
+        );
+    Dialog::new("new-notebook", "New notebook")
+        .open(true)
+        .width(440.0)
+        .fit()
+        .child(body.px(20.0).pb(20.0))
+        .on_close(|s: &mut App| s.new_notebook = None)
+        .build(k, layer);
+}
+
+fn notebook_row(s: &App, nb: &notebook_engine::types::Notebook, l: &Look) -> El {
+    let id = nb.id.clone();
+    let selected = matches!(&s.route, Route::Notebook(open) if *open == nb.id);
+    let detail = match nb.source_count {
+        0 => String::new(),
+        n => n.to_string(),
+    };
+    SidebarRow::new(nb.name.clone())
+        .icon(&icons::BOOK)
+        .detail(detail)
+        .height(30.0)
+        .selected(selected)
+        .on_select(move |s: &mut App, _| s.open_notebook(id.clone()))
+        .build(&l.k)
+        .key(format!("nb-{}", nb.id))
 }
 
 fn home(s: &App, l: &Look) -> El {
@@ -200,7 +278,7 @@ fn home(s: &App, l: &Look) -> El {
 }
 
 fn toast(message: &str, l: &Look) -> El {
-    col().key("toast-layer").w_full().h_full().items_center().justify_end().pb(24.0).inert().child(
+    col().key("toast-layer").absolute(0.0, 0.0).w_full().h_full().items_center().justify_end().pb(24.0).inert().child(
         row()
             .key("toast")
             .px(14.0)

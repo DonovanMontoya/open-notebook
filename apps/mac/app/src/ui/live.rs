@@ -56,8 +56,7 @@ pub fn card(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                         s.live_choose_voice(i);
                     }
                 })
-                .build(k, layer)
-                .key("live-voice"),
+                .build(k, layer),
         );
     }
     if on {

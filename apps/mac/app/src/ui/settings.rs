@@ -220,8 +220,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
                 }
             }
         })
-        .build(k, layer)
-        .key(format!("{role}-provider"));
+        .build(k, layer);
     let state = f.pickers.get(role).cloned().unwrap_or_default();
     let list = f.models.get(&kind);
     let mut options: Vec<ComboboxOption> = match list {
@@ -254,8 +253,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
             *f.slot(role).1 = rune::TextEdit::new(id);
             f.saved = false;
         })
-        .build(k, layer)
-        .key(format!("{role}-model"));
+        .build(k, layer);
     let mut c = field_row(label, row().w_full().gap(8.0).child(select).child(col().grow(1.0).min_w(0.0).child(picker)), l);
     if let Some(ModelList::Failed(e)) = list {
         c = c.child(text(format!("Could not list models: {e}")).font(k.ty.small).color(l.danger).wrap());

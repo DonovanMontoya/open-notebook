@@ -54,6 +54,34 @@ pub fn extract(name: &str, mime: Option<&str>, bytes: &[u8]) -> Result<Extracted
     Ok(Extracted { title: stem, text: text.trim().to_string(), media: false })
 }
 
+/// The media type for a file name, for the files the add dialog takes; None when unknown.
+pub fn mime_for(name: &str) -> Option<&'static str> {
+    let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "epub" => "application/epub+zip",
+        "html" | "htm" => "text/html",
+        "md" | "markdown" => "text/markdown",
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "mp3" | "mpga" | "mpeg" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "wav" => "audio/wav",
+        "aac" => "audio/aac",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "webm" => "video/webm",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        _ => return None,
+    })
+}
+
 /// UTF-8 text without a byte order mark, replacing invalid bytes like `File.text()` does.
 fn decode_text(bytes: &[u8]) -> String {
     let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
@@ -63,6 +91,16 @@ fn decode_text(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mime_types_by_extension() {
+        assert_eq!(mime_for("Talk.M4A"), Some("audio/mp4"));
+        assert_eq!(mime_for("paper.pdf"), Some("application/pdf"));
+        assert_eq!(mime_for("README"), None);
+        assert_eq!(mime_for("archive.zip"), None);
+        // Every media type it names is one the engine transcribes.
+        assert!(is_media(mime_for("clip.mov").unwrap(), "clip"));
+    }
 
     #[test]
     fn media_is_flagged_for_transcription() {

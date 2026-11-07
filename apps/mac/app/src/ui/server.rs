@@ -64,8 +64,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                     s.set_default(slot, model);
                 }
             })
-            .build(k, layer)
-            .key(format!("slot-{slot}"));
+            .build(k, layer);
         defaults = defaults.child(row().w_full().gap(12.0).center_y().child(text(label).font(k.ty.ui).color(l.text).w(220.0)).child(select));
     }
     c = c.child(defaults);
@@ -201,8 +200,7 @@ fn new_key(p: &ServerPage, a: &NewKey, l: &Look, layer: &mut Vec<El>) -> El {
             adding(s).provider = Some(name.into());
             page(s).open_select = None;
         })
-        .build(k, layer)
-        .key("key-provider");
+        .build(k, layer);
     let mut uses = row().w_full().gap(14.0).flex_wrap().child(text("Used for").font(k.ty.small).color(l.text2));
     for (kind, label) in MODEL_TYPES {
         uses = uses.child(
@@ -286,8 +284,7 @@ fn add_model(p: &ServerPage, l: &Look, layer: &mut Vec<El>) -> El {
                 p.new_model.kind = first.clone();
             }
         })
-        .build(k, layer)
-        .key("model-provider");
+        .build(k, layer);
     let types: Vec<String> = match n.provider.as_ref().and_then(|x| p.supported_types.get(x)) {
         Some(t) => t.clone(),
         None => MODEL_TYPES.iter().map(|(t, _)| t.to_string()).collect(),
@@ -307,8 +304,7 @@ fn add_model(p: &ServerPage, l: &Look, layer: &mut Vec<El>) -> El {
                 p.new_model.kind = t.clone();
             }
         })
-        .build(k, layer)
-        .key("model-type");
+        .build(k, layer);
     let name = TextInput::new(&n.name)
         .width(None)
         .placeholder("Model name")
@@ -349,8 +345,7 @@ fn processing(p: &ServerPage, l: &Look, layer: &mut Vec<El>) -> El {
                     s.set_server_setting(key, serde_json::Value::String((*v).into()));
                 }
             })
-            .build(k, layer)
-            .key(format!("proc-{key}"));
+            .build(k, layer);
         c = c.child(row().w_full().gap(12.0).center_y().child(text(label).font(k.ty.ui).color(l.text).w(220.0)).child(select));
     }
     let mut switches = row().w_full().gap(16.0).flex_wrap();

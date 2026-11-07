@@ -40,6 +40,21 @@ pub const SCENES: &[Scene] = &[
     ("server-processing", server_processing),
     ("flashcards", flashcards),
     ("flashcards-done", flashcards_done),
+    ("add-files", add_files),
+    ("add-batch", add_batch),
+    ("add-library", add_library),
+    ("notebook-details", notebook_details),
+    ("notebook-search", notebook_search),
+    ("new-notebook", new_notebook),
+    ("archived", archived),
+    ("drop", dropping),
+    ("reader", reader),
+    ("reader-passage", reader_passage),
+    ("chat-models", chat_models),
+    ("chat-rename", chat_rename),
+    ("chat-empty", chat_empty),
+    ("notes-list", notes_list),
+    ("note-read", note_read),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -494,6 +509,37 @@ fn speaker_editor(s: &mut App) {
     });
 }
 
+fn sample_transformations() -> Vec<Transformation> {
+    let t = |id: &str, title: &str, on| Transformation { id: id.into(), name: title.into(), title: title.into(), apply_default: on, ..Default::default() };
+    vec![t("t1", "Dense Summary", true), t("t2", "Key Insights", false), t("t3", "Questions", false)]
+}
+
+fn add_files(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    o.transformations = sample_transformations();
+    let mut a = AddSource { kind: crate::state::AddKind::File, ..Default::default() };
+    a.files = vec![("/Users/me/Downloads/spindles-review.pdf".into(), 2_400_000), ("/Users/me/Music/lecture-week-4.m4a".into(), 31_000_000)];
+    o.add = Some(a);
+}
+
+fn add_batch(s: &mut App) {
+    use crate::state::{BatchItem, ItemState};
+    open(s);
+    let item = |label: &str, state| BatchItem { label: label.into(), state };
+    let o = s.open.as_mut().unwrap();
+    o.add = Some(AddSource {
+        items: Some(vec![
+            item("en.wikipedia.org/wiki/Sleep_spindle", ItemState::Added),
+            item("example.com/paywalled", ItemState::Failed("Could not download the page (403)".into())),
+            item("arxiv.org/pdf/2203.02155", ItemState::Adding),
+            item("youtube.com/watch?v=abc", ItemState::Waiting),
+        ]),
+        busy: true,
+        ..Default::default()
+    });
+}
+
 /// Settings on this Mac with keys saved and checked: one working, one rejected, one checking.
 fn settings_keys(s: &mut App) {
     use crate::state::{Check, ModelList};
@@ -645,4 +691,159 @@ fn flashcards_done(s: &mut App) {
         v.answer(true);
     }
     s.open.as_mut().unwrap().viewing = Some(v);
+}
+
+fn add_library(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    let mut elsewhere = sources();
+    for (i, src) in elsewhere.iter_mut().enumerate() {
+        src.id = format!("x{i}");
+        src.notebooks = vec!["nb2".into()];
+    }
+    elsewhere[1].title = Some("Heat pump sizing guide".into());
+    let mut a = AddSource { kind: crate::state::AddKind::Library, library: Some(elsewhere), ..Default::default() };
+    a.picked.insert("x1".into());
+    o.add = Some(a);
+}
+
+fn described(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    if let Some(nb) = o.notebook.as_mut() {
+        nb.description = "Reading for the sleep seminar: what spindles do for memory, and how strong the evidence is.".into();
+    }
+}
+
+fn notebook_details(s: &mut App) {
+    described(s);
+    let o = s.open.as_mut().unwrap();
+    let nb = o.notebook.clone().unwrap();
+    o.details = Some(crate::state::NotebookDetails { name: TextEdit::new(nb.name), description: TextEdit::new(nb.description) });
+}
+
+fn notebook_search(s: &mut App) {
+    described(s);
+    let o = s.open.as_mut().unwrap();
+    o.search = TextEdit::new("spindle density");
+    o.search_open = true;
+    let hit = |kind, id: &str, title: &str, snippet: &str| SearchHit {
+        kind,
+        id: id.into(),
+        title: title.into(),
+        snippet: snippet.into(),
+        score: 1.0,
+        notebook_id: Some("nb1".into()),
+    };
+    o.hits = Some((
+        "spindle density".into(),
+        Ok(vec![
+            hit(
+                HitKind::Source,
+                "s1",
+                "Sleep spindles and memory consolidation",
+                "In several studies, spindle density after learning predicted how much of a word list people recalled",
+            ),
+            hit(HitKind::Note, "n2", "Spindles and declarative memory", "Spindle density after learning predicted recall the next morning."),
+        ]),
+    ));
+}
+
+fn new_notebook(s: &mut App) {
+    s.notebooks = notebooks();
+    s.new_notebook = Some(TextEdit::new("Heat pump retrofit"));
+    s.new_notebook_description = TextEdit::new("Quotes and sizing guides for the house.");
+}
+
+fn archived(s: &mut App) {
+    s.notebooks = notebooks();
+    let mut old = s.notebooks[1].clone();
+    old.id = "nb4".into();
+    old.name = "Last year's courses".into();
+    old.archived = true;
+    s.notebooks.push(old);
+    s.show_archived = true;
+}
+
+fn dropping(s: &mut App) {
+    open(s);
+    s.open.as_mut().unwrap().drop_over = true;
+}
+
+fn reader(s: &mut App) {
+    insights(s);
+    let o = s.open.as_mut().unwrap();
+    o.context.sources.insert("s2".into(), SourceContext::Off);
+    if let Some((d, _)) = o.reading.as_mut() {
+        d.summary.file_available = true;
+        d.summary.embedded_chunks = 6;
+        d.summary.notebooks = vec!["nb1".into(), "nb2".into()];
+    }
+    let more = |id: &str, kind: &str, status: &str, error: Option<&str>| Insight {
+        id: id.into(),
+        source_id: "s1".into(),
+        kind: kind.into(),
+        content: String::new(),
+        created: None,
+        status: Some(status.into()),
+        error: error.map(Into::into),
+    };
+    o.insights.push(more("i2", "Key Insights", "running", None));
+    o.insights.push(more("i3", "Questions", "failed", Some("The model returned nothing")));
+    o.insight_open = Some("i1".into());
+    o.saved_insights.insert("i1".into());
+}
+
+fn reader_passage(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    let filler = "Earlier sections cover how sleep stages are scored, the history of EEG and how spindles were first described.\n\n".repeat(40);
+    let text = format!("{filler}{SOURCE_TEXT}");
+    let passage = notebook_engine::citations::best_passage(&text, "spindle density after learning predicted recall of a word list");
+    let summary = o.sources[0].clone();
+    o.reading = Some((SourceDetail { summary, full_text: text }, passage));
+    o.scroll_to_passage = true;
+}
+
+fn chat_models(s: &mut App) {
+    notebook(s);
+    s.settings.chat = Some(notebook_engine::settings::ModelSetting { provider: "anthropic".into(), model: "claude-sonnet-4-5".into() });
+    let o = s.open.as_mut().unwrap();
+    o.reading = None;
+    o.active_cite = Some(("m2".into(), 0));
+    o.models = Some(vec![("anthropic::claude-opus-4-1".into(), "Claude Opus 4.1".into()), ("anthropic::claude-haiku-4-5".into(), "Claude Haiku 4.5".into())]);
+}
+
+fn chat_rename(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    o.renaming_chat = Some(TextEdit::new("What do spindles do?"));
+    let mut twin = o.sessions[0].clone();
+    twin.id = "c2".into();
+    twin.updated = "2026-10-01T10:00:00Z".into();
+    o.sessions.push(twin);
+}
+
+fn chat_empty(s: &mut App) {
+    open(s);
+    for src in &mut s.open.as_mut().unwrap().sources {
+        src.status = Some("processing".into());
+    }
+}
+
+fn notes_list(s: &mut App) {
+    notes(s);
+    let o = s.open.as_mut().unwrap();
+    o.note = None;
+    o.context.notes.insert("n1".into(), false);
+    let deck = format!("{}{{}}", notebook_engine::studio::STUDY_PREFIX);
+    o.notes.push(Note { id: "n9".into(), title: Some("Spindle quiz".into()), content: Some(deck), created: T.into(), updated: T.into(), ..Default::default() });
+}
+
+fn note_read(s: &mut App) {
+    notes(s);
+    let o = s.open.as_mut().unwrap();
+    let mut n = o.notes[1].clone();
+    n.content = Some("## What the studies found\n\nSpindle density after learning predicted recall the next morning [Sleep spindles and memory consolidation](cite:0).\n\n- Strongest for **declarative** memory\n- Weaker for skills".into());
+    o.edit_note(&n);
 }

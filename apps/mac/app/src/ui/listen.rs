@@ -88,8 +88,7 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
             f.speaker_profile = None;
             f.open_select = None;
         })
-        .build(k, layer)
-        .key("episode-profile");
+        .build(k, layer);
     let mut speaker_names = vec!["Profile's own voices".to_owned()];
     speaker_names.extend(profiles.speaker.iter().map(|p| p.name.clone()));
     let speaker_ids: Vec<String> = profiles.speaker.iter().map(|p| p.id.clone()).collect();
@@ -113,8 +112,7 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
                 f.open_select = None;
             }
         })
-        .build(k, layer)
-        .key("speaker-profile");
+        .build(k, layer);
     let cast = current.and_then(|ep| {
         let id = f.speaker_profile.as_deref().unwrap_or(&ep.speaker_profile_id);
         profiles.speaker.iter().find(|p| p.id == id)
@@ -1035,8 +1033,7 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
                 page(s).open_select = None;
             }
         })
-        .build(k, layer)
-        .key("ep-speakers");
+        .build(k, layer);
     let language_names: Vec<&str> = LANGUAGES.iter().map(|(_, n)| *n).collect();
     let language_now = language_name(d.language.as_deref());
     let language = Select::new("ep-language", &language_names)
@@ -1055,8 +1052,7 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
             }
             page(s).open_select = None;
         })
-        .build(k, layer)
-        .key("ep-language");
+        .build(k, layer);
     let segments = row()
         .gap(6.0)
         .center_y()
@@ -1129,8 +1125,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     s.set_voice_kind(v);
                 }
             })
-            .build(k, layer)
-            .key("sp-kind");
+            .build(k, layer);
         let model = if p.voice_models.is_empty() {
             TextInput::new(&d.voice_model).width(None).placeholder("Voice model").on_edit(|s: &mut App| &mut draft(s).voice_model).build(k).key("sp-model")
         } else {
@@ -1152,7 +1147,6 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     page(s).open_select = None;
                 })
                 .build(k, layer)
-                .key("sp-model")
         };
         c = c.child(row().w_full().gap(10.0).child(field("Voice provider", kind, l).w(220.0)).child(col().grow(1.0).min_w(0.0).child(field(
             "Voice model",
@@ -1193,8 +1187,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     page(s).open_select = None;
                 }
             })
-            .build(k, layer)
-            .key("sp-server-model");
+            .build(k, layer);
         c = c.child(field("Voice model on the server", model, l));
     }
     let voice_list: Option<&Vec<notebook_engine::podcast::voices::VoiceOption>> =
@@ -1245,7 +1238,6 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                         page(s).open_voice = None;
                     })
                     .build(k, layer)
-                    .key(format!("sp-voice-{i}"))
             }
             None => TextInput::new(&sp[1])
                 .width(None)
