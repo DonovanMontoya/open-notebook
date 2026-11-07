@@ -26,6 +26,9 @@ pub const SCENES: &[Scene] = &[
     ("server", server),
     ("listen", listen),
     ("profiles", profiles),
+    ("add-files", add_files),
+    ("add-batch", add_batch),
+    ("add-library", add_library),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -397,4 +400,49 @@ fn profiles(s: &mut App) {
     s.notebooks = notebooks();
     s.route = Route::Profiles;
     s.profiles = Some(crate::listen::ProfilesPage { profiles: profiles_sample(), ..Default::default() });
+}
+
+fn sample_transformations() -> Vec<Transformation> {
+    let t = |id: &str, title: &str, on| Transformation { id: id.into(), name: title.into(), title: title.into(), apply_default: on, ..Default::default() };
+    vec![t("t1", "Dense Summary", true), t("t2", "Key Insights", false), t("t3", "Questions", false)]
+}
+
+fn add_files(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    o.transformations = sample_transformations();
+    let mut a = AddSource { kind: crate::state::AddKind::File, ..Default::default() };
+    a.files = vec![("/Users/me/Downloads/spindles-review.pdf".into(), 2_400_000), ("/Users/me/Music/lecture-week-4.m4a".into(), 31_000_000)];
+    o.add = Some(a);
+}
+
+fn add_batch(s: &mut App) {
+    use crate::state::{BatchItem, ItemState};
+    open(s);
+    let item = |label: &str, state| BatchItem { label: label.into(), state };
+    let o = s.open.as_mut().unwrap();
+    o.add = Some(AddSource {
+        items: Some(vec![
+            item("en.wikipedia.org/wiki/Sleep_spindle", ItemState::Added),
+            item("example.com/paywalled", ItemState::Failed("Could not download the page (403)".into())),
+            item("arxiv.org/pdf/2203.02155", ItemState::Adding),
+            item("youtube.com/watch?v=abc", ItemState::Waiting),
+        ]),
+        busy: true,
+        ..Default::default()
+    });
+}
+
+fn add_library(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    let mut elsewhere = sources();
+    for (i, src) in elsewhere.iter_mut().enumerate() {
+        src.id = format!("x{i}");
+        src.notebooks = vec!["nb2".into()];
+    }
+    elsewhere[1].title = Some("Heat pump sizing guide".into());
+    let mut a = AddSource { kind: crate::state::AddKind::Library, library: Some(elsewhere), ..Default::default() };
+    a.picked.insert("x1".into());
+    o.add = Some(a);
 }

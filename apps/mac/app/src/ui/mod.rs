@@ -1,6 +1,7 @@
 //! The window: a sidebar of notebooks beside the desk, which shows the open notebook,
 //! settings or the home screen.
 
+mod add;
 mod icons;
 mod listen;
 mod notebook;

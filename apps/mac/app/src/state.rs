@@ -75,6 +75,14 @@ pub struct AddSource {
     pub error: Option<String>,
     /// One row per source being added, once Add is pressed.
     pub items: Option<Vec<BatchItem>>,
+    /// Files chosen or dropped, with their sizes.
+    pub files: Vec<(PathBuf, u64)>,
+    /// Transformations to run on the new sources; None until changed, which means the defaults.
+    pub chosen: Option<std::collections::BTreeSet<String>>,
+    /// Every source, for the From other notebooks tab, once loaded.
+    pub library: Option<Vec<SourceSummary>>,
+    /// Sources picked on that tab.
+    pub picked: std::collections::BTreeSet<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -83,6 +91,8 @@ pub enum AddKind {
     Link,
     Text,
     File,
+    /// Sources already in other notebooks.
+    Library,
 }
 
 /// Where one source of a batch has got to.
@@ -119,6 +129,73 @@ impl AddSource {
         let items = self.items.as_ref().filter(|_| self.busy)?;
         let done = items.iter().filter(|i| matches!(i.state, ItemState::Added | ItemState::Failed(_))).count();
         Some(format!("Adding {} of {}", (done + 1).min(items.len()), items.len()))
+    }
+
+    /// Adds files not already on the list.
+    pub fn add_files(&mut self, paths: &[PathBuf]) {
+        for p in paths {
+            if !self.files.iter().any(|(f, _)| f == p) {
+                let size = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+                self.files.push((p.clone(), size));
+            }
+        }
+        if !paths.is_empty() {
+            self.kind = AddKind::File;
+        }
+    }
+
+    /// Sources on the From other notebooks tab: those not in `notebook_id` yet.
+    pub fn elsewhere<'a>(&'a self, notebook_id: &'a str) -> impl Iterator<Item = &'a SourceSummary> + 'a {
+        self.library.iter().flatten().filter(move |s| !s.notebooks.iter().any(|n| n == notebook_id))
+    }
+
+    /// How many sources Add would add on the current tab.
+    pub fn count(&self, notebook_id: &str) -> usize {
+        match self.kind {
+            AddKind::Link => notebook_engine::text::parse_links(&self.url.text).len(),
+            AddKind::File => self.files.len(),
+            AddKind::Text => usize::from(!self.text.text.trim().is_empty()),
+            AddKind::Library => self.elsewhere(notebook_id).filter(|s| self.picked.contains(&s.id)).count(),
+        }
+    }
+
+    /// The transformations to run: those chosen, else the ones marked to apply by default.
+    pub fn selected(&self, all: &[Transformation]) -> std::collections::BTreeSet<String> {
+        self.chosen.clone().unwrap_or_else(|| all.iter().filter(|t| t.apply_default).map(|t| t.id.clone()).collect())
+    }
+
+    /// The sources to add for the current tab, each with its row label. The title field names
+    /// the source only when there is one.
+    pub fn jobs(&self, notebook_id: &str) -> Vec<(String, AddJob)> {
+        let title = Some(self.title.text.trim().to_owned()).filter(|t| !t.is_empty());
+        let single = self.count(notebook_id) == 1;
+        match self.kind {
+            AddKind::Link => notebook_engine::text::parse_links(&self.url.text)
+                .into_iter()
+                .map(|url| {
+                    let label = url.trim_start_matches("https://").trim_start_matches("http://").to_owned();
+                    (label, AddJob::Input(SourceInput::Link { url, title: title.clone().filter(|_| single) }))
+                })
+                .collect(),
+            AddKind::File => self
+                .files
+                .iter()
+                .map(|(path, _)| {
+                    let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "File".into());
+                    (label, AddJob::File { path: path.clone(), title: title.clone().filter(|_| single) })
+                })
+                .collect(),
+            AddKind::Text if !self.text.text.trim().is_empty() => {
+                let label = title.clone().unwrap_or_else(|| "Pasted text".into());
+                vec![(label, AddJob::Input(SourceInput::Text { content: self.text.text.trim().to_owned(), title }))]
+            }
+            AddKind::Text => Vec::new(),
+            AddKind::Library => self
+                .elsewhere(notebook_id)
+                .filter(|s| self.picked.contains(&s.id))
+                .map(|s| (s.title.clone().unwrap_or_else(|| "Untitled source".into()), AddJob::Link(s.id.clone())))
+                .collect(),
+        }
     }
 
     /// How many of a finished batch failed.
@@ -748,6 +825,52 @@ impl App {
         );
     }
 
+    /// Opens the add sheet, on the Files tab with `files` when there are some.
+    pub fn open_add(&mut self, files: &[PathBuf]) {
+        let Some(o) = self.open.as_mut() else { return };
+        let mut a = AddSource::default();
+        a.add_files(files);
+        a.url.focused = files.is_empty();
+        o.add = Some(a);
+    }
+
+    /// Loads every source for the From other notebooks tab.
+    pub fn load_library(&self) {
+        let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
+        self.run(
+            |b| b.list_all_sources(),
+            with_open(&id, |o, list| {
+                if let Some(a) = o.add.as_mut() {
+                    a.library = Some(list);
+                }
+            }),
+        );
+    }
+
+    /// Adds what the sheet holds on its current tab.
+    pub fn submit_add(&mut self) {
+        let Some(o) = self.open.as_ref() else { return };
+        let Some(a) = o.add.as_ref() else { return };
+        if a.busy {
+            return;
+        }
+        let jobs = a.jobs(&o.id);
+        if jobs.is_empty() {
+            let e = match a.kind {
+                AddKind::Link => "Enter a link that starts with http:// or https://",
+                AddKind::File => "Choose a file first",
+                AddKind::Text => "Paste some text first",
+                AddKind::Library => "Pick at least one source",
+            };
+            if let Some(a) = self.open.as_mut().and_then(|o| o.add.as_mut()) {
+                a.error = Some(e.into());
+            }
+            return;
+        }
+        let apply = if a.kind == AddKind::Library { Vec::new() } else { a.selected(&o.transformations).into_iter().collect() };
+        self.add_sources(jobs, apply);
+    }
+
     /// Adds one source with the default transformations, outside the add sheet.
     #[cfg(test)]
     pub fn add_source(&mut self, input: SourceInput) {
@@ -1090,6 +1213,33 @@ mod tests {
         app.add_sources(vec![job("One"), job("Two")], Vec::new());
         settle(&mut app, |a| a.open.as_ref().unwrap().add.is_none());
         assert!(app.open.as_ref().unwrap().add.is_none());
+    }
+
+    #[test]
+    fn the_sheet_makes_one_job_per_source() {
+        let mut a = AddSource { url: TextEdit::new("https://a.example/x\nnot a link\nhttp://b.example"), title: TextEdit::new("Named"), ..Default::default() };
+        let jobs = a.jobs("nb");
+        assert_eq!(jobs.len(), 2);
+        assert_eq!(jobs[0].0, "a.example/x");
+        // A title names a single source only.
+        assert!(matches!(&jobs[0].1, AddJob::Input(SourceInput::Link { title: None, .. })));
+        a.url = TextEdit::new("https://a.example/x");
+        assert!(matches!(&a.jobs("nb")[0].1, AddJob::Input(SourceInput::Link { title: Some(t), .. }) if t == "Named"));
+
+        a.kind = AddKind::Library;
+        let src = |id: &str, nbs: &[&str]| SourceSummary { id: id.into(), notebooks: nbs.iter().map(|n| n.to_string()).collect(), ..Default::default() };
+        a.library = Some(vec![src("s1", &["nb"]), src("s2", &["other"]), src("s3", &["other"])]);
+        a.picked = ["s1".to_owned(), "s2".to_owned()].into();
+        assert_eq!(a.elsewhere("nb").count(), 2);
+        assert_eq!(a.count("nb"), 1, "a source already here is not added again");
+
+        a.kind = AddKind::Text;
+        assert_eq!(a.count("nb"), 0);
+        let t = |id: &str, on| Transformation { id: id.into(), apply_default: on, ..Default::default() };
+        let all = [t("t1", true), t("t2", false)];
+        assert_eq!(a.selected(&all), ["t1".to_owned()].into());
+        a.chosen = Some(Default::default());
+        assert!(a.selected(&all).is_empty());
     }
 
     #[test]

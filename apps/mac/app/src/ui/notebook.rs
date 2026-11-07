@@ -3,13 +3,12 @@
 
 use notebook_engine::citations::{self, CitableSource};
 use notebook_engine::types::*;
-use rune::file_dialog::FileDialogOptions;
 use rune::{El, ScrollSpec, TextEdit, Tx, col, el, rich, row, text};
 use rune_kit::markdown::Markdown;
-use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, SegmentedControl, TextArea, TextInput};
 
 use super::icons;
-use crate::state::{AddJob, AddKind, AddSource, App, ItemState, NoteDraft, NotebookTab, Open, is_failed, is_processing};
+use crate::state::{App, NoteDraft, NotebookTab, Open, is_failed, is_processing};
 use crate::theme::{self, Look};
 
 const RAIL: f32 = 300.0;
@@ -84,7 +83,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     };
     let body = row().key("notebook").w_full().h_full().min_h(0.0).child(rail).child(vrule(l)).child(middle);
     if let Some(add) = &o.add {
-        add_sheet(add, l, layer);
+        super::add::sheet(o, add, l, layer);
     }
     body
 }
@@ -105,13 +104,7 @@ fn sources(o: &Open, l: &Look) -> El {
         .icon(&icons::PLUS)
         .variant(ButtonVariant::Ghost)
         .control_size(ControlSize::Small)
-        .on_press(|s: &mut App| {
-            if let Some(o) = s.open.as_mut() {
-                let mut a = AddSource::default();
-                a.url.focused = true;
-                o.add = Some(a);
-            }
-        })
+        .on_press(|s: &mut App| s.open_add(&[]))
         .build(k)
         .key("add-source");
     let head = row()
@@ -338,176 +331,6 @@ fn insights(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         );
     }
     c
-}
-
-fn add_sheet(a: &AddSource, l: &Look, layer: &mut Vec<El>) {
-    let k = &l.k;
-    let kinds = SegmentedControl::new(&["Link", "Text", "File"], Some(a.kind as usize))
-        .label("Source type")
-        .width(None)
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
-            if let Some(a) = s.open.as_mut().and_then(|o| o.add.as_mut()) {
-                a.kind = [AddKind::Link, AddKind::Text, AddKind::File][i];
-                a.error = None;
-            }
-        })
-        .build(k)
-        .key("add-kind");
-    fn add(s: &mut App) -> &mut AddSource {
-        s.open.as_mut().and_then(|o| o.add.as_mut()).expect("adding")
-    }
-    if let Some(items) = &a.items {
-        return batch_sheet(a, items, l, layer);
-    }
-    let mut body = col().w_full().gap(12.0).child(kinds);
-    match a.kind {
-        AddKind::Link => {
-            body = body.child(
-                TextInput::new(&a.url)
-                    .placeholder("https://… (one per line for several)")
-                    .label("Link")
-                    .width(None)
-                    .on_edit(move |s: &mut App| &mut add(s).url)
-                    .on_submit(|s: &mut App, _: &mut Tx| submit_add(s))
-                    .build(k)
-                    .key("add-url"),
-            );
-        }
-        AddKind::Text => {
-            body = body
-                .child(
-                    TextInput::new(&a.title)
-                        .width(None)
-                        .placeholder("Title (optional)")
-                        .on_edit(move |s: &mut App| &mut add(s).title)
-                        .build(k)
-                        .key("add-title"),
-                )
-                .child(
-                    TextArea::new(&a.text).width(None).placeholder("Paste text").rows(8).on_edit(move |s: &mut App| &mut add(s).text).build(k).key("add-text"),
-                );
-        }
-        AddKind::File => {
-            body = body.child(
-                text("PDF, Word, PowerPoint, Excel, EPUB, HTML, Markdown or plain text. The text is read on this Mac.").font(k.ty.ui).color(l.text2).wrap(),
-            );
-        }
-    }
-    if let Some(e) = &a.error {
-        body = body.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap());
-    }
-    let action = if a.kind == AddKind::File { "Choose file…" } else { "Add" };
-    let mut primary = Button::new(if a.busy { "Adding…" } else { action }).variant(ButtonVariant::Contrast).disabled(a.busy);
-    primary = if a.kind == AddKind::File { primary.on_press_tx(|s: &mut App, tx: &mut Tx| choose_file(s, tx)) } else { primary.on_press(submit_add) };
-    body = body.child(
-        row()
-            .w_full()
-            .gap(8.0)
-            .justify_end()
-            .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(close_add).build(k).key("add-cancel"))
-            .child(primary.build(k).key("add-submit")),
-    );
-    Dialog::new("add-source", "Add a source").open(true).width(480.0).fit().child(body.px(20.0).pb(20.0)).on_close(close_add).build(k, layer);
-}
-
-/// The sources of a batch, each with how it went, while they are added and after.
-fn batch_sheet(a: &AddSource, items: &[crate::state::BatchItem], l: &Look, layer: &mut Vec<El>) {
-    let k = &l.k;
-    let mut list = col().key("batch").w_full().gap(6.0);
-    for (i, item) in items.iter().enumerate() {
-        let mark = match &item.state {
-            ItemState::Waiting => el().w(16.0).h(16.0),
-            ItemState::Adding => rune_kit::Spinner::new().size(14.0).build(k),
-            ItemState::Added => rune::icon(&rune_kit::glyphs::CHECK, 16.0).color(l.ok),
-            ItemState::Failed(_) => rune::icon(&icons::CLOSE, 16.0).color(l.danger),
-        };
-        let mut lines = col().grow(1.0).min_w(0.0).gap(1.0).child(text(item.label.clone()).font(k.ty.ui).color(l.text).max_lines(1));
-        if let ItemState::Failed(e) = &item.state {
-            lines = lines.child(text(e.clone()).font(k.ty.small).color(l.danger).wrap());
-        }
-        list = list.child(row().key(format!("item-{i}")).w_full().gap(8.0).child(col().pt(2.0).child(mark)).child(lines));
-    }
-    let failed = a.failed();
-    let mut foot = row().w_full().gap(8.0).center_y();
-    if !a.busy && failed > 0 {
-        let n = if failed == 1 { "1 could not be added".to_owned() } else { format!("{failed} could not be added") };
-        foot = foot.child(text(n).font(k.ty.small).color(l.text3));
-    }
-    foot = foot.child(el().grow(1.0)).child(Button::new("Close").variant(ButtonVariant::Ghost).disabled(a.busy).on_press(close_add).build(k).key("add-cancel"));
-    if let Some(p) = a.progress() {
-        foot = foot.child(Button::new(p).variant(ButtonVariant::Contrast).disabled(true).build(k).key("add-submit"));
-    }
-    let body = col().w_full().gap(16.0).child(list).child(foot);
-    Dialog::new("add-source", "Add sources").open(true).width(480.0).fit().child(body.px(20.0).pb(20.0)).on_close(close_add).build(k, layer);
-}
-
-fn close_add(s: &mut App) {
-    if let Some(o) = s.open.as_mut()
-        && !o.add.as_ref().is_some_and(|a| a.busy)
-    {
-        o.add = None;
-    }
-}
-
-/// The transformations to run on new sources: the ones marked to apply by default.
-fn default_insights(s: &App) -> Vec<String> {
-    s.open.as_ref().map(|o| o.transformations.iter().filter(|t| t.apply_default).map(|t| t.id.clone()).collect()).unwrap_or_default()
-}
-
-fn submit_add(s: &mut App) {
-    let Some(a) = s.open.as_ref().and_then(|o| o.add.as_ref()) else { return };
-    if a.busy {
-        return;
-    }
-    match a.kind {
-        AddKind::Link => {
-            let urls = notebook_engine::text::parse_links(&a.url.text);
-            if urls.is_empty() {
-                set_add_error(s, "Enter a link that starts with http:// or https://");
-                return;
-            }
-            let jobs = urls
-                .into_iter()
-                .map(|url| (url.trim_start_matches("https://").trim_start_matches("http://").to_owned(), AddJob::Input(SourceInput::Link { url, title: None })))
-                .collect();
-            let apply = default_insights(s);
-            s.add_sources(jobs, apply);
-        }
-        AddKind::Text => {
-            let content = a.text.text.trim().to_owned();
-            if content.is_empty() {
-                set_add_error(s, "Paste some text first");
-                return;
-            }
-            let title = Some(a.title.text.trim().to_owned()).filter(|t| !t.is_empty());
-            let label = title.clone().unwrap_or_else(|| "Pasted text".into());
-            let apply = default_insights(s);
-            s.add_sources(vec![(label, AddJob::Input(SourceInput::Text { content, title }))], apply);
-        }
-        AddKind::File => {}
-    }
-}
-
-fn set_add_error(s: &mut App, e: &str) {
-    if let Some(a) = s.open.as_mut().and_then(|o| o.add.as_mut()) {
-        a.error = Some(e.into());
-    }
-}
-
-fn choose_file(_: &mut App, tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Add a source".into(), ..Default::default() }.filter("Documents, audio and video", &crate::state::accepted());
-    tx.open_file(options, |s: &mut App, result, _| match result {
-        Ok(Some(path)) => read_file(s, path),
-        Ok(None) => {}
-        Err(e) => set_add_error(s, &e.to_string()),
-    });
-}
-
-/// Adds the chosen file; it is read on the worker.
-fn read_file(s: &mut App, path: std::path::PathBuf) {
-    let label = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "File".into());
-    let apply = default_insights(s);
-    s.add_sources(vec![(label, AddJob::File { path, title: None })], apply);
 }
 
 // Chat
