@@ -280,7 +280,7 @@ fn deck_view(o: &Open, deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                 .padding(28.0)
                 .radius(16.0)
                 .border(1.0, l.line_strong)
-                .fill(if v.flipped { l.amber_wash } else { l.panel })
+                .fill(if v.flipped { l.raised } else { l.panel })
                 .center()
                 .child(text(face.clone()).font(theme::READ_HEADING).color(l.text).wrap().align(rune::Align::Center))
                 .label(if v.flipped { "Show question" } else { "Show answer" })

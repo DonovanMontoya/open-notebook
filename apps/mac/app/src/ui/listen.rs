@@ -172,7 +172,7 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
     }
     let needs_chat = s.needs_chat_model();
     if needs_chat {
-        c = c.child(text("Choose a chat model in Settings; it writes the script").font(k.ty.small).color(l.amber).wrap().key("episode-needs-chat"));
+        c = c.child(text("Choose a chat model in Settings; it writes the script").font(k.ty.small).color(l.text2).wrap().key("episode-needs-chat"));
     }
     if let Some(e) = &f.error {
         c = c.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap());
@@ -279,7 +279,7 @@ fn episode_card(s: &App, o: &Open, e: &Episode, l: &Look) -> El {
     if let Some((d, t)) = e.progress.filter(|_| busy)
         && t > 0
     {
-        card = card.child(el().w_full().h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(d as f32 / t as f32).h(4.0).radius(2.0).fill(l.amber)));
+        card = card.child(el().w_full().h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(d as f32 / t as f32).h(4.0).radius(2.0).fill(l.text2)));
     }
     if let Some(summary) = e.summary.as_ref().filter(|x| !x.is_empty() && !busy && !failed) {
         card = card.child(text(summary.clone()).font(theme::READ_BODY).color(l.text2).wrap().max_lines(4));
@@ -350,14 +350,14 @@ fn chapter_list(e: &Episode, current: Option<usize>, l: &Look, key: &str) -> El 
         let mut r = row()
             .key(format!("{key}-{i}"))
             .w_full()
-            .gap(10.0)
-            .px(6.0)
+            .gap(12.0)
+            .px(8.0)
             .py(4.0)
             .radius(6.0)
-            .child(text(clock(c.start)).font(k.ty.small).color(l.text3).w(48.0))
+            .child(text(clock(c.start)).font(theme::tnum(k.ty.small)).color(l.text3).w(72.0))
             .child(text(c.title.clone()).font(if lit { k.ty.ui_medium } else { k.ty.ui }).color(l.text).shrink().min_w(0.0));
         if lit {
-            r = r.fill(l.amber_wash);
+            r = r.fill(l.raised);
         }
         ch = ch.child(k.interactive(r).on_press(move |s: &mut App| {
             if s.playing.as_ref().is_some_and(|p| p.episode.id == ep.id) {
@@ -489,8 +489,8 @@ fn claim_check(e: &Episode, view: &EpisodeOpen, l: &Look) -> El {
         .radius(4.0)
         .clip_rounded(4.0)
         .fill(l.raised)
-        .child(seg(c.supported, l.ok))
-        .child(seg(c.overstated, l.amber))
+        .child(seg(c.supported, l.amber))
+        .child(seg(c.overstated, l.text3))
         .child(seg(c.unsupported, l.danger));
     let mut headline = row().gap(6.0).shrink().min_w(0.0).child(text(check_verdict(c)).font(k.ty.ui_medium).color(l.text));
     if total > 0 {
@@ -546,8 +546,8 @@ fn claim_check(e: &Episode, view: &EpisodeOpen, l: &Look) -> El {
 fn claim_item(claim: &CheckedClaim, key: &str, l: &Look) -> El {
     let k = &l.k;
     let (label, color) = match claim.verdict {
-        ClaimVerdict::Supported => ("Matches your sources", l.ok),
-        ClaimVerdict::Overstated => ("Overstated", l.amber),
+        ClaimVerdict::Supported => ("Matches your sources", l.amber),
+        ClaimVerdict::Overstated => ("Overstated", l.text2),
         ClaimVerdict::Unsupported => ("Not in your sources", l.danger),
     };
     let said = if claim.said.trim().is_empty() { &claim.claim } else { &claim.said };
@@ -599,14 +599,14 @@ fn transcript(e: &Episode, playing: Option<&NowPlaying>, l: &Look, key: &str, fu
         let mut r = row()
             .key(format!("{key}-{i}"))
             .w_full()
-            .gap(10.0)
-            .px(6.0)
+            .gap(12.0)
+            .px(8.0)
             .py(4.0)
             .radius(6.0)
-            .child(text(line.speaker.clone()).font(k.ty.small_medium).color(l.text2).w(84.0).max_lines(1))
+            .child(text(line.speaker.clone()).font(k.ty.small_medium).color(l.text2).w(72.0).max_lines(1))
             .child(text(line.text.clone()).font(theme::READ_BODY).color(if past { l.text3 } else { l.text }).wrap().grow(1.0).min_w(0.0));
         if lit {
-            r = r.fill(l.amber_wash);
+            r = r.fill(l.raised);
         }
         r = k.interactive(r).on_press(move |s: &mut App| {
             if s.playing.as_ref().is_some_and(|p| p.episode.id == ep.id) {
@@ -630,7 +630,7 @@ fn scrubber(p: &NowPlaying, l: &Look, key: &str) -> El {
         let end = starts.get(i + 1).copied().unwrap_or(duration.max(*start));
         let span = (end - start).max(0.001);
         let fill = if duration > 0.0 { ((shown - start) / span).clamp(0.0, 1.0) as f32 } else { 0.0 };
-        bar = bar.child(el().grow(span as f32).h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(fill).h(4.0).radius(2.0).fill(l.amber)));
+        bar = bar.child(el().grow(span as f32).h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(fill).h(4.0).radius(2.0).fill(l.text)));
     }
     col().key(key.to_owned()).w_full().h(16.0).justify_center().child(bar).cursor(rune::Cursor::Pointer).on_drag(
         |s: &mut App, d: &mut rune::Drag, _: &mut Tx| {
@@ -686,7 +686,7 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
             p.followed = None;
         }
     });
-    let mut r = row().key("player").w_full().h(56.0).px(16.0).gap(10.0).center_y().fill(l.panel).border(1.0, l.line).child(
+    let mut r = row().key("player").w_full().h(56.0).px(16.0).gap(4.0).center_y().fill(l.panel).border(1.0, l.line).child(
         IconButton::new(if on { &icons::PAUSE } else { &icons::PLAY })
             .variant(IconButtonVariant::Contrast)
             .label(if on { "Pause" } else { "Play" })
@@ -695,11 +695,25 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
             .key("player-play"),
     );
     if has_chapters {
-        r = r.child(small("Prev", "player-prev", l, |s| s.previous_chapter()));
+        r = r.child(
+            IconButton::new(&icons::PREV_CHAPTER)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Previous chapter")
+                .on_press(|s: &mut App| s.previous_chapter())
+                .build(k)
+                .key("player-prev"),
+        );
     }
     r = r.child(small("−15", "player-back", l, |s| s.skip(-SKIP_BACK))).child(small("+30", "player-forward", l, |s| s.skip(SKIP_FORWARD)));
     if has_chapters {
-        r = r.child(small("Next", "player-next", l, |s| s.next_chapter()));
+        r = r.child(
+            IconButton::new(&icons::NEXT_CHAPTER)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Next chapter")
+                .on_press(|s: &mut App| s.next_chapter())
+                .build(k)
+                .key("player-next"),
+        );
     }
     let mut r = r.child(
         col()

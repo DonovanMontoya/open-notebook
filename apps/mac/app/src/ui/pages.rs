@@ -88,7 +88,7 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let go = Button::new(if busy {
         if asking { "Researching…" } else { "Searching…" }
     } else if asking {
-        "Ask"
+        "Research"
     } else {
         "Search"
     })
@@ -554,7 +554,7 @@ pub fn feature_label(feature: &str) -> &str {
         "ask" => "Ask",
         "search" => "Search",
         "embedding" => "Indexing sources",
-        "transformation" => "Insights",
+        "transformation" | "insights" => "Insights",
         "study" => "Study decks",
         "podcast_writing" => "Podcast scripts",
         "podcast_research" => "Podcast study notes",
@@ -588,7 +588,7 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .on_pick(|s: &mut App, i, _: &mut Tx| s.load_usage(DAYS[i]))
         .build(k)
         .key("usage-days");
-    let mut body = col().w_full().gap(14.0).child(range);
+    let mut body = col().w_full().gap(14.0).child(row().child(range));
     match (&p.report, &p.error) {
         (_, Some(e)) => body = body.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap()),
         (None, None) => body = body.child(row().gap(8.0).center_y().child(Spinner::new().build(k)).child(text("Loading").font(k.ty.ui).color(l.text3))),
@@ -632,10 +632,18 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 );
             }
             let max = r.groups.iter().map(|g| g.input_tokens + g.output_tokens).max().unwrap_or(1).max(1) as f32;
-            for g in &r.groups {
+            // The row that cost the most leads in ink; the rest stay quiet.
+            let top = r
+                .groups
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| g.estimated_usd.is_some_and(|c| c > 0.0))
+                .max_by(|a, b| a.1.estimated_usd.partial_cmp(&b.1.estimated_usd).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(i, _)| i);
+            for (gi, g) in r.groups.iter().enumerate() {
                 let used = g.input_tokens + g.output_tokens;
                 let audio = g.audio_seconds > 0.0;
-                let num = |t: String, w: f32| text(t).font(k.ty.ui).color(l.text2).w(w).align(rune::Align::End).max_lines(1);
+                let num = |t: String, w: f32| text(t).font(theme::tnum(k.ty.ui)).color(l.text2).w(w).align(rune::Align::End).max_lines(1);
                 let cost: El = if local {
                     let (model, label) = (g.model.clone(), g.estimated_usd.map_or_else(|| "Set price".into(), money));
                     row().w(72.0).justify_end().child(
@@ -671,7 +679,13 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                                 .child(num(if audio { format!("{} audio", audio_time(g.audio_seconds)) } else { grouped(g.output_tokens) }, 96.0))
                                 .child(cost),
                         )
-                        .child(el().w_full().h(6.0).radius(3.0).fill(l.raised).child(el().w_frac(used as f32 / max).h(6.0).radius(3.0).fill(l.text3))),
+                        .child(
+                            el().w_full().h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(used as f32 / max).h(4.0).radius(2.0).fill(if top == Some(gi) {
+                                l.text
+                            } else {
+                                l.line_strong
+                            })),
+                        ),
                 );
             }
             if r.groups.is_empty() {

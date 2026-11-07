@@ -29,3 +29,12 @@ cargo run -p open-notebook-mac -- --list-scenes
 `OPEN_NOTEBOOK_TEST_DATA=<copy of a data folder> cargo test -p open-notebook-mac -- --ignored` opens a copy of real data. Use a copy: opening marks unfinished work as failed.
 
 The engine builds and tests on Linux. The app needs a GPU, so build it and take snapshots on a Mac.
+
+## What differs from the Tauri app
+
+- **Volume:** there's no volume control. Rune's `Player` keeps its AVPlayer private and exposes only mute.
+- **Live talk:** it runs on device only, over OpenAI's websocket. The server's `/live/session` accepts only a WebRTC offer, so server mode says to switch to on-device mode.
+- **Dropped links:** dropped links and text aren't added; dropped files are. On macOS, Rune hands over file paths only.
+- **Multi-select:** "Choose file" picks one file at a time, because Rune's open dialog has no multi-select. Dropping several files works.
+- **iCloud Keychain sync:** it needs a signed build with the keychain entitlement. The ad-hoc build from `scripts/bundle.sh` says so and keeps keys in `keys.json`.
+- **Small choices:** remembered choices live in `prefs.json` in the data folder, not the web view. These are rate, resume positions, chat context, the model per conversation, effort and voice.

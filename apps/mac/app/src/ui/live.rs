@@ -36,7 +36,7 @@ pub fn card(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let title = row()
         .gap(8.0)
         .center_y()
-        .child(el().w(8.0).h(8.0).radius(4.0).fill(if on { l.amber } else { l.text3 }))
+        .child(el().w(8.0).h(8.0).radius(4.0).fill(if on { l.ok } else { l.text3 }))
         .child(text("Talk it through").font(theme::READ_HEADING).color(l.text));
     let words = col().grow(1.0).min_w(0.0).gap(2.0).child(title).child(text(status_line(s)).font(k.ty.small).color(l.text3).wrap());
 
@@ -95,7 +95,7 @@ pub fn card(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .gap(8.0)
         .padding(14.0)
         .radius(12.0)
-        .border(1.0, if on { l.amber } else { l.line })
+        .border(1.0, if on { l.line_strong } else { l.line })
         .child(row().w_full().gap(10.0).center_y().child(words).child(actions));
     if let Some(e) = &live.error {
         c = c.child(text(e.clone()).font(k.ty.small).color(l.danger).wrap());

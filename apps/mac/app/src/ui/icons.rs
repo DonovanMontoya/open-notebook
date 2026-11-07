@@ -94,3 +94,13 @@ icon!(
     "on-back",
     r#"<path d="M9.5 3.5L5 8L9.5 12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
 );
+icon!(
+    PREV_CHAPTER,
+    "on-prev-chapter",
+    r#"<path d="M4 3.5V12.5M12 3.5L6 8L12 12.5V3.5Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);
+icon!(
+    NEXT_CHAPTER,
+    "on-next-chapter",
+    r#"<path d="M12 3.5V12.5M4 3.5L10 8L4 12.5V3.5Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);

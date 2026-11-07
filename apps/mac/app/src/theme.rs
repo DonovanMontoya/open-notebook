@@ -21,6 +21,11 @@ pub const READ_BODY: TextStyle = TextStyle::new(16.0, 400.0).family(READ).lh(25.
 pub const READ_TITLE: TextStyle = TextStyle::new(26.0, 500.0).family(READ).lh(32.0);
 pub const READ_HEADING: TextStyle = TextStyle::new(19.0, 500.0).family(READ).lh(26.0);
 
+/// A style with tabular figures, for counts, times and prices that line up.
+pub const fn tnum(style: TextStyle) -> TextStyle {
+    style.features("'tnum' 1")
+}
+
 #[derive(Clone)]
 pub struct Look {
     pub k: Kit,
@@ -69,8 +74,8 @@ impl Look {
             line_strong: ink.alpha(0.14),
             amber,
             amber_wash: c("#f0b25a").alpha(if dark { 0.16 } else { 0.24 }),
-            danger: if dark { c("#e5484d") } else { c("#c8322f") },
-            ok: if dark { c("#4cc38a") } else { c("#16a34a") },
+            danger: if dark { c("#e0625c") } else { c("#b4403a") },
+            ok: if dark { c("#6fb48a") } else { c("#3f7f57") },
             k,
         }
     }

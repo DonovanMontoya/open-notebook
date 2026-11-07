@@ -12,7 +12,7 @@ mod settings;
 pub mod study;
 
 use rune::{Cx, El, Spring, TextEdit, Tx, col, row, text};
-use rune_kit::shell::{PaneMotion, Sidebar, SidebarRow, SidebarToggle, SplitView, Toolbar};
+use rune_kit::shell::{PaneMotion, Sidebar, SidebarRow, SidebarSection, SidebarToggle, SplitView, Toolbar};
 use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, TextInput};
 
 use crate::state::{App, Route};
@@ -30,19 +30,20 @@ pub fn look(cx: &Cx<App>, s: &App) -> Look {
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     let l = look(cx, s);
     let mut layer = Vec::new();
-    let (main, title) = match &s.route {
+    // Every page has its own heading, so the title bar stays empty.
+    let main = match &s.route {
         Route::Notebook(_) if s.open.is_some() => {
             // The notebook draws its own name and description.
-            (notebook::view(s, &l, &mut layer), String::new())
+            notebook::view(s, &l, &mut layer)
         }
-        Route::Settings => (settings::view(s, &l, &mut layer), "Settings".to_owned()),
-        Route::Ask => (pages::ask(s, &l, &mut layer), "Ask".to_owned()),
-        Route::Library => (pages::library(s, &l, &mut layer), "Library".to_owned()),
-        Route::Transformations => (pages::transformations(s, &l), "Transformations".to_owned()),
-        Route::Usage => (pages::usage(s, &l, &mut layer), "Usage".to_owned()),
-        Route::Server => (server::view(s, &l, &mut layer), "Server".to_owned()),
-        Route::Profiles => (listen::profiles(s, &l, &mut layer), "Podcast profiles".to_owned()),
-        _ => (home(s, &l), String::new()),
+        Route::Settings => settings::view(s, &l, &mut layer),
+        Route::Ask => pages::ask(s, &l, &mut layer),
+        Route::Library => pages::library(s, &l, &mut layer),
+        Route::Transformations => pages::transformations(s, &l),
+        Route::Usage => pages::usage(s, &l, &mut layer),
+        Route::Server => server::view(s, &l, &mut layer),
+        Route::Profiles => listen::profiles(s, &l, &mut layer),
+        _ => home(s, &l),
     };
     if let Some(c) = &s.confirm {
         Dialog::new("confirm", c.question.clone())
@@ -80,7 +81,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     }
     let split = SplitView::new(desk)
         .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, &l))
-        .toolbar(Toolbar::new().title(title))
+        .toolbar(Toolbar::new())
         .titlebar_inset(cx.titlebar_inset())
         .sidebar_padding(12.0, 8.0)
         .sidebar_toggle(SidebarToggle::new().size(ControlSize::Large).past_lights(16.0).edge(16.0).gap(4.0).in_header())
@@ -92,69 +93,61 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
 
 fn sidebar(s: &App, l: &Look) -> El {
     let k = &l.k;
-    let mut sb = Sidebar::new().label("Notebooks").row_gap(2.0);
-    let new_row = SidebarRow::new("New notebook")
-        .icon(&icons::PLUS)
-        .height(30.0)
-        .on_select(|s: &mut App, _| {
-            let mut edit = TextEdit::new("");
-            edit.focused = true;
-            s.new_notebook = Some(edit);
-            s.new_notebook_description = TextEdit::new("");
-        })
-        .build(k)
-        .key("new-notebook");
-    // Where the notebooks are kept: on this Mac, or the server's host.
+    let mut sb = Sidebar::new().label("Notebooks").row_gap(2.0).header_padding(0.0, 16.0);
+    // The product, and where its notebooks are kept: on this Mac, or the server's host.
     let place = match &s.remote {
         Some(_) => crate::format::host_of(&s.settings.server_url).split('.').next().unwrap_or_default().to_owned(),
         None => "This device".to_owned(),
     };
     let place_help = if s.remote.is_some() { s.settings.server_url.clone() } else { "Stored on this device".into() };
-    let where_row = row()
+    let brand = row()
         .key("data-place")
         .w_full()
         .px(8.0)
-        .pb(4.0)
-        .gap(6.0)
+        .pb(12.0)
+        .gap(8.0)
         .center_y()
         .help(place_help)
+        .child(text("Open Notebook").font(k.ty.ui_medium).color(l.text).max_lines(1))
+        .child(rune::el().grow(1.0))
         .child(rune::icon(if s.remote.is_some() { &icons::SERVER } else { &icons::DEVICE }, 12.0).color(l.text3))
         .child(text(place).font(k.ty.small).color(l.text3).max_lines(1));
     let nav = |label: &str, icon: &'static rune::Icon, route: Route, key: &str| {
         let selected = s.route == route;
         SidebarRow::new(label.to_owned())
             .icon(icon)
-            .height(30.0)
+            .height(32.0)
             .selected(selected)
             .on_select(move |s: &mut App, _| s.go(route.clone()))
             .build(k)
             .key(key.to_owned())
     };
     sb = sb
-        .header(where_row)
+        .header(brand)
         .header(nav("Ask", &rune_kit::glyphs::SEARCH, Route::Ask, "nav-ask"))
         .header(nav("Library", &icons::DOC, Route::Library, "nav-library"))
         .header(nav("Transformations", &rune_kit::glyphs::SPARKLE, Route::Transformations, "nav-transformations"))
-        .header(nav("Usage", &icons::GAUGE, Route::Usage, "nav-usage"))
-        .header(new_row);
-    for nb in s.notebooks.iter().filter(|n| !n.archived) {
-        sb = sb.child(notebook_row(s, nb, l));
-    }
+        .header(nav("Usage", &icons::GAUGE, Route::Usage, "nav-usage"));
+    let add = rune_kit::IconButton::new(&icons::PLUS)
+        .label("New notebook")
+        .variant(rune_kit::IconButtonVariant::GhostMuted)
+        .control_size(ControlSize::Small)
+        .on_press(open_new_notebook)
+        .build(k)
+        .key("new-notebook");
+    let open: Vec<El> = s.notebooks.iter().filter(|n| !n.archived).map(|nb| notebook_row(s, nb, l)).collect();
+    sb = sb.section(SidebarSection::new("Notebooks").key("notebooks").action(add).rows(open));
     let archived: Vec<&notebook_engine::types::Notebook> = s.notebooks.iter().filter(|n| n.archived).collect();
     if !archived.is_empty() {
-        sb = sb.child(
-            SidebarRow::new(format!("Archived ({})", archived.len()))
-                .icon(if s.show_archived { &rune_kit::glyphs::CHEVRON_DOWN } else { &rune_kit::glyphs::CARET_RIGHT })
-                .height(30.0)
-                .on_select(|s: &mut App, _| s.show_archived = !s.show_archived)
-                .build(k)
-                .key("archived"),
+        let rows: Vec<El> = archived.iter().map(|nb| notebook_row(s, nb, l)).collect();
+        sb = sb.section(
+            SidebarSection::new("Archived")
+                .key("archived")
+                .count(rows.len())
+                .collapsed(!s.show_archived)
+                .on_toggle(|s: &mut App, _| s.show_archived = !s.show_archived)
+                .rows(rows),
         );
-        if s.show_archived {
-            for nb in archived {
-                sb = sb.child(notebook_row(s, nb, l));
-            }
-        }
     }
     if s.remote.is_some() {
         sb = sb.footer(nav("Server", &icons::SERVER, Route::Server, "nav-server"));
@@ -162,7 +155,7 @@ fn sidebar(s: &App, l: &Look) -> El {
     sb.footer(
         SidebarRow::new("Settings")
             .icon(&icons::GEAR)
-            .height(30.0)
+            .height(32.0)
             .selected(s.route == Route::Settings)
             .on_select(|s: &mut App, _| s.open_settings())
             .build(k)
@@ -234,47 +227,115 @@ fn notebook_row(s: &App, nb: &notebook_engine::types::Notebook, l: &Look) -> El 
     SidebarRow::new(nb.name.clone())
         .icon(&icons::BOOK)
         .detail(detail)
-        .height(30.0)
+        .height(32.0)
         .selected(selected)
         .on_select(move |s: &mut App, _| s.open_notebook(id.clone()))
         .build(&l.k)
         .key(format!("nb-{}", nb.id))
 }
 
-fn home(s: &App, l: &Look) -> El {
-    let k = &l.k;
-    let (title, body, action): (&str, String, Option<El>) = if let Some(e) = &s.backend_error {
-        (
-            "Couldn't open your notebooks",
-            e.clone(),
-            Some(Button::new("Open settings").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.open_settings()).build(k).key("home-settings")),
-        )
-    } else if !s.loaded {
-        ("Opening", String::new(), None)
-    } else if s.settings.mode == notebook_engine::settings::Mode::Local && s.settings.chat.is_none() {
-        (
-            "Add a model to start asking",
-            "Notebooks live on this device. Questions go to the AI provider you choose, with your own API key.".into(),
-            Some(Button::new("Open settings").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.open_settings()).build(k).key("home-settings")),
-        )
-    } else if let Some(latest) = s.notebooks.iter().find(|n| !n.archived) {
-        let id = latest.id.clone();
-        (
-            "Pick a notebook",
-            "Or continue where you left off.".into(),
-            Some(Button::new(format!("Open {}", latest.name)).on_press(move |s: &mut App| s.open_notebook(id.clone())).build(k).key("home-open")),
-        )
-    } else {
-        ("Start a notebook", "A notebook holds the sources for one question or project. Use New notebook in the sidebar.".into(), None)
-    };
-    let mut c = col().key("home").gap(10.0).items_center().max_w(420.0).child(text(title).font(theme::READ_HEADING).color(l.text));
+fn open_new_notebook(s: &mut App) {
+    let mut edit = TextEdit::new("");
+    edit.focused = true;
+    s.new_notebook = Some(edit);
+    s.new_notebook_description = TextEdit::new("");
+}
+
+/// A centred message for the states with nothing to list.
+fn home_message(title: &str, body: &str, action: Option<El>, l: &Look) -> El {
+    let mut c = col().key("home").gap(10.0).items_center().max_w(420.0).child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text));
     if !body.is_empty() {
-        c = c.child(text(body).font(l.k.ty.ui).color(l.text2).wrap().align(rune::Align::Center));
+        c = c.child(text(body.to_owned()).font(l.k.ty.ui).color(l.text2).wrap().align(rune::Align::Center));
     }
     if let Some(a) = action {
-        c = c.child(col().pt(6.0).child(a));
+        c = c.child(col().pt(8.0).child(a));
     }
     col().w_full().h_full().center().window_drag().child(c)
+}
+
+fn home(s: &App, l: &Look) -> El {
+    let k = &l.k;
+    let settings_button =
+        || Button::new("Open settings").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.open_settings()).build(k).key("home-settings");
+    let new_button = |variant| Button::new("New notebook").icon(&icons::PLUS).variant(variant).on_press(open_new_notebook).build(k).key("home-new");
+    if let Some(e) = &s.backend_error {
+        return home_message("Couldn't open your notebooks", e, Some(settings_button()), l);
+    }
+    if !s.loaded {
+        return home_message("Opening", "", None, l);
+    }
+    let needs_model = s.settings.mode == notebook_engine::settings::Mode::Local && s.settings.chat.is_none();
+    let mut open: Vec<&notebook_engine::types::Notebook> = s.notebooks.iter().filter(|n| !n.archived).collect();
+    if open.is_empty() {
+        return if needs_model {
+            home_message(
+                "Add a model to start asking",
+                "Notebooks live on this device. Questions go to the AI provider you choose, with your own API key.",
+                Some(settings_button()),
+                l,
+            )
+        } else {
+            home_message("Start a notebook", "A notebook holds the sources for one question or project.", Some(new_button(ButtonVariant::Contrast)), l)
+        };
+    }
+    open.sort_by(|a, b| b.updated.cmp(&a.updated));
+    let mut c = col()
+        .key("home")
+        .w_full()
+        .max_w(760.0)
+        .px(32.0)
+        .pt(40.0)
+        .pb(32.0)
+        .gap(24.0)
+        .child(row().w_full().center_y().child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0)).child(new_button(ButtonVariant::Ghost)));
+    if needs_model {
+        c = c.child(
+            row()
+                .key("home-model")
+                .w_full()
+                .gap(16.0)
+                .padding(16.0)
+                .radius(12.0)
+                .fill(l.raised)
+                .center_y()
+                .child(
+                    text("Add a chat model to start asking. Questions go to the provider you choose, with your own key.")
+                        .font(k.ty.ui)
+                        .color(l.text2)
+                        .wrap()
+                        .grow(1.0)
+                        .shrink()
+                        .min_w(0.0),
+                )
+                .child(settings_button()),
+        );
+    }
+    let mut list = col().key("home-list").w_full();
+    for (i, nb) in open.into_iter().enumerate() {
+        let mut meta = vec![match nb.source_count {
+            1 => "1 source".to_owned(),
+            n => format!("{n} sources"),
+        }];
+        if nb.note_count > 0 {
+            meta.push(if nb.note_count == 1 { "1 note".into() } else { format!("{} notes", nb.note_count) });
+        }
+        let when = crate::format::relative_time(&nb.updated);
+        if !when.is_empty() {
+            meta.push(format!("updated {when}"));
+        }
+        let mut info = col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(text(nb.name.clone()).font(theme::READ_HEADING).color(l.text).max_lines(1));
+        if !nb.description.trim().is_empty() {
+            info = info.child(text(nb.description.trim().to_owned()).font(k.ty.ui).color(l.text2).max_lines(2).wrap());
+        }
+        info = info.child(text(meta.join(" · ")).font(theme::tnum(k.ty.small)).color(l.text3));
+        let id = nb.id.clone();
+        let item = row().key(format!("home-nb-{}", nb.id)).w_full().px(12.0).py(16.0).radius(10.0).child(info);
+        if i > 0 {
+            list = list.child(row().key(format!("home-rule-{i}")).w_full().px(12.0).child(rune::el().grow(1.0).h(1.0).fill(l.line)));
+        }
+        list = list.child(k.interactive(item).on_press(move |s: &mut App| s.open_notebook(id.clone())));
+    }
+    col().w_full().h_full().items_center().child(c.child(list)).scroll(rune::ScrollSpec { stick_bottom: false }).window_drag()
 }
 
 fn toast(message: &str, l: &Look) -> El {

@@ -389,15 +389,18 @@ fn source_row(o: &Open, src: &SourceSummary, selected: bool, l: &Look) -> El {
     } else {
         let next = next_mode(mode, src.insights_count > 0);
         let sid = id.clone();
-        r = r.child(
-            Button::new(mode_label(mode))
-                .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
-                .help(format!("{}. Click for {}.", mode_hint(mode), mode_label(next).to_lowercase()))
-                .on_press(move |s: &mut App| s.set_source_context(sid.clone(), next))
-                .build(k)
-                .key("context-mode"),
-        );
+        // A quiet chip: what chat reads from this source. Click to cycle.
+        let chip = row()
+            .key("context-mode")
+            .px(6.0)
+            .py(2.0)
+            .radius(6.0)
+            .border(1.0, l.line_strong)
+            .role("button")
+            .label(format!("Chat context: {}", mode_label(mode)))
+            .help(format!("{}. Click for {}.", mode_hint(mode), mode_label(next).to_lowercase()))
+            .child(text(mode_label(mode)).font(k.ty.small).color(if off { l.text3 } else { l.text2 }).max_lines(1));
+        r = r.child(col().child(k.interactive(chip).on_press(move |s: &mut App| s.set_source_context(sid.clone(), next))));
     }
     if selected {
         r = r.fill(l.amber_wash);
@@ -1037,7 +1040,15 @@ fn composer(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         .pb(12.0)
         .pt(8.0)
         .gap(6.0)
-        .child(row().w_full().max_w(720.0).gap(8.0).items_end().child(col().grow(1.0).min_w(0.0).child(field)).child(button.build(k).key("send")))
+        .child(
+            row()
+                .w_full()
+                .max_w(720.0)
+                .gap(8.0)
+                .items_end()
+                .child(col().grow(1.0).min_w(0.0).child(field))
+                .child(col().pb(6.0).child(button.build(k).key("send"))),
+        )
         .child(meta)
 }
 

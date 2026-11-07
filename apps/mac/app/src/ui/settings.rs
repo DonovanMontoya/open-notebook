@@ -57,7 +57,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .key("mode");
     let mut c =
         col().key("settings-body").w_full().max_w(560.0).gap(18.0).px(24.0).py(28.0).child(text("Settings").font(theme::READ_TITLE).color(l.text)).child(
-            section("Notebooks", l).child(mode).child(
+            section("Notebooks", l).child(row().child(mode)).child(
                 text(if local {
                     "Everything stays on this Mac. Questions go to the AI provider you pick, with your own key."
                 } else {
@@ -105,15 +105,17 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let appearance = ["system", "light", "dark"];
     c = c.child(
         section("Appearance", l).child(
-            SegmentedControl::new(&["System", "Light", "Dark"], appearance.iter().position(|a| *a == s.settings.appearance))
-                .label("Appearance")
-                .fit()
-                .on_pick(move |s: &mut App, i, _: &mut Tx| {
-                    s.settings.appearance = appearance[i].into();
-                    s.save_settings();
-                })
-                .build(k)
-                .key("appearance"),
+            row().child(
+                SegmentedControl::new(&["System", "Light", "Dark"], appearance.iter().position(|a| *a == s.settings.appearance))
+                    .label("Appearance")
+                    .fit()
+                    .on_pick(move |s: &mut App, i, _: &mut Tx| {
+                        s.settings.appearance = appearance[i].into();
+                        s.save_settings();
+                    })
+                    .build(k)
+                    .key("appearance"),
+            ),
         ),
     );
     col().key("settings").w_full().items_center().child(c).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0)
@@ -254,7 +256,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
             f.saved = false;
         })
         .build(k, layer);
-    let mut c = field_row(label, row().w_full().gap(8.0).child(select).child(col().grow(1.0).min_w(0.0).child(picker)), l);
+    let mut c = field_row(label, row().w_full().gap(8.0).center_y().child(select).child(col().grow(1.0).min_w(0.0).child(picker)), l);
     if let Some(ModelList::Failed(e)) = list {
         c = c.child(text(format!("Could not list models: {e}")).font(k.ty.small).color(l.danger).wrap());
     } else if let Some(help) = role_help(role) {
