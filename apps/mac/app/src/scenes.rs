@@ -39,6 +39,8 @@ pub const SCENES: &[Scene] = &[
     ("chat-models", chat_models),
     ("chat-rename", chat_rename),
     ("chat-empty", chat_empty),
+    ("notes-list", notes_list),
+    ("note-read", note_read),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -579,4 +581,21 @@ fn chat_empty(s: &mut App) {
     for src in &mut s.open.as_mut().unwrap().sources {
         src.status = Some("processing".into());
     }
+}
+
+fn notes_list(s: &mut App) {
+    notes(s);
+    let o = s.open.as_mut().unwrap();
+    o.note = None;
+    o.context.notes.insert("n1".into(), false);
+    let deck = format!("{}{{}}", notebook_engine::studio::STUDY_PREFIX);
+    o.notes.push(Note { id: "n9".into(), title: Some("Spindle quiz".into()), content: Some(deck), created: T.into(), updated: T.into(), ..Default::default() });
+}
+
+fn note_read(s: &mut App) {
+    notes(s);
+    let o = s.open.as_mut().unwrap();
+    let mut n = o.notes[1].clone();
+    n.content = Some("## What the studies found\n\nSpindle density after learning predicted recall the next morning [Sleep spindles and memory consolidation](cite:0).\n\n- Strongest for **declarative** memory\n- Weaker for skills".into());
+    o.edit_note(&n);
 }

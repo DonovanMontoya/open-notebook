@@ -1086,115 +1086,177 @@ fn model_menu(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
 
 fn notes(o: &Open, l: &Look) -> El {
     let k = &l.k;
-    let mut list = col().key("notes-list").w_full().max_w(720.0).gap(12.0).px(24.0).py(20.0);
     if let Some(d) = &o.note {
-        list = list.child(note_editor(d, l));
+        let editor = col().key("notes-editor").w_full().max_w(720.0).px(24.0).py(20.0).child(note_editor(o, d, l));
+        return col().key("notes").w_full().items_center().child(editor).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0);
     }
-    if o.notes.is_empty() && o.note.is_none() {
-        list = list.child(text("Notes you write, and answers you save from chat, collect here.").font(theme::READ_HEADING).color(l.text3).wrap().pt(60.0));
+    let mut list = col().key("notes-list").w_full().max_w(720.0).gap(12.0).px(24.0).py(20.0);
+    // Study decks are kept as notes; the Study tab shows them.
+    let shown: Vec<&Note> = o.notes.iter().filter(|n| !n.content.as_deref().unwrap_or_default().starts_with(notebook_engine::studio::STUDY_PREFIX)).collect();
+    if shown.is_empty() {
+        list = list.child(
+            col().w_full().pt(60.0).gap(8.0).items_center().child(text("No notes yet").font(theme::READ_HEADING).color(l.text2)).child(
+                text("Write down what you're finding, or save a useful answer from chat. Notes are included when you ask questions.")
+                    .font(k.ty.ui)
+                    .color(l.text3)
+                    .align(rune::Align::Center)
+                    .wrap(),
+            ),
+        );
     }
-    for n in &o.notes {
-        if o.note.as_ref().is_some_and(|d| d.id.as_deref() == Some(n.id.as_str())) {
-            continue;
+    for n in shown {
+        let title = n.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled note".into());
+        let excerpt = plain(n.content.as_deref().unwrap_or_default());
+        let from = if n.note_type.as_deref() == Some("ai") { "Saved from Ask, " } else { "" };
+        let meta = format!("{from}edited {}", crate::format::relative_time(if n.updated.is_empty() { &n.created } else { &n.updated }));
+        let on = o.note_included(&n.id);
+        let (nid, card_note) = (n.id.clone(), n.clone());
+        let mut lines = col().grow(1.0).min_w(0.0).gap(4.0).child(text(title).font(theme::READ_HEADING).color(if on { l.text } else { l.text3 }).max_lines(1));
+        if !excerpt.is_empty() {
+            lines = lines.child(text(excerpt).font(theme::READ_BODY).color(l.text2).wrap().max_lines(3));
         }
-        let (id, eid) = (n.id.clone(), n.id.clone());
-        let (title, content) = (n.title.clone().unwrap_or_default(), n.content.clone().unwrap_or_default());
-        let (et, ec) = (title.clone(), content.clone());
-        let study = content.starts_with(notebook_engine::studio::STUDY_PREFIX);
-        let preview = if study { "Study deck".to_owned() } else { content.chars().take(600).collect() };
-        let mut card = col()
-            .key(format!("note-{}", n.id))
-            .w_full()
-            .gap(6.0)
-            .padding(14.0)
-            .radius(12.0)
-            .border(1.0, l.line)
-            .fill(l.panel)
-            .child(
-                row()
-                    .w_full()
-                    .gap(6.0)
-                    .center_y()
-                    .child(text(if title.is_empty() { "Untitled note".into() } else { title }).font(theme::READ_HEADING).color(l.text).grow(1.0).max_lines(1))
-                    .child(text(if n.note_type.as_deref() == Some("ai") { "From chat" } else { "" }).font(k.ty.small).color(l.text3))
-                    .child(
-                        IconButton::new(&icons::TRASH)
-                            .variant(IconButtonVariant::GhostMuted)
-                            .control_size(ControlSize::Small)
-                            .label("Delete note")
-                            .on_press(move |s: &mut App| {
-                                let id = id.clone();
-                                s.ask("Delete this note?", move |s| s.delete_note(id.clone()));
-                            })
-                            .build(k)
-                            .key("delete"),
-                    ),
-            )
-            .child(text(preview).font(theme::READ_BODY).color(l.text2).wrap().max_lines(8));
-        if !study {
-            card = k.interactive(card).on_press(move |s: &mut App| {
-                if let Some(o) = s.open.as_mut() {
-                    let mut content = TextEdit::new(ec.clone());
-                    content.focused = true;
-                    o.note = Some(NoteDraft { id: Some(eid.clone()), title: TextEdit::new(et.clone()), content });
-                }
-            });
-        }
-        list = list.child(card);
+        lines = lines.child(text(meta).font(k.ty.small).color(l.text3));
+        let pill = Button::new(if on { "In chat" } else { "Left out" })
+            .variant(ButtonVariant::Ghost)
+            .control_size(ControlSize::Small)
+            .help(if on { "Chat reads this note. Click to leave it out." } else { "Chat ignores this note. Click to include it." })
+            .on_press(move |s: &mut App| s.set_note_included(nid.clone(), !on))
+            .build(k)
+            .key("note-context");
+        let card = row().key(format!("note-{}", n.id)).w_full().gap(10.0).padding(14.0).radius(12.0).border(1.0, l.line).fill(l.panel).child(lines).child(pill);
+        list = list.child(k.interactive(card).on_press(move |s: &mut App| {
+            if let Some(o) = s.open.as_mut() {
+                o.edit_note(&card_note);
+            }
+        }));
     }
     col().key("notes").w_full().items_center().child(list).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0)
 }
 
-fn note_editor(d: &NoteDraft, l: &Look) -> El {
+/// A one-paragraph excerpt of a note's Markdown, without its marks or citation links.
+fn plain(markdown: &str) -> String {
+    let text = strip_cites(markdown);
+    let text: String = text.chars().filter(|c| !matches!(c, '#' | '>' | '*' | '_' | '`' | '~' | '[' | ']')).collect();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    text.chars().take(240).collect()
+}
+
+/// `[Title](cite:3)` becomes `[Title]`, so a note's preview shows citations as plain text.
+fn strip_cites(markdown: &str) -> String {
+    let mut out = String::with_capacity(markdown.len());
+    let mut rest = markdown;
+    while let Some(at) = rest.find("](cite:") {
+        let tail = &rest[at + 7..];
+        let digits = tail.chars().take_while(|c| c.is_ascii_digit()).count();
+        if digits > 0 && tail[digits..].starts_with(')') {
+            out.push_str(&rest[..at + 1]);
+            rest = &tail[digits + 1..];
+        } else {
+            out.push_str(&rest[..at + 7]);
+            rest = tail;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn note_editor(o: &Open, d: &NoteDraft, l: &Look) -> El {
     let k = &l.k;
     fn draft(s: &mut App) -> &mut NoteDraft {
         s.open.as_mut().and_then(|o| o.note.as_mut()).expect("editing a note")
     }
+    fn set_read(s: &mut App, read: bool) {
+        if let Some(o) = s.open.as_mut() {
+            o.note_read = read;
+            if let Some(d) = o.note.as_mut() {
+                d.content.focused = !read;
+            }
+        }
+    }
+    let mode = SegmentedControl::new(&["Write", "Read"], Some(usize::from(o.note_read)))
+        .label("Note view")
+        .fit()
+        .on_pick(|s: &mut App, i, _: &mut Tx| set_read(s, i == 1))
+        .build(k)
+        .key("note-mode");
+    let bar = row()
+        .w_full()
+        .gap(8.0)
+        .center_y()
+        .child(
+            Button::new("All notes")
+                .icon(&icons::BACK)
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .on_press(|s: &mut App| s.leave_note())
+                .build(k)
+                .key("note-back"),
+        )
+        .child(el().grow(1.0))
+        .child(mode);
+    let body = if o.note_read {
+        let content = d.content.text.trim();
+        let inner = if content.is_empty() {
+            text("Empty note").font(k.ty.ui).color(l.text3)
+        } else {
+            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).text(l.text);
+            Markdown::new(strip_cites(content)).style(style).selectable(true).build(k)
+        };
+        col().key("note-preview").w_full().min_h(120.0).child(inner).help("Double-click to edit").on_double_press(|s: &mut App| set_read(s, false))
+    } else {
+        TextArea::new(&d.content)
+            .width(None)
+            .label("Note")
+            .placeholder("Write in Markdown")
+            .auto_grow(8, 32)
+            .on_edit(move |s: &mut App| &mut draft(s).content)
+            .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
+                if ev.is_command('s') {
+                    s.save_note();
+                    return true;
+                }
+                false
+            })
+            .build(k)
+            .key("note-content")
+    };
+    let can_save = o.note_dirty() && !d.content.text.trim().is_empty();
+    let mut foot = row().w_full().gap(8.0).center_y();
+    if let Some(id) = d.id.clone() {
+        foot = foot.child(
+            Button::new("Delete")
+                .icon(&icons::TRASH)
+                .variant(ButtonVariant::Ghost)
+                .control_size(ControlSize::Small)
+                .on_press(move |s: &mut App| {
+                    let id = id.clone();
+                    s.ask("Delete this note?", move |s| s.delete_note(id.clone()));
+                })
+                .build(k)
+                .key("note-delete"),
+        );
+    }
+    foot = foot
+        .child(el().grow(1.0))
+        .child(Button::new("Save note").variant(ButtonVariant::Contrast).disabled(!can_save).on_press(|s: &mut App| s.save_note()).build(k).key("note-save"));
     col()
         .key("note-editor")
         .w_full()
-        .gap(8.0)
-        .padding(14.0)
-        .radius(12.0)
-        .border(1.0, l.line_strong)
-        .fill(l.panel)
+        .gap(12.0)
+        .child(bar)
         .child(
             TextInput::new(&d.title)
                 .width(None)
-                .placeholder("Title")
+                .label("Title")
+                .placeholder("Untitled note")
                 .plain()
-                .text_style(theme::READ_HEADING)
+                .text_style(theme::READ_TITLE)
                 .on_edit(move |s: &mut App| &mut draft(s).title)
                 .build(k)
                 .key("note-title"),
         )
-        .child(
-            TextArea::new(&d.content)
-                .width(None)
-                .placeholder("Write a note")
-                .auto_grow(4, 24)
-                .on_edit(move |s: &mut App| &mut draft(s).content)
-                .build(k)
-                .key("note-content"),
-        )
-        .child(
-            row()
-                .w_full()
-                .gap(8.0)
-                .justify_end()
-                .child(
-                    Button::new("Cancel")
-                        .variant(ButtonVariant::Ghost)
-                        .on_press(|s: &mut App| {
-                            if let Some(o) = s.open.as_mut() {
-                                o.note = None;
-                            }
-                        })
-                        .build(k)
-                        .key("note-cancel"),
-                )
-                .child(Button::new("Save").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.save_note()).build(k).key("note-save")),
-        )
+        .child(body)
+        .child(foot)
 }
 
 #[cfg(test)]
@@ -1204,6 +1266,12 @@ mod tests {
         let md = "One [A](cite:0) two [B](cite:1) and [A](cite:0).";
         assert_eq!(super::mark_cite(md, 0), "One **[A](cite:0)** two [B](cite:1) and **[A](cite:0)**.");
         assert_eq!(super::mark_cite(md, 2), md);
+    }
+
+    #[test]
+    fn note_previews_drop_citation_links() {
+        assert_eq!(super::strip_cites("See [Review](cite:12) and [x](cite:y)."), "See [Review] and [x](cite:y).");
+        assert_eq!(super::plain("# Title\n\n**Bold** [A](cite:0)   text"), "Title Bold A text");
     }
 
     #[test]

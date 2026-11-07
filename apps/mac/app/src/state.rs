@@ -1406,20 +1406,21 @@ impl App {
 
     // Notes
 
+    /// Saves the note being edited, once it has text and has changed.
     pub fn save_note(&mut self) {
         let Some(o) = self.open.as_mut() else { return };
-        let Some(draft) = o.note.take() else { return };
-        let (title, content) = (draft.title.text.trim().to_owned(), draft.content.text.clone());
-        if content.trim().is_empty() && title.is_empty() {
+        if !o.note_dirty() || o.note.as_ref().is_none_or(|d| d.content.text.trim().is_empty()) {
             return;
         }
+        let Some(draft) = o.note.take() else { return };
+        let (title, content, ai) = (draft.title.text.trim().to_owned(), draft.content.text.clone(), o.note_ai);
         let nb = o.id.clone();
         self.run(
             move |b| {
                 let title = (!title.is_empty()).then_some(title.as_str());
                 match &draft.id {
                     Some(id) => b.update_note(id, title, Some(&content)),
-                    None => b.create_note(&nb, title, &content, false),
+                    None => b.create_note(&nb, title, &content, ai),
                 }
             },
             |app, r| match r {
@@ -1427,6 +1428,21 @@ impl App {
                 Err(e) => app.fail(e),
             },
         );
+    }
+
+    /// Leaves the note editor, asking first when there are unsaved changes.
+    pub fn leave_note(&mut self) {
+        let Some(o) = self.open.as_mut() else { return };
+        let unsaved = o.note_dirty() && o.note.as_ref().is_some_and(|d| !d.content.text.trim().is_empty());
+        if unsaved {
+            self.ask_to("Discard", "Discard your changes to this note?", |s| {
+                if let Some(o) = s.open.as_mut() {
+                    o.note = None;
+                }
+            });
+        } else {
+            o.note = None;
+        }
     }
 
     pub fn delete_note(&mut self, note_id: String) {
@@ -1437,6 +1453,9 @@ impl App {
                 Ok(()) => {
                     if let Some(o) = app.open.as_mut() {
                         o.notes.retain(|n| n.id != gone);
+                        if o.note.as_ref().is_some_and(|d| d.id.as_deref() == Some(gone.as_str())) {
+                            o.note = None;
+                        }
                     }
                 }
                 Err(e) => app.fail(e),
@@ -1767,6 +1786,26 @@ mod tests {
         assert!(!o.chat_ready());
         o.sources.push(SourceSummary { status: Some("completed".into()), ..Default::default() });
         assert!(o.chat_ready());
+    }
+
+    #[test]
+    fn a_changed_note_asks_before_it_is_dropped() {
+        let mut app = App::offline();
+        app.open_offline("nb");
+        let note = Note { id: "n1".into(), title: Some("T".into()), content: Some("Body".into()), ..Default::default() };
+        app.open.as_mut().unwrap().edit_note(&note);
+        app.leave_note();
+        assert!(app.open.as_ref().unwrap().note.is_none(), "an unchanged note just closes");
+
+        app.open.as_mut().unwrap().edit_note(&note);
+        app.open.as_mut().unwrap().note.as_mut().unwrap().content = TextEdit::new("Body, edited");
+        assert!(app.open.as_ref().unwrap().note_dirty());
+        app.leave_note();
+        assert!(app.open.as_ref().unwrap().note.is_some());
+        let c = app.confirm.take().expect("asks first");
+        assert_eq!(c.verb, "Discard");
+        (c.yes)(&mut app);
+        assert!(app.open.as_ref().unwrap().note.is_none());
     }
 
     #[test]

@@ -89,3 +89,8 @@ icon!(
     "on-pencil",
     r#"<path d="M10.5 3L13 5.5L6 12.5L3 13L3.5 10L10.5 3Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>"#
 );
+icon!(
+    BACK,
+    "on-back",
+    r#"<path d="M9.5 3.5L5 8L9.5 12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);
