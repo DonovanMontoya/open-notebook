@@ -6,6 +6,7 @@
 mod format;
 mod listen;
 mod live;
+mod nowplaying;
 mod pages;
 mod scenes;
 mod server;
@@ -34,10 +35,20 @@ fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     } else {
         s.next_refresh = None;
     }
-    // A playing episode: redraw the clock and transcript a few times a second.
-    if s.playing.as_ref().is_some_and(|p| p.player.state() == rune::PlayerState::Playing) {
+    // A loaded episode: remember the position, run the sleep timer and tell the system.
+    changed |= s.tick_player(now);
+    if let Some(line) = s.follow_line() {
+        tx.scroll_center_in("np-transcript", line);
+        changed = true;
+    }
+    // A playing episode: redraw the clock and transcript a few times a second; a sleep timer
+    // counts down while paused too.
+    let playing = s.playing.as_ref().is_some_and(|p| p.is_playing());
+    if playing {
         tx.wake_after(std::time::Duration::from_millis(250));
         changed = true;
+    } else if s.playing.as_ref().is_some_and(|p| p.sleep != listen::Sleep::Off) {
+        tx.wake_after(std::time::Duration::from_secs(15));
     }
     changed
 }
@@ -51,11 +62,7 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.new_chat();
         return true;
     }
-    if ev.key == rune::Key::Text(" ".into())
-        && tx.focused().is_none()
-        && let Some(e) = s.playing.as_ref().map(|p| p.episode.clone())
-    {
-        s.play(e);
+    if s.playing.is_some() && tx.focused().is_none() && player_key(s, ev) {
         return true;
     }
     if ev.is_command(',') {
@@ -63,6 +70,32 @@ fn on_key(s: &mut App, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     false
+}
+
+/// The player's keys, unless a field has focus or a modifier is held: Space, ← back 15 s,
+/// → forward 30 s, `>`/`.` faster, `<`/`,` slower and Esc to shrink the full player.
+fn player_key(s: &mut App, ev: &KeyEvent) -> bool {
+    let m = ev.mods;
+    if m.cmd || m.ctrl || m.alt || m.logo {
+        return false;
+    }
+    match &ev.key {
+        rune::Key::Text(t) => match t.as_str() {
+            " " => s.toggle_play(),
+            ">" | "." => s.step_rate(true),
+            "<" | "," => s.step_rate(false),
+            _ => return false,
+        },
+        rune::Key::Left => s.skip(-listen::SKIP_BACK),
+        rune::Key::Right => s.skip(listen::SKIP_FORWARD),
+        rune::Key::Escape if s.confirm.is_none() && s.playing.as_ref().is_some_and(|p| p.expanded) => {
+            if let Some(p) = s.playing.as_mut() {
+                p.expanded = false;
+            }
+        }
+        _ => return false,
+    }
+    true
 }
 
 fn init() -> App {
