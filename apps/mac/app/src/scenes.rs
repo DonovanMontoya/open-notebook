@@ -26,6 +26,9 @@ pub const SCENES: &[Scene] = &[
     ("server", server),
     ("listen", listen),
     ("profiles", profiles),
+    ("now-playing", now_playing),
+    ("profile-editor", profile_editor),
+    ("speaker-editor", speaker_editor),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -364,7 +367,7 @@ fn listen(s: &mut App) {
         check: Some(EpisodeCheck {
             status: "done".into(),
             model: "claude-sonnet-4-5".into(),
-            writer: None,
+            writer: Some("claude-opus-4-1".into()),
             error: None,
             claims: vec![
                 claim(
@@ -379,7 +382,7 @@ fn listen(s: &mut App) {
             unsupported: 1,
             sources_used: 2,
             sources_total: 3,
-            history: Vec::new(),
+            history: vec![CheckCounts { supported: 11, overstated: 4, unsupported: 2 }],
         }),
     };
     let mut making = done.clone();
@@ -390,11 +393,75 @@ fn listen(s: &mut App) {
     making.check = None;
     making.summary = None;
     o.episodes = vec![making, done.clone()];
-    o.episode_views.insert("e1".into(), crate::listen::EpisodeOpen { transcript: true, claims: true, prompt: None });
+    o.episode_views.insert("e1".into(), crate::listen::EpisodeOpen { transcript: true, claims: true, matched: false, prompt: None });
+    let episode = done.clone();
+    play_scene(s, episode, false);
+}
+
+/// A short silent WAV standing in for an episode's audio, so the player has a duration.
+fn scene_player(seconds: f64) -> rune::Player {
+    let rate = 1000;
+    let path = std::env::temp_dir().join("open-notebook-scene-episode.wav");
+    let pcm = vec![0i16; (seconds * rate as f64) as usize];
+    let _ = std::fs::write(&path, notebook_engine::podcast::audio::encode_wav(&pcm, rate));
+    rune::Player::audio(path)
+}
+
+fn play_scene(s: &mut App, episode: Episode, expanded: bool) {
+    let player = scene_player(episode.duration.unwrap_or(60.0));
+    player.seek(230.0);
+    let mut p = crate::listen::NowPlaying::new(episode, player, 1);
+    p.notebook = Some("Sleep and memory".into());
+    p.expanded = expanded;
+    p.sleep = crate::listen::Sleep::Minutes { minutes: 30, ends_at: None };
+    s.playing = Some(p);
 }
 
 fn profiles(s: &mut App) {
     s.notebooks = notebooks();
     s.route = Route::Profiles;
     s.profiles = Some(crate::listen::ProfilesPage { profiles: profiles_sample(), ..Default::default() });
+}
+
+fn now_playing(s: &mut App) {
+    listen(s);
+    let mut e = s.open.as_ref().unwrap().episodes[1].clone();
+    let line = |speaker: &str, t: &str, start| EpisodeLine { speaker: speaker.into(), text: t.into(), start: Some(start), end: None };
+    e.transcript = vec![
+        line("Maya", "So what is a sleep spindle?", 0.0),
+        line("Leo", "A burst of activity in stage 2 sleep, about a second long.", 4.0),
+        line("Maya", "And people have tried to link them to memory.", 9.0),
+        line("Leo", "Right. The recall studies are where it gets interesting.", 212.0),
+        line("Maya", "Spindle density after learning predicted how much of a word list people recalled the next morning.", 220.0),
+        line("Leo", "Predicted, which is not the same as caused.", 236.0),
+        line("Maya", "Fair. And the effect was strongest for facts and word pairs.", 241.0),
+    ];
+    play_scene(s, e, true);
+}
+
+fn profile_editor(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Profiles;
+    let profiles = profiles_sample();
+    let mut episode = crate::listen::EpisodeDraft::from(&profiles.episode[0]);
+    episode.language = Some("de".into());
+    s.profiles = Some(crate::listen::ProfilesPage { profiles, episode: Some(episode), open_select: Some("ep-language"), ..Default::default() });
+}
+
+fn speaker_editor(s: &mut App) {
+    s.notebooks = notebooks();
+    s.route = Route::Profiles;
+    let mut profiles = profiles_sample();
+    profiles.episode.clear();
+    let speaker = crate::listen::SpeakerDraft::from(&profiles.speaker[0]);
+    let voice = |id: &str| notebook_engine::podcast::voices::VoiceOption { id: id.into(), label: id[..1].to_uppercase() + &id[1..] };
+    s.profiles = Some(crate::listen::ProfilesPage {
+        profiles,
+        speaker: Some(speaker),
+        voices: Some(Ok(["alloy", "ash", "coral", "marin", "cedar"].map(voice).to_vec())),
+        voice_models: vec!["gpt-4o-mini-tts".into(), "tts-1".into(), "tts-1-hd".into()],
+        open_voice: Some(1),
+        preview_error: Some((0, "OpenAI said the key is missing".into())),
+        ..Default::default()
+    });
 }
