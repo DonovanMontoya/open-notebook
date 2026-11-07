@@ -26,6 +26,9 @@ pub const SCENES: &[Scene] = &[
     ("server", server),
     ("listen", listen),
     ("profiles", profiles),
+    ("live-idle", live_idle),
+    ("live-connected", live_connected),
+    ("live-failed", live_failed),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -397,4 +400,20 @@ fn profiles(s: &mut App) {
     s.notebooks = notebooks();
     s.route = Route::Profiles;
     s.profiles = Some(crate::listen::ProfilesPage { profiles: profiles_sample(), ..Default::default() });
+}
+
+fn live_idle(s: &mut App) {
+    listen(s);
+}
+
+fn live_connected(s: &mut App) {
+    listen(s);
+    s.live.status = notebook_engine::podcast::live_talk::LiveStatus::Connected;
+    s.live.muted = true;
+}
+
+fn live_failed(s: &mut App) {
+    listen(s);
+    s.live.status = notebook_engine::podcast::live_talk::LiveStatus::Failed;
+    s.live.error = Some(crate::live::MIC_DENIED.into());
 }

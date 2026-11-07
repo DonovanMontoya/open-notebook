@@ -5,6 +5,7 @@
 
 mod format;
 mod listen;
+mod live;
 mod pages;
 mod scenes;
 mod server;
@@ -21,6 +22,7 @@ use state::App;
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = s.drain();
     changed |= ui::poll_toast(s, tx, now);
+    changed |= live::poll(s, tx);
     // Sources being read: check again every two seconds until they finish.
     if s.open.as_ref().is_some_and(|o| o.processing()) {
         let due = s.next_refresh.is_none_or(|t| now >= t);
