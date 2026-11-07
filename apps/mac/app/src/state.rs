@@ -246,6 +246,7 @@ pub struct App {
     pub next_refresh: Option<f64>,
     inbox: Inbox,
     rx: Receiver<Apply>,
+    pub live: crate::live::LiveTalk,
 }
 
 impl App {
@@ -282,6 +283,7 @@ impl App {
             next_refresh: None,
             inbox: Inbox { tx, waker: None },
             rx,
+            live: Default::default(),
         }
     }
 

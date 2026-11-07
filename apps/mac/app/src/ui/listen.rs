@@ -36,6 +36,7 @@ pub fn view(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     if s.local_podcasts() {
         actions = actions.child(small("Profiles", "open-profiles", l, |s| s.open_profiles()));
     }
+    c = c.child(super::live::card(s, l, layer));
     c = c.child(actions);
     if let Some(f) = &o.new_episode {
         c = c.child(new_episode(s, f, l, layer));

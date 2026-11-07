@@ -3,6 +3,7 @@
 
 mod icons;
 mod listen;
+mod live;
 mod notebook;
 mod pages;
 mod server;

@@ -170,4 +170,8 @@ pub trait Backend: Send + Sync {
     fn delete_episode_profile(&self, id: &str) -> Result<()>;
     fn save_speaker_profile(&self, p: SpeakerProfile) -> Result<SpeakerProfile>;
     fn delete_speaker_profile(&self, id: &str) -> Result<()>;
+    /// The on-device engine, for features only it has (live talk).
+    fn local(&self) -> Option<&crate::local::LocalBackend> {
+        None
+    }
 }
