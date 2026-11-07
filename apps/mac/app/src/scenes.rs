@@ -26,6 +26,14 @@ pub const SCENES: &[Scene] = &[
     ("server", server),
     ("listen", listen),
     ("profiles", profiles),
+    ("settings-keys", settings_keys),
+    ("settings-picker", settings_picker),
+    ("settings-server", settings_server),
+    ("usage-price", usage_price),
+    ("transformations-try", transformations_try),
+    ("server-processing", server_processing),
+    ("flashcards", flashcards),
+    ("flashcards-done", flashcards_done),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -228,6 +236,7 @@ fn usage(s: &mut App) {
             ],
             estimated: true,
         }),
+        ..Default::default()
     });
 }
 
@@ -257,7 +266,7 @@ fn quiz(s: &mut App) {
             }],
         },
     }];
-    o.viewing = Some(crate::study::DeckView { index: 0, card: 0, flipped: false, picked: Some(0), right: 0 });
+    o.viewing = Some(crate::study::DeckView { picked: Some(0), ..crate::study::DeckView::new(0, 1) });
 }
 
 fn insights(s: &mut App) {
@@ -397,4 +406,157 @@ fn profiles(s: &mut App) {
     s.notebooks = notebooks();
     s.route = Route::Profiles;
     s.profiles = Some(crate::listen::ProfilesPage { profiles: profiles_sample(), ..Default::default() });
+}
+
+/// Settings on this Mac with keys saved and checked: one working, one rejected, one checking.
+fn settings_keys(s: &mut App) {
+    use crate::state::{Check, ModelList};
+    use notebook_engine::providers::{Capability, ModelInfo, ProviderKind};
+    settings(s);
+    let f = s.form.as_mut().unwrap();
+    for kind in ["anthropic", "openai", "gemini"] {
+        f.saved_keys.insert(notebook_engine::settings::provider_secret(kind));
+    }
+    f.chat_provider = ProviderKind::Anthropic;
+    f.chat_model = TextEdit::new("claude-sonnet-5-5");
+    f.embedding_provider = ProviderKind::OpenAi;
+    f.embedding_model = TextEdit::new("text-embedding-3-small");
+    f.transcription_provider = ProviderKind::OpenAi;
+    f.transcription_model = TextEdit::new("gpt-4o-transcribe");
+    let model = |id: &str| ModelInfo { id: id.into(), label: None, capabilities: vec![Capability::Chat] };
+    f.models.insert(ProviderKind::Anthropic, ModelList::Ready(vec![model("claude-sonnet-5-5"), model("claude-opus-5-5"), model("claude-haiku-5-5")]));
+    f.models.insert(ProviderKind::OpenAi, ModelList::Failed("API key rejected: Incorrect API key provided".into()));
+    f.checks.insert("anthropic".into(), Check::Working("Working, 9 models".into()));
+    f.checks.insert("openai".into(), Check::Failed("API key rejected: Incorrect API key provided".into()));
+    f.checks.insert("gemini".into(), Check::Checking);
+    f.keys[3].1 = TextEdit::new("sk-or-pasted");
+    f.sync = Some(Err(notebook_engine::settings::SyncError::Unsigned));
+    f.rebuild = Some(Check::Working("Re-indexing 4 sources".into()));
+}
+
+/// The chat model picker open on Anthropic's models.
+fn settings_picker(s: &mut App) {
+    settings_keys(s);
+    let f = s.form.as_mut().unwrap();
+    f.pickers.entry("chat").or_default().open = true;
+}
+
+/// Server mode after Save and connect.
+fn settings_server(s: &mut App) {
+    s.settings.mode = notebook_engine::settings::Mode::Remote;
+    settings(s);
+    let f = s.form.as_mut().unwrap();
+    f.saved_keys.insert(notebook_engine::settings::SERVER_PASSWORD.into());
+    f.checks.insert("server".into(), crate::state::Check::Working("Connected, 12 notebooks".into()));
+}
+
+/// Usage with an unpriced model and an audio row, and the price dialog open.
+fn usage_price(s: &mut App) {
+    usage(s);
+    let p = s.usage.as_mut().unwrap();
+    let r = p.report.as_mut().unwrap();
+    r.groups.push(UsageGroup {
+        model: "gpt-6.1-sol".into(),
+        feature: "podcast_research".into(),
+        calls: 3,
+        input_tokens: 90_000,
+        output_tokens: 4_000,
+        audio_seconds: 0.0,
+        estimated_usd: None,
+    });
+    r.groups.push(UsageGroup {
+        model: "gpt-4o-mini-tts".into(),
+        feature: "podcast_audio".into(),
+        calls: 12,
+        input_tokens: 0,
+        output_tokens: 0,
+        audio_seconds: 754.0,
+        estimated_usd: Some(0.004),
+    });
+    let mut d = crate::pages::PriceDraft::new("gpt-6.1-sol", false, &s.settings.prices);
+    d.input = TextEdit::new("1.5");
+    p.pricing = Some(d);
+}
+
+/// Editing a saved transformation, with a Try it result.
+fn transformations_try(s: &mut App) {
+    transformations(s);
+    let p = s.transformations.as_mut().unwrap();
+    let mut d = crate::pages::TransformationDraft::from(&p.list[1]);
+    d.prompt = TextEdit::new("List the ideas worth remembering, one line each.");
+    d.sample = TextEdit::new("Sleep spindles are bursts of activity during stage 2 sleep. Spindle density after learning predicted recall.");
+    d.output = Some(Ok("- Spindles are short bursts in **stage 2** sleep\n- More spindles after learning, better recall the next day".into()));
+    p.editing = Some(d);
+}
+
+/// The server page with its processing settings and a mix of jobs.
+fn server_processing(s: &mut App) {
+    server(s);
+    let p = s.server.as_mut().unwrap();
+    crate::server::apply_settings(
+        p,
+        serde_json::from_value(serde_json::json!({
+            "default_content_processing_engine_doc": "docling",
+            "default_content_processing_engine_url": "auto",
+            "default_embedding_option": "always",
+            "auto_delete_files": "yes",
+            "docling_ocr": true,
+            "docling_formulas": false,
+            "docling_vision": true,
+            "youtube_preferred_languages": ["en", "es"]
+        }))
+        .unwrap(),
+    );
+    p.jobs = serde_json::from_value(serde_json::json!([
+        {"job_id": "command:9", "command": "open_notebook:process_source", "status": "running", "created": T},
+        {"job_id": "command:8", "command": "embed_note", "status": "failed", "created": T, "error_message": "No embedding model"},
+        {"job_id": "command:7", "command": "generate_podcast", "status": "completed", "created": T}
+    ]))
+    .unwrap();
+}
+
+fn flashcard_deck(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    o.tab = NotebookTab::Study;
+    let item = |q: &str, a: &str| StudyItem {
+        question: q.into(),
+        answer: a.into(),
+        options: Vec::new(),
+        correct_index: None,
+        source_ids: vec!["s1".into(), "s2".into()],
+    };
+    o.decks = vec![StoredDeck {
+        note_id: "n8".into(),
+        created: Some(T.into()),
+        deck: StudyDeck {
+            version: 1,
+            kind: StudyKind::Flashcards,
+            title: "Spindles".into(),
+            items: vec![
+                item("What is a sleep spindle?", "A burst of activity in the thalamocortical network during stage 2 sleep."),
+                item("Which memories did spindles predict best?", "Declarative memories, such as facts and word pairs."),
+                item("Is the link as strong for skills?", "No. It was weaker and depended on the task."),
+            ],
+        },
+    }];
+}
+
+/// A flashcard flipped, after one card was missed and one known.
+fn flashcards(s: &mut App) {
+    flashcard_deck(s);
+    let mut v = crate::study::DeckView::new(0, 3);
+    v.answer(false);
+    v.answer(true);
+    v.flipped = true;
+    s.open.as_mut().unwrap().viewing = Some(v);
+}
+
+fn flashcards_done(s: &mut App) {
+    flashcard_deck(s);
+    let mut v = crate::study::DeckView::new(0, 3);
+    for _ in 0..3 {
+        v.answer(true);
+    }
+    s.open.as_mut().unwrap().viewing = Some(v);
 }
