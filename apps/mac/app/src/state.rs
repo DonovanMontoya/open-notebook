@@ -2,12 +2,13 @@
 //! sends back a closure that applies its result to the state, and the waker asks Rune for a
 //! frame, whose `poll` runs the closures.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
 use notebook_engine::local::LocalBackend;
-use notebook_engine::providers::ProviderKind;
+use notebook_engine::providers::{ModelInfo, ProviderKind};
 use notebook_engine::remote::RemoteBackend;
 use notebook_engine::settings::{self, AppSettings, Mode, Secrets};
 use notebook_engine::types::*;
@@ -170,7 +171,54 @@ impl Open {
     }
 }
 
-/// The settings screen's fields.
+/// A key or server check: running, worked (with what it found) or failed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Check {
+    Checking,
+    Working(String),
+    Failed(String),
+}
+
+/// A provider's model list for the pickers.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ModelList {
+    Loading,
+    Ready(Vec<ModelInfo>),
+    Failed(String),
+}
+
+/// The model jobs on device, in the order Settings shows them.
+pub const MODEL_ROLES: [&str; 4] = ["chat", "transformation", "embedding", "transcription"];
+
+/// Providers that can do a job: those with a saved key, and OpenAI-compatible, which local
+/// servers run without one. Anthropic has no embeddings or speech to text.
+pub fn providers_for(role: &str, saved: impl Fn(ProviderKind) -> bool) -> Vec<ProviderKind> {
+    ProviderKind::ALL
+        .into_iter()
+        .filter(|&k| saved(k) || k == ProviderKind::OpenAiCompatible)
+        .filter(|&k| !(k == ProviderKind::Anthropic && matches!(role, "embedding" | "transcription")))
+        .collect()
+}
+
+/// A provider's models that fit a job.
+pub fn models_for<'a>(role: &str, kind: ProviderKind, models: &'a [ModelInfo]) -> Vec<&'a ModelInfo> {
+    use notebook_engine::providers::Capability;
+    models
+        .iter()
+        .filter(|m| match role {
+            "transcription" if kind == ProviderKind::Gemini => m.capabilities.contains(&Capability::Chat),
+            "transcription" => {
+                let id = m.id.to_lowercase();
+                id.contains("transcri") || id.contains("whisper")
+            }
+            "embedding" => m.capabilities.is_empty() || m.capabilities.contains(&Capability::Embedding),
+            _ => m.capabilities.is_empty() || m.capabilities.contains(&Capability::Chat),
+        })
+        .collect()
+}
+
+/// The settings screen's fields. Key fields start empty: a saved key is never shown, and
+/// pasting a new one replaces it.
 pub struct SettingsForm {
     pub server_url: TextEdit,
     pub server_password: TextEdit,
@@ -186,17 +234,31 @@ pub struct SettingsForm {
     pub elevenlabs: TextEdit,
     pub saved: bool,
     pub open_select: Option<&'static str>,
+    /// Transformations, insights and study decks; empty uses the chat model.
+    pub transformation_model: TextEdit,
+    pub transformation_provider: ProviderKind,
+    /// Secret names that have a saved value.
+    pub saved_keys: BTreeSet<String>,
+    /// Key and server checks, by provider id, "elevenlabs" or "server".
+    pub checks: BTreeMap<String, Check>,
+    pub models: BTreeMap<ProviderKind, ModelList>,
+    /// The model pickers' search and open state, by role.
+    pub pickers: BTreeMap<&'static str, rune_kit::ComboboxState>,
+    pub syncing: bool,
+    /// What the last iCloud Keychain switch did.
+    pub sync: Option<Result<usize, settings::SyncError>>,
+    pub rebuild: Option<Check>,
 }
 
 impl SettingsForm {
     pub fn from(settings: &AppSettings, secrets: &Secrets) -> SettingsForm {
-        let secret = |name: &str| secrets.get(name).ok().flatten().unwrap_or_default();
         let model = |m: &Option<settings::ModelSetting>| m.as_ref().map(|m| m.model.clone()).unwrap_or_default();
         let provider = |m: &Option<settings::ModelSetting>, d| m.as_ref().and_then(|m| ProviderKind::parse(&m.provider)).unwrap_or(d);
-        SettingsForm {
+        let saved_keys = settings::all_secret_names().into_iter().filter(|n| secrets.get(n).ok().flatten().is_some()).collect();
+        let mut f = SettingsForm {
             server_url: TextEdit::new(settings.server_url.clone()),
-            server_password: TextEdit::new(secret(settings::SERVER_PASSWORD)),
-            keys: ProviderKind::ALL.iter().map(|&p| (p, TextEdit::new(secret(&settings::provider_secret(p.as_str()))))).collect(),
+            server_password: TextEdit::new(""),
+            keys: ProviderKind::ALL.iter().map(|&p| (p, TextEdit::new(""))).collect(),
             compatible_base_url: TextEdit::new(settings.compatible_base_url.clone()),
             chat_model: TextEdit::new(model(&settings.chat)),
             chat_provider: provider(&settings.chat, ProviderKind::Anthropic),
@@ -204,9 +266,75 @@ impl SettingsForm {
             embedding_provider: provider(&settings.embedding, ProviderKind::OpenAi),
             transcription_model: TextEdit::new(model(&settings.transcription)),
             transcription_provider: provider(&settings.transcription, ProviderKind::OpenAi),
-            elevenlabs: TextEdit::new(secret(&settings::provider_secret("elevenlabs"))),
+            elevenlabs: TextEdit::new(""),
             saved: false,
             open_select: None,
+            transformation_model: TextEdit::new(model(&settings.transformation)),
+            transformation_provider: provider(&settings.transformation, ProviderKind::Anthropic),
+            saved_keys,
+            checks: BTreeMap::new(),
+            models: BTreeMap::new(),
+            pickers: BTreeMap::new(),
+            syncing: false,
+            sync: None,
+            rebuild: None,
+        };
+        f.fix_providers();
+        f
+    }
+
+    pub fn has_key(&self, name: &str) -> bool {
+        self.saved_keys.contains(name)
+    }
+
+    pub fn has_provider_key(&self, kind: ProviderKind) -> bool {
+        self.has_key(&settings::provider_secret(kind.as_str()))
+    }
+
+    /// A job's provider and model field.
+    pub fn slot(&mut self, role: &str) -> (&mut ProviderKind, &mut TextEdit) {
+        match role {
+            "chat" => (&mut self.chat_provider, &mut self.chat_model),
+            "transformation" => (&mut self.transformation_provider, &mut self.transformation_model),
+            "embedding" => (&mut self.embedding_provider, &mut self.embedding_model),
+            _ => (&mut self.transcription_provider, &mut self.transcription_model),
+        }
+    }
+
+    pub fn provider_of(&self, role: &str) -> ProviderKind {
+        match role {
+            "chat" => self.chat_provider,
+            "transformation" => self.transformation_provider,
+            "embedding" => self.embedding_provider,
+            _ => self.transcription_provider,
+        }
+    }
+
+    /// Providers the job can use now.
+    pub fn providers(&self, role: &str) -> Vec<ProviderKind> {
+        providers_for(role, |k| self.has_provider_key(k))
+    }
+
+    /// A job with no model yet whose provider has no key moves to the first one that has.
+    pub fn fix_providers(&mut self) {
+        for role in MODEL_ROLES {
+            let choices = self.providers(role);
+            let (provider, model) = self.slot(role);
+            if model.text.trim().is_empty()
+                && !choices.contains(provider)
+                && let Some(first) = choices.first()
+            {
+                *provider = *first;
+            }
+        }
+    }
+
+    /// Picks a provider for a job, filling in its usual model when the provider changes.
+    pub fn choose_provider(&mut self, role: &str, kind: ProviderKind) {
+        let (provider, model) = self.slot(role);
+        if *provider != kind {
+            *provider = kind;
+            *model = TextEdit::new(settings::default_model(role, kind));
         }
     }
 }
@@ -801,9 +929,13 @@ impl App {
     pub fn open_settings(&mut self) {
         self.form = Some(SettingsForm::from(&self.settings, &self.secrets));
         self.route = Route::Settings;
+        self.load_slot_models();
     }
 
+    /// Saves the mode, server address, base URL and models, and any key or password pasted
+    /// into a field (empty fields keep what is saved), then reconnects.
     pub fn save_settings(&mut self) {
+        let sync = self.settings.sync_keys;
         let Some(form) = self.form.as_mut() else { return };
         let mut s = self.settings.clone();
         s.server_url = form.server_url.text.trim().to_owned();
@@ -815,18 +947,24 @@ impl App {
         s.chat = model(form.chat_provider, &form.chat_model);
         s.embedding = model(form.embedding_provider, &form.embedding_model);
         s.transcription = model(form.transcription_provider, &form.transcription_model);
+        s.transformation = model(form.transformation_provider, &form.transformation_model);
         let mut errors = Vec::new();
-        for (id, edit) in &form.keys {
-            if let Err(e) = self.secrets.set(&settings::provider_secret(id.as_str()), &edit.text) {
-                errors.push(e.to_string());
+        let mut pasted: Vec<(String, &mut TextEdit)> = form.keys.iter_mut().map(|(id, edit)| (settings::provider_secret(id.as_str()), edit)).collect();
+        pasted.push((settings::provider_secret("elevenlabs"), &mut form.elevenlabs));
+        pasted.push((settings::SERVER_PASSWORD.into(), &mut form.server_password));
+        for (name, edit) in pasted {
+            if edit.text.trim().is_empty() {
+                continue;
+            }
+            match self.secrets.put(&name, &edit.text, sync) {
+                Ok(()) => {
+                    *edit = TextEdit::new("");
+                    form.saved_keys.insert(name);
+                }
+                Err(e) => errors.push(e.to_string()),
             }
         }
-        if let Err(e) = self.secrets.set(&settings::provider_secret("elevenlabs"), &form.elevenlabs.text) {
-            errors.push(e.to_string());
-        }
-        if let Err(e) = self.secrets.set(settings::SERVER_PASSWORD, &form.server_password.text) {
-            errors.push(e.to_string());
-        }
+        form.fix_providers();
         if let Err(e) = s.save(&self.data_dir) {
             errors.push(e.to_string());
         }
@@ -856,5 +994,208 @@ fn with_open<T: Send + 'static>(id: &str, f: impl FnOnce(&mut Open, T) + Send + 
             }
         }
         Err(e) => app.fail(e),
+    }
+}
+
+// Settings: key checks, model lists, key sync, the server test and the index rebuild.
+impl App {
+    fn provider_config(&self, kind: ProviderKind) -> notebook_engine::providers::ProviderConfig {
+        let base_url = self.form.as_ref().map_or_else(|| self.settings.compatible_base_url.clone(), |f| f.compatible_base_url.text.trim().to_owned());
+        notebook_engine::providers::ProviderConfig {
+            kind,
+            api_key: self.secrets.get(&settings::provider_secret(kind.as_str())).ok().flatten(),
+            base_url: (kind == ProviderKind::OpenAiCompatible).then_some(base_url),
+        }
+    }
+
+    /// Lists a provider's models off the UI thread, for the pickers and its key check.
+    pub fn load_models(&mut self, kind: ProviderKind, check: bool) {
+        let Some(f) = self.form.as_mut() else { return };
+        f.models.insert(kind, ModelList::Loading);
+        if check {
+            f.checks.insert(kind.as_str().into(), Check::Checking);
+        }
+        let config = self.provider_config(kind);
+        self.run(
+            move |_| notebook_engine::providers::create_provider(&config, notebook_engine::net::UreqHttp::shared()).list_models(),
+            move |app, r| {
+                let Some(f) = app.form.as_mut() else { return };
+                let (list, status) = match r {
+                    Ok(models) => (ModelList::Ready(models.clone()), Check::Working(format!("Working, {} models", models.len()))),
+                    Err(e) => (ModelList::Failed(e.to_string()), Check::Failed(e.to_string())),
+                };
+                f.models.insert(kind, list);
+                if check || f.checks.contains_key(kind.as_str()) {
+                    f.checks.insert(kind.as_str().into(), status);
+                }
+            },
+        );
+    }
+
+    /// Loads the model lists of the providers the jobs use.
+    pub fn load_slot_models(&mut self) {
+        let Some(f) = self.form.as_ref() else { return };
+        let kinds: BTreeSet<ProviderKind> =
+            MODEL_ROLES.iter().map(|r| f.provider_of(r)).filter(|&k| f.has_provider_key(k) || k == ProviderKind::OpenAiCompatible).collect();
+        for kind in kinds {
+            self.load_models(kind, false);
+        }
+    }
+
+    /// Saves a pasted key (and, for OpenAI-compatible, the base URL), then checks it by
+    /// listing the provider's models.
+    pub fn save_and_check_key(&mut self, kind: ProviderKind) {
+        let sync = self.settings.sync_keys;
+        let Some(f) = self.form.as_mut() else { return };
+        let name = settings::provider_secret(kind.as_str());
+        let Some(edit) = f.keys.iter_mut().find(|(k, _)| *k == kind).map(|(_, e)| e) else { return };
+        if !edit.text.trim().is_empty() {
+            if let Err(e) = self.secrets.put(&name, &edit.text, sync) {
+                f.checks.insert(kind.as_str().into(), Check::Failed(e.to_string()));
+                return;
+            }
+            *edit = TextEdit::new("");
+            f.saved_keys.insert(name);
+            f.fix_providers();
+        }
+        let url = f.compatible_base_url.text.trim().to_owned();
+        if kind == ProviderKind::OpenAiCompatible && url != self.settings.compatible_base_url {
+            self.settings.compatible_base_url = url;
+            if let Err(e) = self.settings.save(&self.data_dir) {
+                self.fail(e);
+            }
+        }
+        self.load_models(kind, true);
+    }
+
+    /// Deletes a saved key from this Mac and iCloud Keychain.
+    pub fn remove_key(&mut self, name: String) {
+        if let Err(e) = self.secrets.delete(&name) {
+            self.fail(e);
+            return;
+        }
+        if let Some(f) = self.form.as_mut() {
+            f.saved_keys.remove(&name);
+            f.checks.remove(name.strip_prefix("provider:").unwrap_or(&name));
+            f.fix_providers();
+        }
+    }
+
+    /// Saves a pasted ElevenLabs key, then checks it by listing its voices.
+    pub fn save_and_check_elevenlabs(&mut self) {
+        use notebook_engine::podcast::voices::{VoiceConfig, VoiceKind, create_voice_provider};
+        let sync = self.settings.sync_keys;
+        let Some(f) = self.form.as_mut() else { return };
+        let name = settings::provider_secret("elevenlabs");
+        if !f.elevenlabs.text.trim().is_empty() {
+            if let Err(e) = self.secrets.put(&name, &f.elevenlabs.text, sync) {
+                f.checks.insert("elevenlabs".into(), Check::Failed(e.to_string()));
+                return;
+            }
+            f.elevenlabs = TextEdit::new("");
+            f.saved_keys.insert(name.clone());
+        }
+        f.checks.insert("elevenlabs".into(), Check::Checking);
+        let config = VoiceConfig {
+            kind: VoiceKind::ElevenLabs,
+            model: VoiceKind::ElevenLabs.default_model().into(),
+            api_key: self.secrets.get(&name).ok().flatten(),
+            voices: Vec::new(),
+            hosts: Vec::new(),
+        };
+        self.run(
+            move |_| create_voice_provider(&config, notebook_engine::net::UreqHttp::shared(), None).list_voices(),
+            |app, r| {
+                if let Some(f) = app.form.as_mut() {
+                    let status = match r {
+                        Ok(v) => Check::Working(format!("Working, {} voices", v.len())),
+                        Err(e) => Check::Failed(e.to_string()),
+                    };
+                    f.checks.insert("elevenlabs".into(), status);
+                }
+            },
+        );
+    }
+
+    /// Turns iCloud Keychain sync on or off, moving every key to the matching store. The
+    /// setting changes only when the move works.
+    pub fn set_key_sync(&mut self, enabled: bool) {
+        let Some(f) = self.form.as_mut() else { return };
+        if f.syncing {
+            return;
+        }
+        f.syncing = true;
+        f.sync = None;
+        let secrets = self.secrets.clone();
+        let inbox = self.inbox();
+        std::thread::spawn(move || {
+            let result = secrets.set_sync(enabled, !enabled || settings::Keychain::available());
+            inbox.send(move |app| {
+                if result.is_ok() {
+                    app.settings.sync_keys = enabled;
+                    if let Err(e) = app.settings.save(&app.data_dir) {
+                        app.fail(e);
+                    }
+                }
+                if let Some(f) = app.form.as_mut() {
+                    f.syncing = false;
+                    f.sync = Some(result);
+                }
+            });
+        });
+    }
+
+    /// Server mode: saves the address and any pasted password, reconnects, then checks the
+    /// server by signing in and listing its notebooks.
+    pub fn save_and_test_server(&mut self) {
+        self.save_settings();
+        let Some(remote) = self.remote() else { return };
+        if let Some(f) = self.form.as_mut() {
+            f.checks.insert("server".into(), Check::Checking);
+        }
+        self.run(
+            move |_| {
+                remote.client().auth_status()?;
+                Ok(remote.client().list_notebooks(None)?.len())
+            },
+            |app, r| {
+                if let Some(f) = app.form.as_mut() {
+                    let status = match r {
+                        Ok(1) => Check::Working("Connected, 1 notebook".into()),
+                        Ok(n) => Check::Working(format!("Connected, {n} notebooks")),
+                        Err(e) => Check::Failed(e.to_string()),
+                    };
+                    f.checks.insert("server".into(), status);
+                }
+            },
+        );
+    }
+
+    pub fn forget_server_password(&mut self) {
+        if let Err(e) = self.secrets.delete(settings::SERVER_PASSWORD) {
+            self.fail(e);
+            return;
+        }
+        if let Some(f) = self.form.as_mut() {
+            f.saved_keys.remove(settings::SERVER_PASSWORD);
+        }
+    }
+
+    /// On device: reads and indexes every source again with the current embedding model.
+    pub fn rebuild_local_index(&mut self) {
+        let Some(f) = self.form.as_mut() else { return };
+        f.rebuild = Some(Check::Checking);
+        self.run(
+            |b| b.rebuild_index(),
+            |app, r| {
+                if let Some(f) = app.form.as_mut() {
+                    f.rebuild = Some(match r {
+                        Ok(1) => Check::Working("Re-indexing 1 source".into()),
+                        Ok(n) => Check::Working(format!("Re-indexing {n} sources")),
+                        Err(e) => Check::Failed(e.to_string()),
+                    });
+                }
+            },
+        );
     }
 }
