@@ -3,6 +3,7 @@
 //! `cargo run -p open-notebook-mac` opens the window. Headless:
 //! `cargo run -p open-notebook-mac -- --snap notebook.png --scene notebook --size 1280x800`.
 
+mod format;
 mod listen;
 mod pages;
 mod scenes;

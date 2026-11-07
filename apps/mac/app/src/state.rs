@@ -19,6 +19,14 @@ pub type Apply = Box<dyn FnOnce(&mut App) + Send>;
 /// What a confirmed Yes does.
 pub type OnYes = Box<dyn Fn(&mut App)>;
 
+/// A question waiting for an answer in the confirm dialog.
+pub struct Confirm {
+    pub question: String,
+    /// The Yes button's word.
+    pub verb: &'static str,
+    pub yes: OnYes,
+}
+
 /// Sends results back to the UI thread from anywhere.
 #[derive(Clone)]
 pub struct Inbox {
@@ -229,8 +237,11 @@ pub struct App {
     pub toast: Option<String>,
     /// When the toast appeared (app clock), so `poll` can clear it.
     pub toast_since: Option<f64>,
-    /// A question waiting for Yes: what it asks and what Yes does.
-    pub confirm: Option<(String, OnYes)>,
+    /// A question waiting for Yes: what it asks, what Yes does and the Yes button's word.
+    pub confirm: Option<Confirm>,
+    /// Small remembered choices (playback rate, per-notebook chat context, last options), in
+    /// `prefs.json` in the data folder; in memory for scenes and tests.
+    pub prefs: rune::prefs::Prefs,
     /// When `poll` next refreshes sources that are still being read (app clock).
     pub next_refresh: Option<f64>,
     inbox: Inbox,
@@ -241,6 +252,7 @@ impl App {
     /// A state with no backend yet, its settings and keys read from `data_dir`.
     fn empty(data_dir: PathBuf) -> App {
         let (tx, rx) = channel();
+        let prefs = rune::prefs::Prefs::at(data_dir.join("prefs.json"));
         App {
             settings: AppSettings::load(&data_dir),
             secrets: Secrets::new(&data_dir),
@@ -266,6 +278,7 @@ impl App {
             toast: None,
             toast_since: None,
             confirm: None,
+            prefs,
             next_refresh: None,
             inbox: Inbox { tx, waker: None },
             rx,
@@ -282,6 +295,7 @@ impl App {
     pub fn offline() -> App {
         let mut app = App::empty(std::env::temp_dir().join("open-notebook-scenes"));
         app.settings = AppSettings::default();
+        app.prefs = rune::prefs::Prefs::memory();
         app.loaded = true;
         app
     }
@@ -290,6 +304,7 @@ impl App {
     #[cfg(test)]
     pub fn with_backend(data_dir: PathBuf, backend: Arc<dyn Backend>) -> App {
         let mut app = App::empty(data_dir);
+        app.prefs = rune::prefs::Prefs::memory();
         app.backend = Some(backend);
         app.refresh_notebooks();
         app
@@ -358,9 +373,14 @@ impl App {
         self.inbox.clone()
     }
 
-    /// Asks before `yes` runs.
+    /// Asks before `yes` runs; the Yes button says "Delete".
     pub fn ask(&mut self, question: impl Into<String>, yes: impl Fn(&mut App) + 'static) {
-        self.confirm = Some((question.into(), Box::new(yes)));
+        self.ask_to("Delete", question, yes);
+    }
+
+    /// Asks before `yes` runs, with its own word on the Yes button ("Remove", "Discard", "Rebuild").
+    pub fn ask_to(&mut self, verb: &'static str, question: impl Into<String>, yes: impl Fn(&mut App) + 'static) {
+        self.confirm = Some(Confirm { question: question.into(), verb, yes: Box::new(yes) });
     }
 
     pub fn fail(&mut self, e: impl std::fmt::Display) {

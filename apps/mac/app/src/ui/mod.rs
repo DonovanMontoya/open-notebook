@@ -41,8 +41,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         Route::Profiles => (listen::profiles(s, &l, &mut layer), "Podcast profiles".to_owned()),
         _ => (home(s, &l), String::new()),
     };
-    if let Some((question, _)) = &s.confirm {
-        Dialog::new("confirm", question.clone())
+    if let Some(c) = &s.confirm {
+        Dialog::new("confirm", c.question.clone())
             .open(true)
             .width(360.0)
             .child(
@@ -51,11 +51,11 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                     .justify_end()
                     .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.confirm = None).build(&l.k).key("confirm-no"))
                     .child(
-                        Button::new("Delete")
-                            .variant(ButtonVariant::Danger)
+                        Button::new(c.verb)
+                            .variant(if c.verb == "Delete" || c.verb == "Remove" { ButtonVariant::Danger } else { ButtonVariant::Contrast })
                             .on_press(|s: &mut App| {
-                                if let Some((_, yes)) = s.confirm.take() {
-                                    yes(s);
+                                if let Some(c) = s.confirm.take() {
+                                    (c.yes)(s);
                                 }
                             })
                             .build(&l.k)
