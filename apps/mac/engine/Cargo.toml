@@ -25,3 +25,7 @@ url = "2"
 # OpenAI Live voices for episodes.
 tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
+
+# iCloud Keychain for API keys when the user turns sync on.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", features = ["OSX_10_15"] }
