@@ -21,6 +21,12 @@ pub const READ_BODY: TextStyle = TextStyle::new(16.0, 400.0).family(READ).lh(25.
 pub const READ_TITLE: TextStyle = TextStyle::new(26.0, 500.0).family(READ).lh(32.0);
 pub const READ_HEADING: TextStyle = TextStyle::new(19.0, 500.0).family(READ).lh(26.0);
 
+/// This device, as copy names it.
+#[cfg(target_os = "ios")]
+pub const THIS_DEVICE: &str = "this iPhone";
+#[cfg(not(target_os = "ios"))]
+pub const THIS_DEVICE: &str = "this Mac";
+
 /// A style with tabular figures, for counts, times and prices that line up.
 pub const fn tnum(style: TextStyle) -> TextStyle {
     style.features("'tnum' 1")

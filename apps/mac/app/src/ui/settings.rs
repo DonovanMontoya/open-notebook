@@ -46,15 +46,18 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(f) = &s.form else { return col() };
     let local = s.settings.mode == Mode::Local;
-    let mode = SegmentedControl::new(&["On this Mac", "Open Notebook server"], Some(if local { 0 } else { 1 }))
-        .label("Where notebooks live")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
-            s.settings.mode = if i == 0 { Mode::Local } else { Mode::Remote };
-            s.save_settings();
-        })
-        .build(k)
-        .key("mode");
+    let mode = SegmentedControl::new(
+        &[if cfg!(target_os = "ios") { "On this iPhone" } else { "On this Mac" }, "Open Notebook server"],
+        Some(if local { 0 } else { 1 }),
+    )
+    .label("Where notebooks live")
+    .fit()
+    .on_pick(|s: &mut App, i, _: &mut Tx| {
+        s.settings.mode = if i == 0 { Mode::Local } else { Mode::Remote };
+        s.save_settings();
+    })
+    .build(k)
+    .key("mode");
     let mut c = col()
         .key("settings-body")
         .w_full()
@@ -66,9 +69,9 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .child(
             section("Notebooks", l).child(row().child(mode)).child(
                 text(if local {
-                    "Everything stays on this Mac. Questions go to the AI provider you pick, with your own key."
+                    format!("Everything stays on {}. Questions go to the AI provider you pick, with your own key.", theme::THIS_DEVICE)
                 } else {
-                    "Notebooks live on your server, which can use local models."
+                    "Notebooks live on your server, which can use local models.".to_owned()
                 })
                 .font(k.ty.ui)
                 .color(l.text2)
@@ -223,10 +226,11 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
             f.open_select = None;
             if let Some(p) = ProviderKind::ALL.into_iter().find(|p| p.label() == name) {
                 f.choose_provider(role, p);
-                f.saved = false;
                 if !matches!(f.models.get(&p), Some(ModelList::Ready(_))) {
                     s.load_models(p, false);
                 }
+                // A pick is saved at once; leaving the page can't lose it.
+                s.save_settings();
             }
         })
         .build(k, layer);
@@ -258,9 +262,8 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
         .empty_message("No models; type a name")
         .width(if l.phone() { (l.width - 2.0 * l.pad()).max(200.0) } else { 320.0 })
         .on_choose(move |s: &mut App, id: &str, _: &mut Tx| {
-            let f = form(s);
-            *f.slot(role).1 = rune::TextEdit::new(id);
-            f.saved = false;
+            *form(s).slot(role).1 = rune::TextEdit::new(id);
+            s.save_settings();
         })
         .build(k, layer);
     // Provider beside the model on a wide window, above it on a phone.
@@ -465,7 +468,11 @@ fn server_section(s: &App, f: &SettingsForm, l: &Look) -> El {
             TextInput::new(&f.server_password)
                 .width(None)
                 .secure()
-                .placeholder(if has_password { "Saved on this Mac" } else { "Only if the server has one" })
+                .placeholder(if has_password {
+                    if cfg!(target_os = "ios") { "Saved on this iPhone" } else { "Saved on this Mac" }
+                } else {
+                    "Only if the server has one"
+                })
                 .on_edit(|s: &mut App| &mut form(s).server_password)
                 .on_submit(|s: &mut App, _: &mut Tx| s.save_and_test_server())
                 .build(k)

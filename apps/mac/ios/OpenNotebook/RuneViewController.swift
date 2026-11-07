@@ -15,6 +15,9 @@ final class RuneViewController: UIViewController, UIKeyInput {
     private var link: CADisplayLink?
     private var wakeTimer: Timer?
     private var wantsKeyboard = false
+    /// Fingers on the screen. The keyboard waits for them to lift before it goes, so the layout
+    /// doesn't move under a tap that is still landing.
+    private var fingers = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -37,9 +40,10 @@ final class RuneViewController: UIViewController, UIKeyInput {
         center.addObserver(self, selector: #selector(foreground), name: UIApplication.willEnterForegroundNotification, object: nil)
     }
 
-    /// The app's page colour, so the safe-area edges match what Rune draws.
+    /// The surface the app draws on a phone and the Duo, so the edges outside the safe area
+    /// (beside the camera, under the home indicator) match it.
     private static let pageColor = UIColor { t in
-        t.userInterfaceStyle == .dark ? UIColor(red: 0x14 / 255, green: 0x14 / 255, blue: 0x15 / 255, alpha: 1) : UIColor(red: 0xfa / 255, green: 0xfa / 255, blue: 0xfa / 255, alpha: 1)
+        t.userInterfaceStyle == .dark ? UIColor(red: 0x19 / 255, green: 0x19 / 255, blue: 0x1b / 255, alpha: 1) : .white
     }
 
     override func viewDidLayoutSubviews() {
@@ -105,7 +109,7 @@ final class RuneViewController: UIViewController, UIKeyInput {
     @objc private func tick() {
         guard let host else { return }
         let f = on_frame(host)
-        if f.wants_keyboard != wantsKeyboard {
+        if f.wants_keyboard != wantsKeyboard && (f.wants_keyboard || fingers == 0) {
             wantsKeyboard = f.wants_keyboard
             if wantsKeyboard { becomeFirstResponder() } else { resignFirstResponder() }
         }
@@ -142,10 +146,19 @@ final class RuneViewController: UIViewController, UIKeyInput {
         wake()
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { send(touches, 0) }
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        fingers += touches.count
+        send(touches, 0)
+    }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { send(touches, 1) }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { send(touches, 2) }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { send(touches, 3) }
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        fingers = max(0, fingers - touches.count)
+        send(touches, 2)
+    }
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        fingers = max(0, fingers - touches.count)
+        send(touches, 3)
+    }
 
     // Keyboard: the view controller is the text input while a Rune text field has focus.
 

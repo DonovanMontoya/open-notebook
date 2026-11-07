@@ -65,6 +65,10 @@ pub(super) fn tab_head(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         let second = tab_actions(o, head.child(el().grow(1.0)), l, layer);
         return col().w_full().child(first).child(second);
     }
+    // Off the Mac, a chat with no conversations yet has nothing for this row but a lone "+".
+    if l.size != crate::theme::Size::Desk && o.tab == NotebookTab::Chat && o.sessions.is_empty() {
+        return el();
+    }
     head = head.child(el().grow(1.0));
     tab_actions(o, head, l, layer)
 }
@@ -1069,7 +1073,8 @@ fn composer(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         .center_y()
         .child(model_menu(s, o, l, layer))
         .child(el().grow(1.0))
-        .child(text("Shift Return for a new line").font(k.ty.small).color(l.text3));
+        // A hardware keyboard's hint; a phone's keyboard has no Shift Return.
+        .children((!cfg!(target_os = "ios")).then(|| text("Shift Return for a new line").font(k.ty.small).color(l.text3)));
     col()
         .key("composer")
         .w_full()

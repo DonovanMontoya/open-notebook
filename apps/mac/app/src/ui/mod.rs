@@ -286,7 +286,7 @@ fn home(s: &App, l: &Look) -> El {
             home_message(
                 "Add a model to start asking",
                 "Notebooks live on this device. Questions go to the AI provider you choose, with your own API key.",
-                Some(settings_button()),
+                Some(row().gap(8.0).child(new_button(ButtonVariant::Ghost)).child(settings_button())),
                 l,
             )
         } else {

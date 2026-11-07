@@ -712,11 +712,14 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         price_dialog(d, l, layer);
     }
     let intro = if local {
-        "What model calls from this Mac cost, at list prices or your own. Tokens are estimated from text length, so treat totals as close, not exact."
+        format!(
+            "What model calls from {} cost, at list prices or your own. Tokens are estimated from text length, so treat totals as close, not exact.",
+            theme::THIS_DEVICE
+        )
     } else {
-        "What the server spent on models, with its price estimates."
+        "What the server spent on models, with its price estimates.".to_owned()
     };
-    page("usage", "Usage", intro, body, l)
+    page("usage", "Usage", &intro, body, l)
 }
 
 fn pricing(s: &mut App) -> &mut PriceDraft {
@@ -796,7 +799,7 @@ fn price_dialog(d: &PriceDraft, l: &Look, layer: &mut Vec<El>) {
                 .px(16.0)
                 .pb(16.0)
                 .child(
-                    text("Copy the rate from your provider's pricing page. It applies to every use of this model on this Mac.")
+                    text(format!("Copy the rate from your provider's pricing page. It applies to every use of this model on {}.", theme::THIS_DEVICE))
                         .font(k.ty.ui)
                         .color(l.text2)
                         .wrap(),
