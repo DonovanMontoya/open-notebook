@@ -5,6 +5,7 @@
 pub mod audio;
 pub mod check;
 pub mod live;
+pub mod live_talk;
 pub mod produce;
 pub mod profiles;
 pub mod script;

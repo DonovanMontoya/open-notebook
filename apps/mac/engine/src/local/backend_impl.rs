@@ -199,4 +199,7 @@ impl Backend for LocalBackend {
     fn delete_speaker_profile(&self, id: &str) -> Result<()> {
         self.0.delete_speaker_profile(id)
     }
+    fn local(&self) -> Option<&LocalBackend> {
+        Some(self)
+    }
 }
