@@ -29,6 +29,11 @@ pub const SCENES: &[Scene] = &[
     ("add-files", add_files),
     ("add-batch", add_batch),
     ("add-library", add_library),
+    ("notebook-details", notebook_details),
+    ("notebook-search", notebook_search),
+    ("new-notebook", new_notebook),
+    ("archived", archived),
+    ("drop", dropping),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -445,4 +450,67 @@ fn add_library(s: &mut App) {
     let mut a = AddSource { kind: crate::state::AddKind::Library, library: Some(elsewhere), ..Default::default() };
     a.picked.insert("x1".into());
     o.add = Some(a);
+}
+
+fn described(s: &mut App) {
+    open(s);
+    let o = s.open.as_mut().unwrap();
+    if let Some(nb) = o.notebook.as_mut() {
+        nb.description = "Reading for the sleep seminar: what spindles do for memory, and how strong the evidence is.".into();
+    }
+}
+
+fn notebook_details(s: &mut App) {
+    described(s);
+    let o = s.open.as_mut().unwrap();
+    let nb = o.notebook.clone().unwrap();
+    o.details = Some(crate::state::NotebookDetails { name: TextEdit::new(nb.name), description: TextEdit::new(nb.description) });
+}
+
+fn notebook_search(s: &mut App) {
+    described(s);
+    let o = s.open.as_mut().unwrap();
+    o.search = TextEdit::new("spindle density");
+    o.search_open = true;
+    let hit = |kind, id: &str, title: &str, snippet: &str| SearchHit {
+        kind,
+        id: id.into(),
+        title: title.into(),
+        snippet: snippet.into(),
+        score: 1.0,
+        notebook_id: Some("nb1".into()),
+    };
+    o.hits = Some((
+        "spindle density".into(),
+        Ok(vec![
+            hit(
+                HitKind::Source,
+                "s1",
+                "Sleep spindles and memory consolidation",
+                "In several studies, spindle density after learning predicted how much of a word list people recalled",
+            ),
+            hit(HitKind::Note, "n2", "Spindles and declarative memory", "Spindle density after learning predicted recall the next morning."),
+        ]),
+    ));
+}
+
+fn new_notebook(s: &mut App) {
+    s.notebooks = notebooks();
+    s.new_notebook = Some(TextEdit::new("Heat pump retrofit"));
+    s.new_notebook_description = TextEdit::new("Quotes and sizing guides for the house.");
+}
+
+fn archived(s: &mut App) {
+    s.notebooks = notebooks();
+    let mut old = s.notebooks[1].clone();
+    old.id = "nb4".into();
+    old.name = "Last year's courses".into();
+    old.archived = true;
+    s.notebooks.push(old);
+    s.show_archived = true;
+}
+
+fn dropping(s: &mut App) {
+    open(s);
+    s.open.as_mut().unwrap().drop_over = true;
 }

@@ -169,7 +169,10 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
             let (id, nb, kind, q) = (h.id.clone(), h.notebook_id.clone(), h.kind, query.clone());
             body = body.child(hit_row(format!("hit-{}", h.id), &h.title, &h.snippet, l).on_press(move |s: &mut App| match kind {
                 HitKind::Source => s.open_source(id.clone(), nb.clone(), Some(q.clone())),
-                HitKind::Note => open_note(s, nb.clone()),
+                HitKind::Note => match nb.clone() {
+                    Some(nb) => s.open_note(nb, id.clone()),
+                    None => open_note(s, None),
+                },
             }));
         }
     }

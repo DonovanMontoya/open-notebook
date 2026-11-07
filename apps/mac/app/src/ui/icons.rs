@@ -68,3 +68,8 @@ icon!(
     "on-pause",
     r#"<rect x="4.5" y="3.5" width="2.5" height="9" rx="0.8" fill="currentColor"/><rect x="9" y="3.5" width="2.5" height="9" rx="0.8" fill="currentColor"/>"#
 );
+icon!(
+    DEVICE,
+    "on-device",
+    r#"<rect x="2.5" y="3.5" width="11" height="7.5" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 13H14.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>"#
+);

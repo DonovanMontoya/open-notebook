@@ -212,6 +212,15 @@ pub struct NoteDraft {
     pub content: TextEdit,
 }
 
+/// The notebook details dialog.
+pub struct NotebookDetails {
+    pub name: TextEdit,
+    pub description: TextEdit,
+}
+
+/// Search results for one query, or why the search failed.
+pub type Hits = (String, Result<Vec<SearchHit>, String>);
+
 /// The open notebook.
 pub struct Open {
     pub id: String,
@@ -245,6 +254,23 @@ pub struct Open {
     pub episode_views: std::collections::HashMap<String, crate::listen::EpisodeOpen>,
     /// Until when to keep checking for an insight just asked for: a server's appear only once written.
     pub insights_expected: Option<std::time::Instant>,
+    pub details: Option<NotebookDetails>,
+    /// Search inside this notebook: the box, a count that drops stale results, the results and
+    /// whether their list shows.
+    pub search: TextEdit,
+    pub search_gen: u64,
+    pub hits: Option<Hits>,
+    pub search_open: bool,
+    /// Files are being dragged over the notebook.
+    pub drop_over: bool,
+    /// A note to open once the notes have loaded.
+    pub pending_note: Option<String>,
+    /// The note being edited shows as rendered Markdown.
+    pub note_read: bool,
+    /// The note's title and text when it opened, to tell whether it changed.
+    pub note_base: (String, String),
+    /// The note being written came from a chat answer.
+    pub note_ai: bool,
 }
 
 impl Open {
@@ -276,6 +302,55 @@ impl Open {
             new_episode: None,
             episode_views: std::collections::HashMap::new(),
             insights_expected: None,
+            details: None,
+            search: TextEdit::new(""),
+            search_gen: 0,
+            hits: None,
+            search_open: false,
+            drop_over: false,
+            pending_note: None,
+            note_read: false,
+            note_base: (String::new(), String::new()),
+            note_ai: false,
+        }
+    }
+
+    /// Opens a saved note in the editor, rendered until double-clicked.
+    pub fn edit_note(&mut self, note: &Note) {
+        let (title, content) = (note.title.clone().unwrap_or_default(), note.content.clone().unwrap_or_default());
+        self.tab = NotebookTab::Notes;
+        self.note_read = !content.trim().is_empty();
+        self.note_base = (title.clone(), content.clone());
+        self.note_ai = note.note_type.as_deref() == Some("ai");
+        let mut c = TextEdit::new(content);
+        c.focused = !self.note_read;
+        self.note = Some(NoteDraft { id: Some(note.id.clone()), title: TextEdit::new(title), content: c });
+    }
+
+    /// Starts a new note, prefilled with `content` (a chat answer when `ai`).
+    pub fn new_note(&mut self, title: String, content: String, ai: bool) {
+        self.tab = NotebookTab::Notes;
+        self.note_read = false;
+        self.note_base = (String::new(), String::new());
+        self.note_ai = ai;
+        let mut c = TextEdit::new(content);
+        c.focused = true;
+        self.note = Some(NoteDraft { id: None, title: TextEdit::new(title), content: c });
+    }
+
+    /// Whether the note being edited differs from what was saved.
+    pub fn note_dirty(&self) -> bool {
+        self.note.as_ref().is_some_and(|d| d.id.is_none() || d.title.text != self.note_base.0 || d.content.text != self.note_base.1)
+    }
+
+    /// Replaces the notes, opening one that was asked for before they loaded.
+    pub fn set_notes(&mut self, notes: Vec<Note>) {
+        self.notes = notes;
+        if let Some(id) = self.pending_note.take() {
+            match self.notes.iter().find(|n| n.id == id).cloned() {
+                Some(n) => self.edit_note(&n),
+                None => self.tab = NotebookTab::Notes,
+            }
         }
     }
 
@@ -388,6 +463,8 @@ pub struct App {
     rx: Receiver<Apply>,
     /// The sidebar's archived notebooks are showing.
     pub show_archived: bool,
+    /// The new-notebook dialog's "What it's for", beside `new_notebook`'s name.
+    pub new_notebook_description: TextEdit,
 }
 
 impl App {
@@ -425,6 +502,7 @@ impl App {
             inbox: Inbox { tx, waker: None },
             rx,
             show_archived: false,
+            new_notebook_description: TextEdit::new(""),
         }
     }
 
@@ -552,10 +630,12 @@ impl App {
         let Some(edit) = self.new_notebook.take() else { return };
         let name = edit.text.trim().to_owned();
         if name.is_empty() {
+            self.new_notebook = Some(edit);
             return;
         }
+        let description = std::mem::replace(&mut self.new_notebook_description, TextEdit::new("")).text.trim().to_owned();
         self.run(
-            move |b| b.create_notebook(&name, ""),
+            move |b| b.create_notebook(&name, &description),
             |app, r| match r {
                 Ok(nb) => {
                     let id = nb.id.clone();
@@ -609,7 +689,7 @@ impl App {
         self.load_decks();
         self.load_episodes();
         let i = id.clone();
-        self.run(move |b| b.list_notes(&i), with_open(&id, |o, notes| o.notes = notes));
+        self.run(move |b| b.list_notes(&i), with_open(&id, |o, notes| o.set_notes(notes)));
         let i = id.clone();
         self.run(move |b| b.list_chat_sessions(&i), {
             let id = id.clone();
@@ -646,7 +726,7 @@ impl App {
     pub fn refresh_notes(&self) {
         let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let i = id.clone();
-        self.run(move |b| b.list_notes(&i), with_open(&id, |o, notes| o.notes = notes));
+        self.run(move |b| b.list_notes(&i), with_open(&id, |o, notes| o.set_notes(notes)));
     }
 
     // Chat
@@ -822,6 +902,73 @@ impl App {
                 let passage = passage_query.and_then(|q| notebook_engine::citations::best_passage(&detail.full_text, &q));
                 o.reading = Some((detail, passage));
             }),
+        );
+    }
+
+    /// Opens a note in its notebook's editor, from Ask, Search or a notebook search.
+    pub fn open_note(&mut self, notebook_id: String, note_id: String) {
+        let same = self.open.as_ref().is_some_and(|o| o.id == notebook_id);
+        self.open_notebook(notebook_id);
+        let Some(o) = self.open.as_mut() else { return };
+        o.tab = NotebookTab::Notes;
+        match o.notes.iter().find(|n| n.id == note_id).cloned() {
+            Some(n) if same => o.edit_note(&n),
+            _ => o.pending_note = Some(note_id),
+        }
+    }
+
+    /// Renames, describes or (un)archives a notebook; closes the details dialog once saved.
+    pub fn update_notebook(&mut self, id: String, update: NotebookUpdate) {
+        let i = id.clone();
+        self.run(
+            move |b| b.update_notebook(&i, update),
+            move |app, r| match r {
+                Ok(nb) => {
+                    if let Some(n) = app.notebooks.iter_mut().find(|n| n.id == id) {
+                        let counts = (n.source_count, n.note_count);
+                        *n = Notebook { source_count: counts.0, note_count: counts.1, ..nb.clone() };
+                    }
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
+                        o.notebook = Some(nb);
+                        o.details = None;
+                    }
+                }
+                Err(e) => app.fail(e),
+            },
+        );
+    }
+
+    /// The notebook search box changed: search 300 ms after typing stops, from two characters.
+    pub fn search_changed(&mut self) {
+        let Some(o) = self.open.as_mut() else { return };
+        o.search_gen += 1;
+        o.search_open = true;
+        let (generation, query, id) = (o.search_gen, o.search.text.trim().to_owned(), o.id.clone());
+        if query.chars().count() < 2 {
+            o.hits = None;
+            return;
+        }
+        let inbox = self.inbox.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            inbox.send(move |app| app.search_now(id, generation, query));
+        });
+    }
+
+    /// Runs the search typed as `generation`, unless more has been typed since.
+    pub fn search_now(&mut self, notebook_id: String, generation: u64, query: String) {
+        let current = |app: &App| app.open.as_ref().filter(|o| o.id == notebook_id && o.search_gen == generation).is_some();
+        if !current(self) {
+            return;
+        }
+        let (nb, q) = (notebook_id.clone(), query.clone());
+        self.run(
+            move |b| b.search(&q, Some(&nb)),
+            move |app, r| {
+                if let Some(o) = app.open.as_mut().filter(|o| o.id == notebook_id && o.search_gen == generation) {
+                    o.hits = Some((query, r.map_err(|e| e.to_string())));
+                }
+            },
         );
     }
 
@@ -1240,6 +1387,58 @@ mod tests {
         assert_eq!(a.selected(&all), ["t1".to_owned()].into());
         a.chosen = Some(Default::default());
         assert!(a.selected(&all).is_empty());
+    }
+
+    #[test]
+    fn a_note_opens_in_the_editor_once_notes_load() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let b = app.backend.clone().unwrap();
+        let nb = app.open.as_ref().unwrap().id.clone();
+        let note = b.create_note(&nb, Some("Thursday"), "Ask about **age**", false).unwrap();
+        // From another page: the notebook reopens and the note opens when its notes arrive.
+        app.open = None;
+        app.open_note(nb.clone(), note.id.clone());
+        assert_eq!(app.open.as_ref().unwrap().pending_note.as_deref(), Some(note.id.as_str()));
+        settle(&mut app, |a| a.open.as_ref().unwrap().note.is_some());
+        let o = app.open.as_ref().unwrap();
+        assert_eq!(o.tab, NotebookTab::Notes);
+        assert_eq!(o.note.as_ref().unwrap().id.as_deref(), Some(note.id.as_str()));
+        assert!(o.note_read, "a saved note opens rendered");
+        assert!(!o.note_dirty());
+        // Within the same notebook it opens straight away.
+        app.open.as_mut().unwrap().note = None;
+        app.open_note(nb, note.id.clone());
+        assert!(app.open.as_ref().unwrap().note.is_some());
+    }
+
+    #[test]
+    fn search_waits_for_two_characters_and_drops_stale_results() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let nb = app.open.as_ref().unwrap().id.clone();
+        app.open.as_mut().unwrap().search = TextEdit::new("s");
+        app.search_changed();
+        assert!(app.open.as_ref().unwrap().hits.is_none());
+        app.open.as_mut().unwrap().search = TextEdit::new("spindles");
+        app.search_changed();
+        let stale = app.open.as_ref().unwrap().search_gen - 1;
+        app.search_now(nb, stale, "s".into());
+        settle(&mut app, |a| a.open.as_ref().unwrap().hits.is_some());
+        let (query, _) = app.open.as_ref().unwrap().hits.clone().expect("the current search ran");
+        assert_eq!(query, "spindles");
+    }
+
+    #[test]
+    fn archiving_keeps_the_notebook_listed() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        settle(&mut app, |a| !a.notebooks.is_empty());
+        let id = app.open.as_ref().unwrap().id.clone();
+        app.update_notebook(id.clone(), NotebookUpdate { archived: Some(true), description: Some("For the exam".into()), ..Default::default() });
+        settle(&mut app, |a| a.notebooks[0].archived);
+        assert!(app.notebooks[0].archived);
+        assert_eq!(app.open.as_ref().unwrap().notebook.as_ref().unwrap().description, "For the exam");
     }
 
     #[test]

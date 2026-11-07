@@ -5,10 +5,10 @@ use notebook_engine::citations::{self, CitableSource};
 use notebook_engine::types::*;
 use rune::{El, ScrollSpec, TextEdit, Tx, col, el, rich, row, text};
 use rune_kit::markdown::Markdown;
-use rune_kit::{Button, ButtonVariant, ControlSize, IconButton, IconButtonVariant, SegmentedControl, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, TextArea, TextInput};
 
 use super::icons;
-use crate::state::{App, NoteDraft, NotebookTab, Open, is_failed, is_processing};
+use crate::state::{App, NoteDraft, NotebookDetails, NotebookTab, Open, is_failed, is_processing};
 use crate::theme::{self, Look};
 
 const RAIL: f32 = 300.0;
@@ -75,17 +75,231 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 .key("new-note"),
         );
     }
-    let middle = col().key("center").grow(1.0).h_full().min_w(380.0).min_h(0.0).child(head).child(rule(l)).child(center);
+    let mut middle = col().key("center").grow(1.0).h_full().min_w(380.0).min_h(0.0).child(header(o, l));
+    if o.search_open
+        && let Some(hits) = &o.hits
+    {
+        middle = middle.child(search_results(hits, l));
+    }
+    let middle = middle.child(head).child(rule(l)).child(center);
     // A cited passage opens in the rail, beside the answer that cites it, as in the Tauri app.
     let rail = match &o.reading {
         Some((detail, passage)) => reader(o, detail, *passage, l, layer),
         None => sources(o, l),
     };
-    let body = row().key("notebook").w_full().h_full().min_h(0.0).child(rail).child(vrule(l)).child(middle);
+    let body = row()
+        .key("notebook")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .child(rail)
+        .child(vrule(l))
+        .child(middle)
+        .on_drop_files(|s: &mut App, files: &[std::path::PathBuf], _: &mut Tx| {
+            if let Some(o) = s.open.as_mut() {
+                o.drop_over = false;
+            }
+            s.open_add(files);
+        })
+        .accepts_extensions(&crate::state::accepted())
+        .on_drop_hover(|s: &mut App, over, _: &mut Tx| {
+            if let Some(o) = s.open.as_mut() {
+                o.drop_over = over;
+            }
+        });
     if let Some(add) = &o.add {
         super::add::sheet(o, add, l, layer);
+    } else if o.drop_over {
+        let name = o.notebook.as_ref().map(|n| n.name.clone()).unwrap_or_else(|| "this notebook".into());
+        layer.push(col().key("drop-overlay").absolute(0.0, 0.0).w_full().h_full().inert().child(
+            col().w_full().h_full().center().fill(l.page.alpha(0.88)).child(text(format!("Drop to add to {name}")).font(theme::READ_HEADING).color(l.text)),
+        ));
+    }
+    if let Some(d) = &o.details {
+        details(o, d, l, layer);
     }
     body
+}
+
+/// The notebook's name and what it's for, its settings, and a search box.
+fn header(o: &Open, l: &Look) -> El {
+    let k = &l.k;
+    let nb = o.notebook.as_ref();
+    let mut title = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(1.0)
+        .child(text(nb.map(|n| n.name.clone()).unwrap_or_default()).key("notebook-name").font(theme::READ_HEADING).color(l.text).max_lines(1));
+    if let Some(d) = nb.map(|n| n.description.trim()).filter(|d| !d.is_empty()) {
+        title = title.child(text(d.to_owned()).font(k.ty.small).color(l.text3).max_lines(2));
+    }
+    let title = title.on_double_press(open_details);
+    let search = TextInput::new(&o.search)
+        .placeholder("Search notebook")
+        .label("Search this notebook")
+        .leading_icon(&rune_kit::glyphs::SEARCH)
+        .width(Some(220.0))
+        .on_edit(|s: &mut App| &mut s.open.as_mut().expect("open").search)
+        .on_change(|s: &mut App, _: &mut Tx| s.search_changed())
+        .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
+            if ev.key == rune::Key::Escape {
+                if let Some(o) = s.open.as_mut() {
+                    o.search_open = false;
+                }
+                return true;
+            }
+            false
+        })
+        .build(k)
+        .key("notebook-search");
+    row()
+        .key("notebook-head")
+        .w_full()
+        .px(16.0)
+        .py(10.0)
+        .gap(8.0)
+        .center_y()
+        .child(title)
+        .child(
+            IconButton::new(&icons::GEAR)
+                .variant(IconButtonVariant::GhostMuted)
+                .label("Notebook settings")
+                .help("Notebook settings")
+                .on_press(open_details)
+                .build(k)
+                .key("notebook-settings"),
+        )
+        .child(search)
+}
+
+fn open_details(s: &mut App) {
+    if let Some(o) = s.open.as_mut()
+        && let Some(nb) = &o.notebook
+    {
+        o.details = Some(NotebookDetails { name: TextEdit::new(nb.name.clone()), description: TextEdit::new(nb.description.clone()) });
+    }
+}
+
+/// The search's hits under the header: a source opens in the reader at the passage, a note in the editor.
+fn search_results(hits: &crate::state::Hits, l: &Look) -> El {
+    let k = &l.k;
+    let (query, result) = hits;
+    let mut list = col().key("search-results").w_full().gap(2.0).px(8.0).py(6.0);
+    match result {
+        Err(e) => list = list.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap().px(8.0).py(6.0)),
+        Ok(found) if found.is_empty() => {
+            list = list.child(text(format!("Nothing matches \u{201c}{query}\u{201d}")).font(k.ty.ui).color(l.text3).px(8.0).py(6.0))
+        }
+        Ok(found) => {
+            for h in found {
+                let (id, kind, q) = (h.id.clone(), h.kind, query.clone());
+                let icon = if kind == HitKind::Note { &icons::SAVE } else { &icons::DOC };
+                let mut lines = col().grow(1.0).min_w(0.0).gap(1.0).child(text(h.title.clone()).font(k.ty.ui_medium).color(l.text).max_lines(1));
+                if !h.snippet.trim().is_empty() {
+                    lines = lines.child(text(h.snippet.clone()).font(k.ty.small).color(l.text3).max_lines(2));
+                }
+                let r =
+                    row().key(format!("hit-{}", h.id)).w_full().gap(8.0).px(8.0).py(6.0).radius(8.0).child(rune::icon(icon, 14.0).color(l.text3)).child(lines);
+                list = list.child(k.interactive(r).on_press(move |s: &mut App| {
+                    let Some(o) = s.open.as_mut() else { return };
+                    o.search_open = false;
+                    let nb = o.id.clone();
+                    match kind {
+                        HitKind::Source => s.read_source(id.clone(), Some(q.clone())),
+                        HitKind::Note => s.open_note(nb, id.clone()),
+                    }
+                }));
+            }
+        }
+    }
+    col().w_full().child(list.scroll(ScrollSpec { stick_bottom: false }).max_h(320.0)).child(rule(l))
+}
+
+/// Rename, describe, archive or delete the notebook.
+fn details(o: &Open, d: &NotebookDetails, l: &Look, layer: &mut Vec<El>) {
+    let k = &l.k;
+    fn form(s: &mut App) -> &mut NotebookDetails {
+        s.open.as_mut().and_then(|o| o.details.as_mut()).expect("details")
+    }
+    fn close(s: &mut App) {
+        if let Some(o) = s.open.as_mut() {
+            o.details = None;
+        }
+    }
+    fn save(s: &mut App, archived: Option<bool>) {
+        let Some(o) = s.open.as_ref() else { return };
+        let Some(d) = &o.details else { return };
+        let name = d.name.text.trim().to_owned();
+        if name.is_empty() {
+            return;
+        }
+        let update = NotebookUpdate { name: Some(name), description: Some(d.description.text.trim().to_owned()), archived };
+        let id = o.id.clone();
+        s.update_notebook(id, update);
+    }
+    let archived = o.notebook.as_ref().is_some_and(|n| n.archived);
+    let name = o.notebook.as_ref().map(|n| n.name.clone()).unwrap_or_default();
+    let id = o.id.clone();
+    let body = col()
+        .w_full()
+        .gap(12.0)
+        .child(text("Name").font(k.ty.ui_medium).color(l.text2))
+        .child(
+            TextInput::new(&d.name)
+                .label("Name")
+                .width(None)
+                .on_edit(|s: &mut App| &mut form(s).name)
+                .on_submit(|s: &mut App, _: &mut Tx| save(s, None))
+                .build(k)
+                .key("details-name"),
+        )
+        .child(text("What it's for").font(k.ty.ui_medium).color(l.text2))
+        .child(
+            TextArea::new(&d.description)
+                .label("What it's for")
+                .placeholder("Optional. The assistant reads this before answering.")
+                .width(None)
+                .rows(3)
+                .on_edit(|s: &mut App| &mut form(s).description)
+                .build(k)
+                .key("details-description"),
+        )
+        .child(
+            row()
+                .w_full()
+                .gap(8.0)
+                .center_y()
+                .child(
+                    Button::new("Delete")
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(move |s: &mut App| {
+                            let id = id.clone();
+                            s.ask(format!("Delete \u{201c}{name}\u{201d}? Its sources, notes and conversations are deleted too."), move |s| {
+                                s.delete_notebook(id.clone())
+                            });
+                        })
+                        .build(k)
+                        .key("details-delete"),
+                )
+                .child(
+                    Button::new(if archived { "Unarchive" } else { "Archive" })
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(move |s: &mut App| save(s, Some(!archived)))
+                        .build(k)
+                        .key("details-archive"),
+                )
+                .child(el().grow(1.0))
+                .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(close).build(k).key("details-cancel"))
+                .child(
+                    Button::new("Save")
+                        .variant(ButtonVariant::Contrast)
+                        .disabled(d.name.text.trim().is_empty())
+                        .on_press(|s: &mut App| save(s, None))
+                        .build(k)
+                        .key("details-save"),
+                ),
+        );
+    Dialog::new("notebook-details", "Notebook").open(true).width(460.0).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
 }
 
 fn rule(l: &Look) -> El {
@@ -123,16 +337,6 @@ fn sources(o: &Open, l: &Look) -> El {
     for src in &o.sources {
         list = list.child(source_row(src, reading == Some(src.id.as_str()), l));
     }
-    let nb = o.id.clone();
-    let delete = Button::new("Delete notebook")
-        .variant(ButtonVariant::Ghost)
-        .control_size(ControlSize::Small)
-        .on_press(move |s: &mut App| {
-            let nb = nb.clone();
-            s.ask("Delete this notebook? Its sources, notes and chats go too.", move |s| s.delete_notebook(nb.clone()));
-        })
-        .build(k)
-        .key("delete-notebook");
     col()
         .key("sources")
         .w(RAIL)
@@ -143,7 +347,6 @@ fn sources(o: &Open, l: &Look) -> El {
         .fill(l.page)
         .child(head)
         .child(list.scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0))
-        .child(row().w_full().px(12.0).py(8.0).child(delete))
 }
 
 fn source_row(src: &SourceSummary, selected: bool, l: &Look) -> El {
