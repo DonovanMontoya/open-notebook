@@ -76,9 +76,29 @@ impl Engine {
         Ok(rows)
     }
 
+    /// The notebook's sources, each with every notebook it is in (this one first), so the UI
+    /// knows removing one only takes it out of here.
     pub fn list_sources(&self, notebook_id: &str) -> Result<Vec<SourceSummary>> {
         let rows = self.source_rows("s.id IN (SELECT source_id FROM notebook_source WHERE notebook_id = ?1) ORDER BY s.updated DESC", &[&notebook_id])?;
-        Ok(rows.into_iter().map(|r| r.summary).collect())
+        let mut others: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let conn = self.db.lock();
+            let mut stmt = conn.prepare(
+                "SELECT source_id, notebook_id FROM notebook_source WHERE notebook_id != ?1 AND source_id IN (SELECT source_id FROM notebook_source WHERE notebook_id = ?1)",
+            )?;
+            for link in stmt.query_map([notebook_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+                let (s, n) = link?;
+                others.entry(s).or_default().push(n);
+            }
+        }
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let mut s = r.summary;
+                s.notebooks = std::iter::once(notebook_id.to_owned()).chain(others.remove(&s.id).unwrap_or_default()).collect();
+                s
+            })
+            .collect())
     }
 
     pub fn get_source(&self, id: &str) -> Result<SourceDetail> {

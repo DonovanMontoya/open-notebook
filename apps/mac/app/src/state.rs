@@ -73,6 +73,8 @@ pub struct AddSource {
     pub text: TextEdit,
     pub busy: bool,
     pub error: Option<String>,
+    /// One row per source being added, once Add is pressed.
+    pub items: Option<Vec<BatchItem>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -81,6 +83,48 @@ pub enum AddKind {
     Link,
     Text,
     File,
+}
+
+/// Where one source of a batch has got to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ItemState {
+    Waiting,
+    Adding,
+    Added,
+    Failed(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BatchItem {
+    pub label: String,
+    pub state: ItemState,
+}
+
+/// One source to add in a batch.
+#[derive(Clone, Debug)]
+pub enum AddJob {
+    Input(SourceInput),
+    /// A file on disk, read on the worker; `title` replaces the name when set.
+    File {
+        path: PathBuf,
+        title: Option<String>,
+    },
+    /// A source from another notebook, linked into this one.
+    Link(String),
+}
+
+impl AddSource {
+    /// "Adding 2 of 3" while a batch runs.
+    pub fn progress(&self) -> Option<String> {
+        let items = self.items.as_ref().filter(|_| self.busy)?;
+        let done = items.iter().filter(|i| matches!(i.state, ItemState::Added | ItemState::Failed(_))).count();
+        Some(format!("Adding {} of {}", (done + 1).min(items.len()), items.len()))
+    }
+
+    /// How many of a finished batch failed.
+    pub fn failed(&self) -> usize {
+        self.items.iter().flatten().filter(|i| matches!(i.state, ItemState::Failed(_))).count()
+    }
 }
 
 /// A note being written or edited.
@@ -122,6 +166,8 @@ pub struct Open {
     pub episodes: Vec<Episode>,
     pub new_episode: Option<crate::listen::NewEpisode>,
     pub episode_views: std::collections::HashMap<String, crate::listen::EpisodeOpen>,
+    /// Until when to keep checking for an insight just asked for: a server's appear only once written.
+    pub insights_expected: Option<std::time::Instant>,
 }
 
 impl Open {
@@ -152,13 +198,20 @@ impl Open {
             episodes: Vec::new(),
             new_episode: None,
             episode_views: std::collections::HashMap::new(),
+            insights_expected: None,
         }
+    }
+
+    /// Whether a new insight may still turn up, so its list keeps being checked.
+    pub fn expecting_insights(&self) -> bool {
+        self.insights_expected.is_some_and(|t| std::time::Instant::now() < t)
     }
 
     /// Sources still being read, or insights being written, which `poll` refreshes until they finish.
     pub fn processing(&self) -> bool {
-        self.sources.iter().any(|s| matches!(s.status.as_deref(), Some("new" | "queued" | "running" | "processing")))
+        self.sources.iter().any(|s| is_processing(s.status.as_deref()))
             || self.insights.iter().any(|i| i.status.as_deref() == Some("running"))
+            || (self.reading.is_some() && self.expecting_insights())
             || self.episodes_in_progress()
     }
 
@@ -168,6 +221,16 @@ impl Open {
             .iter()
             .any(|e| !matches!(e.status, EpisodeStatus::Completed | EpisodeStatus::Failed) || e.check.as_ref().is_some_and(|c| c.status == "checking"))
     }
+}
+
+/// A source status that means it is still being read: the engine's and the server's words.
+pub fn is_processing(status: Option<&str>) -> bool {
+    matches!(status, Some("new" | "queued" | "pending" | "running" | "processing"))
+}
+
+/// A source status that means reading it failed.
+pub fn is_failed(status: Option<&str>) -> bool {
+    matches!(status, Some("failed" | "error"))
 }
 
 /// The settings screen's fields.
@@ -246,6 +309,8 @@ pub struct App {
     pub next_refresh: Option<f64>,
     inbox: Inbox,
     rx: Receiver<Apply>,
+    /// The sidebar's archived notebooks are showing.
+    pub show_archived: bool,
 }
 
 impl App {
@@ -282,6 +347,7 @@ impl App {
             next_refresh: None,
             inbox: Inbox { tx, waker: None },
             rx,
+            show_archived: false,
         }
     }
 
@@ -488,7 +554,7 @@ impl App {
     pub fn refresh_sources(&self) {
         if let Some(o) = self.open.as_ref()
             && let Some((d, _)) = &o.reading
-            && o.insights.iter().any(|i| i.status.as_deref() == Some("running"))
+            && (o.insights.iter().any(|i| i.status.as_deref() == Some("running")) || o.expecting_insights())
         {
             self.load_insights(d.summary.id.clone());
         }
@@ -682,41 +748,93 @@ impl App {
         );
     }
 
+    /// Adds one source with the default transformations, outside the add sheet.
+    #[cfg(test)]
     pub fn add_source(&mut self, input: SourceInput) {
-        let Some(o) = self.open.as_mut() else { return };
-        if let Some(a) = o.add.as_mut() {
-            a.busy = true;
-            a.error = None;
-        }
-        let id = o.id.clone();
+        let Some(id) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let nb = id.clone();
         self.run(
             move |b| {
                 let defaults = b.list_transformations().unwrap_or_default().into_iter().filter(|t| t.apply_default).map(|t| t.id).collect();
                 b.add_source(&nb, NewSource { input, transformations: defaults })
             },
-            move |app, r| {
-                let Some(o) = app.open.as_mut().filter(|o| o.id == id) else { return };
-                match r {
-                    Ok(source) => {
-                        o.add = None;
+            with_open(&id, |o, source| o.sources.insert(0, source)),
+        );
+    }
+
+    /// Adds sources one at a time on a worker, each row of the sheet showing how it went. One
+    /// failure doesn't stop the rest; the sheet closes once every source is in.
+    pub fn add_sources(&mut self, jobs: Vec<(String, AddJob)>, transformations: Vec<String>) {
+        let remote = self.remote.is_some();
+        let Some(backend) = self.backend.clone() else { return };
+        let Some(o) = self.open.as_mut() else { return };
+        let Some(a) = o.add.as_mut() else { return };
+        if a.busy || jobs.is_empty() {
+            return;
+        }
+        a.busy = true;
+        a.error = None;
+        a.items = Some(jobs.iter().map(|(label, _)| BatchItem { label: label.clone(), state: ItemState::Waiting }).collect());
+        let nb = o.id.clone();
+        let inbox = self.inbox.clone();
+        std::thread::spawn(move || {
+            for (i, (_, job)) in jobs.into_iter().enumerate() {
+                let id = nb.clone();
+                inbox.send(move |app| set_item(app, &id, i, ItemState::Adding));
+                let result = run_job(backend.as_ref(), &nb, job, &transformations, remote);
+                let id = nb.clone();
+                inbox.send(move |app| {
+                    let state = match &result {
+                        Ok(_) => ItemState::Added,
+                        Err(e) => ItemState::Failed(e.clone()),
+                    };
+                    set_item(app, &id, i, state);
+                    if let Ok(Some(source)) = result
+                        && let Some(o) = app.open.as_mut().filter(|o| o.id == id)
+                        && !o.sources.iter().any(|s| s.id == source.id)
+                    {
                         o.sources.insert(0, source);
                     }
-                    Err(e) => {
-                        if let Some(a) = o.add.as_mut() {
-                            a.busy = false;
-                            a.error = Some(e.to_string());
-                        }
+                });
+            }
+            inbox.send(move |app| {
+                if let Some(o) = app.open.as_mut().filter(|o| o.id == nb)
+                    && let Some(a) = o.add.as_mut()
+                {
+                    a.busy = false;
+                    if a.failed() == 0 {
+                        o.add = None;
                     }
                 }
-            },
-        );
+                app.refresh_sources();
+                app.refresh_notebooks();
+            });
+        });
+    }
+
+    /// Whether a source is in other notebooks too, so removing it here leaves it there.
+    pub fn source_is_shared(&self, source_id: &str) -> bool {
+        let Some(o) = self.open.as_ref() else { return false };
+        let reading = o.reading.as_ref().filter(|(d, _)| d.summary.id == source_id).map(|(d, _)| d.summary.notebooks.len());
+        let listed = o.sources.iter().find(|s| s.id == source_id).map(|s| s.notebooks.len());
+        reading.or(listed).unwrap_or(0) > 1
+    }
+
+    /// Asks, then deletes the source, or only takes it out of this notebook when others have it too.
+    pub fn ask_delete_source(&mut self, source_id: String) {
+        if self.source_is_shared(&source_id) {
+            self.ask_to("Remove", "Remove this source from this notebook? It stays in your other notebooks.", move |s| s.delete_source(source_id.clone()));
+        } else {
+            self.ask("Delete this source? Its text, insights and chats are removed.", move |s| s.delete_source(source_id.clone()));
+        }
     }
 
     pub fn delete_source(&mut self, source_id: String) {
         let gone = source_id.clone();
+        let shared = self.source_is_shared(&source_id);
+        let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         self.run(
-            move |b| b.delete_source(&source_id),
+            move |b| if shared { b.unlink_source(&source_id, &nb) } else { b.delete_source(&source_id) },
             move |app, r| match r {
                 Ok(()) => {
                     if let Some(o) = app.open.as_mut() {
@@ -846,6 +964,49 @@ impl App {
     }
 }
 
+fn set_item(app: &mut App, notebook_id: &str, i: usize, state: ItemState) {
+    if let Some(item) = app.open.as_mut().filter(|o| o.id == notebook_id).and_then(|o| o.add.as_mut()).and_then(|a| a.items.as_mut()).and_then(|v| v.get_mut(i))
+    {
+        item.state = state;
+    }
+}
+
+/// Documents the add sheet reads, then audio and video, which are transcribed.
+const DOCUMENTS: [&str; 12] = ["pdf", "docx", "pptx", "xlsx", "epub", "html", "htm", "md", "markdown", "txt", "csv", "json"];
+const MEDIA: [&str; 12] = ["mp3", "m4a", "wav", "aac", "ogg", "flac", "webm", "mp4", "mov", "mkv", "mpeg", "mpga"];
+
+/// Every file extension the add sheet takes.
+pub fn accepted() -> Vec<&'static str> {
+    DOCUMENTS.iter().chain(MEDIA.iter()).copied().collect()
+}
+
+/// Adds one source of a batch. A file is read here on device; a server reads it itself.
+fn run_job(b: &dyn Backend, notebook_id: &str, job: AddJob, transformations: &[String], remote: bool) -> Result<Option<SourceSummary>, String> {
+    let add = |input| b.add_source(notebook_id, NewSource { input, transformations: transformations.to_vec() }).map(Some).map_err(|e| e.to_string());
+    match job {
+        AddJob::Input(input) => add(input),
+        AddJob::Link(source_id) => b.link_source(&source_id, notebook_id).map(|()| None).map_err(|e| e.to_string()),
+        AddJob::File { path, title } => add(read_document(&path, title, remote)?),
+    }
+}
+
+/// A file as a document source: its text read on device, or left for the server to read.
+pub fn read_document(path: &std::path::Path, title: Option<String>, remote: bool) -> Result<SourceInput, String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "File".into());
+    let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s).to_owned();
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let mime = notebook_engine::extract::mime_for(&name).map(String::from);
+    if remote {
+        return Ok(SourceInput::Document { title: title.unwrap_or(stem), content: String::new(), file_name: Some(name), file: Some(bytes), mime });
+    }
+    let x = notebook_engine::extract::extract(&name, mime.as_deref(), &bytes).map_err(|e| e.to_string())?;
+    if !x.media && x.text.trim().is_empty() {
+        return Err("No readable text. Scanned PDFs need OCR, which this version does not do.".into());
+    }
+    let title = title.or_else(|| Some(x.title).filter(|t| !t.trim().is_empty())).unwrap_or(stem);
+    Ok(SourceInput::Document { title, content: x.text, file_name: Some(name), file: Some(bytes), mime })
+}
+
 /// A result handler that applies `f` to the open notebook if it is still `id`, or shows the error.
 fn with_open<T: Send + 'static>(id: &str, f: impl FnOnce(&mut Open, T) + Send + 'static) -> impl FnOnce(&mut App, notebook_engine::Result<T>) + Send + 'static {
     let id = id.to_owned();
@@ -856,5 +1017,101 @@ fn with_open<T: Send + 'static>(id: &str, f: impl FnOnce(&mut Open, T) + Send + 
             }
         }
         Err(e) => app.fail(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A new empty folder under the system's temporary folder.
+    pub(crate) fn scratch() -> PathBuf {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("on-state-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A state on a fresh on-device backend with one notebook open.
+    pub(crate) fn opened(dir: &std::path::Path) -> App {
+        let backend: Arc<dyn Backend> = Arc::new(LocalBackend::open(dir).unwrap());
+        let nb = backend.create_notebook("Sleep", "").unwrap();
+        let mut app = App::with_backend(dir.to_path_buf(), backend);
+        app.open_notebook(nb.id);
+        settle(&mut app, |_| false);
+        app
+    }
+
+    /// Applies worker results until `done`, or for a moment when it never is.
+    pub(crate) fn settle(app: &mut App, done: impl Fn(&App) -> bool) {
+        for _ in 0..200 {
+            app.drain();
+            if done(app) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_batch_reports_each_source_and_stays_open_on_failure() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let empty = dir.join("empty.txt");
+        std::fs::write(&empty, "  \n").unwrap();
+        app.open.as_mut().unwrap().add = Some(AddSource::default());
+        let jobs = vec![
+            ("Pasted text".to_owned(), AddJob::Input(SourceInput::Text { content: "Spindles help memory.".into(), title: None })),
+            ("Elsewhere".to_owned(), AddJob::Link("source:missing".into())),
+            ("empty.txt".to_owned(), AddJob::File { path: empty, title: None }),
+        ];
+        app.add_sources(jobs, Vec::new());
+        assert_eq!(app.open.as_ref().unwrap().add.as_ref().unwrap().progress().as_deref(), Some("Adding 1 of 3"));
+        settle(&mut app, |a| a.open.as_ref().unwrap().add.as_ref().is_none_or(|a| !a.busy));
+        let o = app.open.as_ref().unwrap();
+        let a = o.add.as_ref().expect("a failure keeps the sheet open");
+        let states: Vec<&ItemState> = a.items.as_ref().unwrap().iter().map(|i| &i.state).collect();
+        assert_eq!(states[0], &ItemState::Added);
+        assert!(matches!(states[1], ItemState::Failed(_)));
+        assert!(matches!(states[2], ItemState::Failed(e) if e.starts_with("No readable text")));
+        assert_eq!(a.failed(), 2);
+        assert_eq!(a.progress(), None);
+        assert_eq!(o.sources.len(), 1);
+    }
+
+    #[test]
+    fn a_batch_that_all_works_closes_the_sheet() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        app.open.as_mut().unwrap().add = Some(AddSource::default());
+        let job = |t: &str| (t.to_owned(), AddJob::Input(SourceInput::Text { content: t.into(), title: None }));
+        app.add_sources(vec![job("One"), job("Two")], Vec::new());
+        settle(&mut app, |a| a.open.as_ref().unwrap().add.is_none());
+        assert!(app.open.as_ref().unwrap().add.is_none());
+    }
+
+    #[test]
+    fn statuses_from_both_backends() {
+        assert!(is_processing(Some("pending")) && is_processing(Some("processing")) && !is_processing(Some("completed")));
+        assert!(is_failed(Some("error")) && is_failed(Some("failed")) && !is_failed(None));
+    }
+
+    #[test]
+    fn a_shared_source_is_only_unlinked() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let b = app.backend.clone().unwrap();
+        let here = app.open.as_ref().unwrap().id.clone();
+        let other = b.create_notebook("Other", "").unwrap();
+        let src = b.add_source(&here, NewSource { input: SourceInput::Text { content: "Shared".into(), title: None }, transformations: Vec::new() }).unwrap();
+        b.link_source(&src.id, &other.id).unwrap();
+        app.refresh_sources();
+        settle(&mut app, |a| a.open.as_ref().unwrap().sources.first().is_some_and(|s| s.notebooks.len() == 2));
+        assert!(app.source_is_shared(&src.id));
+        app.delete_source(src.id.clone());
+        settle(&mut app, |a| a.open.as_ref().unwrap().sources.is_empty());
+        assert!(b.list_sources(&other.id).unwrap().iter().any(|s| s.id == src.id));
     }
 }

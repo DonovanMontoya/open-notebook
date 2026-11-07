@@ -130,22 +130,23 @@ fn sidebar(s: &App, l: &Look) -> El {
         .header(nav("Usage", &icons::GAUGE, Route::Usage, "nav-usage"))
         .header(new_row);
     for nb in s.notebooks.iter().filter(|n| !n.archived) {
-        let id = nb.id.clone();
-        let selected = matches!(&s.route, Route::Notebook(open) if *open == nb.id);
-        let detail = match nb.source_count {
-            0 => String::new(),
-            n => n.to_string(),
-        };
+        sb = sb.child(notebook_row(s, nb, l));
+    }
+    let archived: Vec<&notebook_engine::types::Notebook> = s.notebooks.iter().filter(|n| n.archived).collect();
+    if !archived.is_empty() {
         sb = sb.child(
-            SidebarRow::new(nb.name.clone())
-                .icon(&icons::BOOK)
-                .detail(detail)
+            SidebarRow::new(format!("Archived ({})", archived.len()))
+                .icon(if s.show_archived { &rune_kit::glyphs::CHEVRON_DOWN } else { &rune_kit::glyphs::CARET_RIGHT })
                 .height(30.0)
-                .selected(selected)
-                .on_select(move |s: &mut App, _| s.open_notebook(id.clone()))
+                .on_select(|s: &mut App, _| s.show_archived = !s.show_archived)
                 .build(k)
-                .key(format!("nb-{}", nb.id)),
+                .key("archived"),
         );
+        if s.show_archived {
+            for nb in archived {
+                sb = sb.child(notebook_row(s, nb, l));
+            }
+        }
     }
     if s.remote.is_some() {
         sb = sb.footer(nav("Server", &icons::SERVER, Route::Server, "nav-server"));
@@ -160,6 +161,23 @@ fn sidebar(s: &App, l: &Look) -> El {
             .key("settings"),
     )
     .build(k)
+}
+
+fn notebook_row(s: &App, nb: &notebook_engine::types::Notebook, l: &Look) -> El {
+    let id = nb.id.clone();
+    let selected = matches!(&s.route, Route::Notebook(open) if *open == nb.id);
+    let detail = match nb.source_count {
+        0 => String::new(),
+        n => n.to_string(),
+    };
+    SidebarRow::new(nb.name.clone())
+        .icon(&icons::BOOK)
+        .detail(detail)
+        .height(30.0)
+        .selected(selected)
+        .on_select(move |s: &mut App, _| s.open_notebook(id.clone()))
+        .build(&l.k)
+        .key(format!("nb-{}", nb.id))
 }
 
 fn home(s: &App, l: &Look) -> El {
