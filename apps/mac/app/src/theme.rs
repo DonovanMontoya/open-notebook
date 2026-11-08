@@ -48,7 +48,7 @@ impl Size {
     pub fn of(width: f32) -> Size {
         if width < 560.0 {
             Size::Phone
-        } else if width < 900.0 {
+        } else if width < 1100.0 {
             Size::Pages
         } else {
             Size::Desk
@@ -122,6 +122,22 @@ impl Look {
     pub fn sized(mut self, width: f32) -> Look {
         self.size = Size::of(width);
         self.width = width;
+        if self.size != Size::Desk {
+            self.k.elevation.button_neutral.clear();
+            self.k.elevation.button_contrast.clear();
+            let ty = &mut self.k.ty;
+            ty.ui = TextStyle::new(16.0, 400.0).lh(24.0);
+            ty.ui_medium = TextStyle::new(16.0, 500.0).lh(24.0);
+            ty.ui_compact = TextStyle::new(16.0, 400.0).lh(20.0);
+            ty.body = ty.ui;
+            ty.body_medium = ty.ui_medium;
+            ty.small = TextStyle::new(13.0, 400.0).lh(18.0);
+            ty.small_medium = TextStyle::new(13.0, 500.0).lh(18.0);
+            ty.text_small = ty.ui;
+            ty.text_small_medium = ty.ui_medium;
+            ty.text_xsmall = ty.small;
+            ty.text_xsmall_medium = ty.small_medium;
+        }
         self
     }
 
@@ -131,7 +147,7 @@ impl Look {
 
     /// Side padding for a page: tighter on a phone.
     pub fn gutter(&self) -> f32 {
-        if self.phone() { 16.0 } else { 32.0 }
+        if self.phone() { 20.0 } else { 32.0 }
     }
 
     /// Side padding inside a page's column.

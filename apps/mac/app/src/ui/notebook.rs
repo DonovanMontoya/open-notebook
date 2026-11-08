@@ -9,7 +9,15 @@ use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButto
 
 use super::icons;
 use crate::state::{App, NoteDraft, NotebookDetails, NotebookTab, Open, is_failed, is_processing, next_mode};
-use crate::theme::{self, Look};
+use crate::theme::{self, Look, Size};
+
+fn compact(l: &Look) -> bool {
+    l.size != Size::Desk
+}
+
+fn reading_font(l: &Look) -> rune::tok::TextStyle {
+    if compact(l) { rune::tok::TextStyle::new(18.0, 400.0).family(rune::tok::Family::Named("Newsreader")).lh(28.0) } else { theme::READ_BODY }
+}
 
 const RAIL: f32 = 300.0;
 const READER: f32 = 380.0;
@@ -43,17 +51,26 @@ pub(super) fn tab_body(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
 /// bottom), then the chat's conversation picker or the New note button.
 pub(super) fn tab_head(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     const TABS: [NotebookTab; 4] = [NotebookTab::Chat, NotebookTab::Notes, NotebookTab::Study, NotebookTab::Listen];
-    let mut head = row().key("center-head").w_full().h(44.0).px(if l.phone() { 8.0 } else { 16.0 }).gap(8.0).center_y();
+    let mut head = row()
+        .key("center-head")
+        .w_full()
+        .h(if l.size == crate::theme::Size::Pages {
+            60.0
+        } else if l.phone() {
+            52.0
+        } else {
+            44.0
+        })
+        .px(16.0)
+        .gap(8.0)
+        .center_y();
     if !l.phone() {
-        let tabs = SegmentedControl::new(&["Chat", "Notes", "Study", "Listen"], TABS.iter().position(|t| *t == o.tab))
-            .label("View")
-            .fit()
-            .on_pick(|s: &mut App, i, _: &mut Tx| {
+        let tabs =
+            super::pages::choices(&["Chat", "Notes", "Study", "Listen"], TABS.iter().position(|t| *t == o.tab), "View", l, |s: &mut App, i, _: &mut Tx| {
                 if let Some(o) = s.open.as_mut() {
                     o.tab = TABS[i];
                 }
             })
-            .build(&l.k)
             .key("tabs");
         head = head.child(tabs);
     }
@@ -65,15 +82,17 @@ pub(super) fn tab_head(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     }
     if l.size == crate::theme::Size::Pages && matches!(o.tab, NotebookTab::Chat | NotebookTab::Notes) {
         let first = head;
-        head = row().key("center-head-2").w_full().h(40.0).px(16.0).gap(8.0).center_y();
-        let second = tab_actions(o, head.child(el().grow(1.0)), l, layer);
+        head = row().key("center-head-2").w_full().h(52.0).px(16.0).gap(8.0).center_y();
+        let second = if o.tab == NotebookTab::Chat { phone_chat_bar(o, l, layer) } else { tab_actions(o, head.child(el().grow(1.0)), l, layer) };
         return col().w_full().child(first).child(second);
     }
     // Off the Mac, a chat with no conversations yet has nothing for this row but a lone "+".
     if l.size != crate::theme::Size::Desk && o.tab == NotebookTab::Chat && o.sessions.is_empty() {
         return el();
     }
-    head = head.child(el().grow(1.0));
+    if !l.phone() {
+        head = head.child(el().grow(1.0));
+    }
     tab_actions(o, head, l, layer)
 }
 
@@ -86,14 +105,15 @@ fn tab_actions(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
             Button::new("New note")
                 .icon(&icons::PLUS)
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .on_press(|s: &mut App| {
                     if let Some(o) = s.open.as_mut() {
                         o.new_note(String::new(), String::new(), false);
                     }
                 })
                 .build(&l.k)
-                .key("new-note"),
+                .key("new-note")
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     }
     head
@@ -152,12 +172,13 @@ pub(super) fn header(o: &Open, l: &Look) -> El {
     }
     let title = title.on_double_press(open_details);
     let search = TextInput::new(&o.search)
+        .height(if compact(l) { 44.0 } else { 28.0 })
         .placeholder("Search notebook")
         .label("Search this notebook")
         .leading_icon(&rune_kit::glyphs::SEARCH)
         .width(match l.size {
             crate::theme::Size::Phone => None,
-            crate::theme::Size::Pages => Some(170.0),
+            crate::theme::Size::Pages => None,
             crate::theme::Size::Desk => Some(220.0),
         })
         .on_edit(|s: &mut App| &mut s.open.as_mut().expect("open").search)
@@ -173,9 +194,38 @@ pub(super) fn header(o: &Open, l: &Look) -> El {
         })
         .build(k)
         .key("notebook-search");
-    if l.phone() {
-        // The back bar holds the settings button; the search box gets the full width.
-        return col().key("notebook-head").w_full().px(16.0).pt(4.0).pb(8.0).gap(10.0).child(title).child(search);
+    if compact(l) {
+        let search_toggle = IconButton::new(if o.search_open { &icons::CLOSE } else { &rune_kit::glyphs::SEARCH })
+            .variant(IconButtonVariant::GhostMuted)
+            .label(if o.search_open { "Close search" } else { "Search notebook" })
+            .on_press(|s: &mut App| {
+                if let Some(o) = s.open.as_mut() {
+                    o.search_open = !o.search_open;
+                    o.search.focused = o.search_open;
+                }
+            })
+            .build(k)
+            .w(44.0)
+            .h(44.0)
+            .key("toggle-notebook-search");
+        let mut heading = row().w_full().min_h(52.0).gap(8.0).center_y().child(title).child(search_toggle);
+        if !l.phone() {
+            heading = heading.child(
+                IconButton::new(&icons::GEAR)
+                    .variant(IconButtonVariant::GhostMuted)
+                    .label("Notebook settings")
+                    .on_press(open_details)
+                    .build(k)
+                    .w(44.0)
+                    .h(44.0)
+                    .key("notebook-settings"),
+            );
+        }
+        let mut header = col().key("notebook-head").w_full().px(16.0).pb(8.0).child(heading);
+        if o.search_open {
+            header = header.child(search);
+        }
+        return header;
     }
     row()
         .key("notebook-head")
@@ -276,7 +326,8 @@ fn details(o: &Open, d: &NotebookDetails, l: &Look, layer: &mut Vec<El>) {
                 .on_edit(|s: &mut App| &mut form(s).name)
                 .on_submit(|s: &mut App, _: &mut Tx| save(s, None))
                 .build(k)
-                .key("details-name"),
+                .key("details-name")
+                .min_h(if compact(l) { 48.0 } else { 0.0 }),
         )
         .child(text("What it's for").font(k.ty.ui_medium).color(l.text2))
         .child(
@@ -290,9 +341,7 @@ fn details(o: &Open, d: &NotebookDetails, l: &Look, layer: &mut Vec<El>) {
                 .key("details-description"),
         )
         .child(
-            row()
-                .w_full()
-                .gap(8.0)
+            if compact(l) { col().w_full().gap(8.0) } else { row().w_full().gap(8.0) }
                 .center_y()
                 .child(
                     Button::new("Delete")
@@ -304,27 +353,38 @@ fn details(o: &Open, d: &NotebookDetails, l: &Look, layer: &mut Vec<El>) {
                             });
                         })
                         .build(k)
-                        .key("details-delete"),
+                        .key("details-delete")
+                        .min_h(if compact(l) { 48.0 } else { 0.0 }),
                 )
                 .child(
                     Button::new(if archived { "Unarchive" } else { "Archive" })
                         .variant(ButtonVariant::Ghost)
                         .on_press(move |s: &mut App| save(s, Some(!archived)))
                         .build(k)
-                        .key("details-archive"),
+                        .key("details-archive")
+                        .min_h(if compact(l) { 48.0 } else { 0.0 }),
                 )
-                .child(el().grow(1.0))
-                .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(close).build(k).key("details-cancel"))
+                .child(if compact(l) { el() } else { el().grow(1.0) })
+                .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(close).build(k).key("details-cancel").min_h(if compact(l) {
+                    48.0
+                } else {
+                    0.0
+                }))
                 .child(
                     Button::new("Save")
                         .variant(ButtonVariant::Contrast)
                         .disabled(d.name.text.trim().is_empty())
                         .on_press(|s: &mut App| save(s, None))
                         .build(k)
-                        .key("details-save"),
+                        .key("details-save")
+                        .min_h(if compact(l) { 48.0 } else { 0.0 }),
                 ),
         );
-    Dialog::new("notebook-details", "Notebook").open(true).width(l.dialog(460.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    if compact(l) {
+        super::phone_sheet("notebook-details", "Notebook", body, close, l, layer);
+    } else {
+        Dialog::new("notebook-details", "Notebook").open(true).width(l.dialog(460.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    }
 }
 
 /// A rail's width on the Mac; on a phone or a page of the Duo it fills its page.
@@ -347,19 +407,24 @@ fn sources(o: &Open, l: &Look) -> El {
     let add = Button::new("Add source")
         .icon(&icons::PLUS)
         .variant(ButtonVariant::Ghost)
-        .control_size(ControlSize::Small)
+        .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
         .on_press(|s: &mut App| s.open_add(&[]))
         .build(k)
-        .key("add-source");
+        .key("add-source")
+        .min_h(if compact(l) { 44.0 } else { 0.0 });
     let head = row()
         .w_full()
-        .h(44.0)
+        .h(if compact(l) { 64.0 } else { 44.0 })
         .px(16.0)
         .center_y()
         .justify_between()
         .child(text(format!("Sources · {}", o.sources.len())).font(k.ty.ui_medium).color(l.text2))
         .child(add);
-    let mut list = col().key("source-list").w_full().gap(2.0).px(8.0).pb(12.0);
+    let mut list = col().key("source-list").w_full().gap(if compact(l) { 4.0 } else { 2.0 }).px(if compact(l) { 16.0 } else { 8.0 }).pb(if compact(l) {
+        16.0
+    } else {
+        12.0
+    });
     if o.sources.is_empty() {
         list = list.child(text("Add links, text or files. Chat answers from what you add here.").font(k.ty.ui).color(l.text3).wrap().px(8.0).py(12.0));
     }
@@ -421,20 +486,33 @@ fn source_row(o: &Open, src: &SourceSummary, selected: bool, l: &Look) -> El {
     } else {
         row().child(text(source_meta(src)).font(k.ty.small).color(l.text3).max_lines(1).shrink().min_w(0.0))
     };
-    let lines = col().grow(1.0).min_w(0.0).gap(2.0).child(text(title).font(k.ty.ui).color(if off { l.text3 } else { l.text }).max_lines(2)).child(meta);
-    let mut r =
-        row().key(format!("src-{}", src.id)).w_full().px(8.0).py(7.0).gap(8.0).radius(8.0).child(rune::icon(kind_icon(src), 16.0).color(l.text3)).child(lines);
+    let lines = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(if compact(l) { 4.0 } else { 2.0 })
+        .child(text(title).font(if compact(l) { k.ty.body } else { k.ty.ui }).color(if off { l.text3 } else { l.text }).max_lines(2))
+        .child(meta);
+    let mut r = row()
+        .key(format!("src-{}", src.id))
+        .w_full()
+        .px(8.0)
+        .py(if compact(l) { 16.0 } else { 7.0 })
+        .gap(if compact(l) { 12.0 } else { 8.0 })
+        .radius(8.0)
+        .child(rune::icon(kind_icon(src), 16.0).color(l.text3))
+        .child(lines);
     if failed {
         let rid = id.clone();
         r = r.child(
             IconButton::new(&icons::RETRY)
                 .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
+                .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .label("Try again")
                 .help("Try again")
                 .on_press(move |s: &mut App| s.retry_source(rid.clone()))
                 .build(k)
-                .key("retry"),
+                .key("retry")
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     } else {
         let next = next_mode(mode, src.insights_count > 0);
@@ -444,11 +522,13 @@ fn source_row(o: &Open, src: &SourceSummary, selected: bool, l: &Look) -> El {
             .key("context-mode")
             .px(6.0)
             .py(2.0)
+            .min_h(if compact(l) { 44.0 } else { 0.0 })
+            .center_y()
             .radius(6.0)
             .border(1.0, l.line_strong)
             .role("button")
             .label(format!("Chat context: {}", mode_label(mode)))
-            .help(format!("{}. Click for {}.", mode_hint(mode), mode_label(next).to_lowercase()))
+            .help(format!("{}. Choose for {}.", mode_hint(mode), mode_label(next).to_lowercase()))
             .child(text(mode_label(mode)).font(k.ty.small).color(if off { l.text3 } else { l.text2 }).max_lines(1));
         r = r.child(col().child(k.interactive(chip).on_press(move |s: &mut App| s.set_source_context(sid.clone(), next))));
     }
@@ -466,7 +546,7 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
     let title = src.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled source".into());
     let sid = src.id.clone();
     let title_el = match &o.renaming_source {
-        Some(edit) => {
+        Some(edit) if !compact(l) => {
             let a = sid.clone();
             TextInput::new(edit)
                 .label("Source title")
@@ -490,7 +570,7 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
                 .grow(1.0)
                 .min_w(0.0)
         }
-        None => {
+        _ => {
             let t = title.clone();
             text(title.clone()).font(k.ty.ui_medium).color(l.text).grow(1.0).min_w(0.0).max_lines(1).help("Double-click to rename").on_double_press(
                 move |s: &mut App| {
@@ -503,7 +583,7 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
             )
         }
     };
-    let mut head = row().w_full().h(44.0).px(16.0).gap(8.0).center_y().child(title_el);
+    let mut head = row().w_full().h(if compact(l) { 60.0 } else { 44.0 }).px(16.0).gap(8.0).center_y().child(title_el);
     if let Some(url) = src.asset.as_ref().and_then(|a| a.url.clone()).filter(|u| is_web(u)) {
         head = head.child(
             IconButton::new(&icons::EXTERNAL)
@@ -514,7 +594,9 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
                     let _ = tx.open_url(&url);
                 })
                 .build(k)
-                .key("open-original"),
+                .key("open-original")
+                .min_w(if compact(l) { 44.0 } else { 0.0 })
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     }
     head = head
@@ -529,6 +611,8 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
                 .on_press(move |s: &mut App| s.chat_scope((!on).then(|| (sid.clone(), t.clone()))))
                 .build(k)
                 .key("source-chat")
+                .min_w(if compact(l) { 44.0 } else { 0.0 })
+                .min_h(if compact(l) { 44.0 } else { 0.0 })
         })
         .child(
             IconButton::new(&icons::CLOSE)
@@ -543,7 +627,9 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
                     }
                 })
                 .build(k)
-                .key("close-reader"),
+                .key("close-reader")
+                .min_w(if compact(l) { 44.0 } else { 0.0 })
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     let mut meta = source_meta(src);
     if src.embedded_chunks > 0 {
@@ -555,7 +641,7 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
         let empty = if is_processing(src.status.as_deref()) { "Still reading this source" } else { "No text was found" };
         text(empty).font(theme::READ_HEADING).color(l.text3).wrap()
     } else {
-        let mut t = text(full.clone()).font(theme::READ_BODY).color(l.text2).wrap().selectable(true);
+        let mut t = text(full.clone()).font(reading_font(l)).color(if compact(l) { l.text } else { l.text2 }).wrap().selectable(true);
         if let Some((start, end)) = passage.filter(|(s, e)| s < e && *e <= full.len()) {
             // Paint-only, so the text wraps the same; keyed so the reader can scroll to it.
             t = t
@@ -574,18 +660,69 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
         t
     };
     let shared = o.reading.as_ref().is_some_and(|(d, _)| d.summary.notebooks.len() > 1);
-    let mut actions = row().w_full().gap(8.0);
+    let mut actions = if compact(l) { col().w_full().gap(8.0) } else { row().w_full().gap(8.0) };
+    if compact(l) {
+        let name = title.clone();
+        actions = actions.child(
+            Button::new("Rename source")
+                .icon(&icons::PENCIL)
+                .variant(ButtonVariant::Ghost)
+                .on_press(move |s: &mut App| {
+                    if let Some(o) = s.open.as_mut() {
+                        let mut edit = TextEdit::new(name.clone());
+                        edit.focused = true;
+                        o.renaming_source = Some(edit);
+                    }
+                })
+                .build(k)
+                .h(48.0)
+                .key("rename-source-action"),
+        );
+        if let Some(edit) = &o.renaming_source {
+            let id = sid.clone();
+            let close = |s: &mut App| {
+                if let Some(o) = s.open.as_mut() {
+                    o.renaming_source = None;
+                }
+            };
+            let rename = col()
+                .w_full()
+                .gap(16.0)
+                .child(
+                    TextInput::new(edit)
+                        .width(None)
+                        .height(48.0)
+                        .label("Source title")
+                        .on_edit(|s: &mut App| s.open.as_mut().and_then(|o| o.renaming_source.as_mut()).expect("renaming source"))
+                        .build(k),
+                )
+                .child(
+                    Button::new("Save name")
+                        .variant(ButtonVariant::Contrast)
+                        .disabled(edit.text.trim().is_empty())
+                        .on_press(move |s: &mut App| {
+                            let title = s.open.as_ref().and_then(|o| o.renaming_source.as_ref()).map(|e| e.text.clone()).unwrap_or_default();
+                            s.rename_source(id.clone(), title);
+                        })
+                        .build(k)
+                        .key("save-source-name")
+                        .h(48.0),
+                );
+            super::phone_sheet("rename-source", "Rename source", rename, close, l, layer);
+        }
+    }
     if src.file_available {
         let id = sid.clone();
         actions = actions.child(
             Button::new(if o.downloading { "Saving" } else { "Download original" })
                 .icon(&icons::DOWNLOAD)
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .disabled(o.downloading)
                 .on_press(move |s: &mut App| s.download_source(id.clone()))
                 .build(k)
-                .key("download"),
+                .key("download")
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     }
     let id = sid.clone();
@@ -593,20 +730,23 @@ fn reader(o: &Open, detail: &SourceDetail, passage: Option<(usize, usize)>, l: &
         Button::new(if shared { "Remove from this notebook" } else { "Delete source" })
             .icon(&icons::TRASH)
             .variant(ButtonVariant::Ghost)
-            .control_size(ControlSize::Small)
+            .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
             .on_press(move |s: &mut App| s.ask_delete_source(id.clone()))
             .build(k)
-            .key("delete-source"),
+            .key("delete-source")
+            .min_h(if compact(l) { 44.0 } else { 0.0 }),
     );
-    let content = col()
-        .w_full()
-        .px(20.0)
-        .py(16.0)
-        .gap(18.0)
-        .child(text(meta).font(k.ty.small).color(l.text3).wrap())
-        .child(insights(o, !full.trim().is_empty(), l, layer))
-        .child(body)
-        .child(actions);
+    let content = col().w_full().px(20.0).py(16.0).gap(if compact(l) { 24.0 } else { 18.0 });
+    let content = if compact(l) {
+        content
+            .child(text(title).font(theme::READ_TITLE).color(l.text).wrap())
+            .child(text(meta).font(k.ty.small).color(l.text3).wrap())
+            .child(body)
+            .child(insights(o, !full.trim().is_empty(), l, layer))
+            .child(actions)
+    } else {
+        content.child(text(meta).font(k.ty.small).color(l.text3).wrap()).child(insights(o, !full.trim().is_empty(), l, layer)).child(body).child(actions)
+    };
     rail_width(col().key("reader"), READER, 260.0, l)
         .h_full()
         .min_h(0.0)
@@ -631,7 +771,7 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
     let mut head = row().w_full().gap(8.0).center_y().child(text("Insights").font(k.ty.ui_medium).color(l.text2).grow(1.0));
     if has_text && !names.is_empty() {
         head = head.child(
-            rune_kit::Select::new("run-insight", &names)
+            super::select::Select::new("run-insight", &names)
                 .label("Run a transformation")
                 .placeholder("Transform")
                 .current(None)
@@ -656,7 +796,8 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
                         s.run_insight(id);
                     }
                 })
-                .build(k, layer),
+                .build(k, layer)
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     }
     let mut c = col().key("insights").w_full().gap(8.0).child(head);
@@ -695,12 +836,13 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
                     o.insight_open = if o.insight_open.as_deref() == Some(tid.as_str()) { None } else { Some(tid.clone()) };
                 }
             })
-            .key("insight-head");
+            .key("insight-head")
+            .min_h(if compact(l) { 44.0 } else { 0.0 });
         let mut card = col().key(format!("insight-{}", i.id)).w_full().gap(6.0).padding(12.0).radius(10.0).fill(l.raised).child(top);
         if failed {
             card = card.child(text(i.error.clone().unwrap_or_default()).font(k.ty.small).color(l.danger).wrap());
         } else if !running {
-            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).text(l.text2);
+            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(reading_font(l)).text(l.text2);
             let md = Markdown::new(i.content.clone()).style(style).selectable(true).build(k);
             card = card.child(if open { md } else { col().w_full().max_h(78.0).clip_fade(0.0, 0.0, 0.0, 28.0).child(md) });
         }
@@ -713,18 +855,20 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
                     Button::new(if saved { "Saved to notes" } else { "Save as note" })
                         .icon(&icons::SAVE)
                         .variant(ButtonVariant::Ghost)
-                        .control_size(ControlSize::Small)
+                        .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                         .disabled(saved)
                         .on_press(move |s: &mut App| s.save_insight(save.clone()))
                         .build(k)
-                        .key("save"),
+                        .key("save")
+                        .min_w(if compact(l) { 44.0 } else { 0.0 })
+                        .min_h(if compact(l) { 44.0 } else { 0.0 }),
                 );
             }
             acts = acts.child(
                 Button::new("Delete")
                     .icon(&icons::TRASH)
                     .variant(ButtonVariant::Ghost)
-                    .control_size(ControlSize::Small)
+                    .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .on_press(move |s: &mut App| {
                         let id = del.clone();
                         s.ask("Delete this insight?", move |s| s.delete_insight(id.clone()));
@@ -744,6 +888,9 @@ fn insights(o: &Open, has_text: bool, l: &Look, layer: &mut Vec<El>) -> El {
 /// The conversation bar: which conversation, its rename and delete, and a new chat.
 fn chat_bar(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
+    if l.phone() {
+        return phone_chat_bar(o, l, layer);
+    }
     if let Some(edit) = &o.renaming_chat {
         let field = TextInput::new(edit)
             .label("Conversation name")
@@ -761,18 +908,27 @@ fn chat_bar(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
             })
             .build(k)
             .key("rename-chat");
-        return head.child(field).child(Button::new("Save").control_size(ControlSize::Small).on_press(submit_rename).build(k).key("rename-save")).child(
-            Button::new("Cancel")
-                .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
-                .on_press(|s: &mut App| {
-                    if let Some(o) = s.open.as_mut() {
-                        o.renaming_chat = None;
-                    }
-                })
-                .build(k)
-                .key("rename-cancel"),
-        );
+        return head
+            .child(field)
+            .child(
+                Button::new("Save")
+                    .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
+                    .on_press(submit_rename)
+                    .build(k)
+                    .key("rename-save"),
+            )
+            .child(
+                Button::new("Cancel")
+                    .variant(ButtonVariant::Ghost)
+                    .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
+                    .on_press(|s: &mut App| {
+                        if let Some(o) = s.open.as_mut() {
+                            o.renaming_chat = None;
+                        }
+                    })
+                    .build(k)
+                    .key("rename-cancel"),
+            );
     }
     head = head.child(session_picker(o, l, layer));
     if let Some(session) = o.session.as_ref().map(|s| s.session.clone()) {
@@ -792,7 +948,9 @@ fn chat_bar(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
                         }
                     })
                     .build(k)
-                    .key("rename-chat-button"),
+                    .key("rename-chat-button")
+                    .min_w(if compact(l) { 44.0 } else { 0.0 })
+                    .min_h(if compact(l) { 44.0 } else { 0.0 }),
             );
         }
         head = head.child(
@@ -805,7 +963,9 @@ fn chat_bar(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
                     s.ask("Delete this conversation?", move |s| s.delete_session(sid.clone()));
                 })
                 .build(k)
-                .key("delete-chat"),
+                .key("delete-chat")
+                .min_w(if compact(l) { 44.0 } else { 0.0 })
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     }
     head.child(
@@ -816,8 +976,150 @@ fn chat_bar(o: &Open, mut head: El, l: &Look, layer: &mut Vec<El>) -> El {
             .disabled(o.session.is_none())
             .on_press(|s: &mut App| s.new_chat())
             .build(k)
-            .key("new-chat"),
+            .key("new-chat")
+            .min_w(if compact(l) { 44.0 } else { 0.0 })
+            .min_h(if compact(l) { 44.0 } else { 0.0 }),
     )
+}
+
+fn close_conversations(s: &mut App) {
+    if let Some(o) = s.open.as_mut() {
+        o.conversation_actions = false;
+        o.renaming_chat = None;
+    }
+}
+
+/// The phone keeps conversation management in one named, touch-sized sheet.
+fn phone_chat_bar(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
+    let k = &l.k;
+    let current = o.session.as_ref().map(|s| s.session.title.as_str()).filter(|t| !t.trim().is_empty()).unwrap_or("New conversation");
+    let picker = k
+        .interactive(
+            row()
+                .key("phone-conversation")
+                .grow(1.0)
+                .min_w(0.0)
+                .h(44.0)
+                .gap(8.0)
+                .center_y()
+                .role("button")
+                .label("Conversations and options")
+                .child(text(current.to_owned()).font(k.ty.ui_medium).color(l.text2).max_lines(1).grow(1.0).min_w(0.0))
+                .child(rune::icon(&rune_kit::glyphs::CHEVRON_DOWN, 16.0).color(l.text3)),
+        )
+        .on_press_tx(|s: &mut App, tx: &mut Tx| {
+            if let Some(o) = s.open.as_mut() {
+                o.conversation_actions = true;
+                o.draft.focused = false;
+            }
+            tx.blur();
+        });
+    let new = IconButton::new(&icons::PLUS)
+        .variant(IconButtonVariant::GhostMuted)
+        .label("New conversation")
+        .disabled(o.session.is_none())
+        .on_press(|s: &mut App| s.new_chat())
+        .build(k)
+        .w(44.0)
+        .h(44.0)
+        .key("new-chat");
+    if o.conversation_actions {
+        let mut body = col().w_full().gap(8.0);
+        if let Some(edit) = &o.renaming_chat {
+            body = body
+                .child(text("Conversation name").font(k.ty.ui_medium).color(l.text2))
+                .child(
+                    TextInput::new(edit)
+                        .width(None)
+                        .height(48.0)
+                        .label("Conversation name")
+                        .on_edit(|s: &mut App| s.open.as_mut().and_then(|o| o.renaming_chat.as_mut()).expect("renaming"))
+                        .on_submit(|s: &mut App, _: &mut Tx| {
+                            submit_rename(s);
+                            close_conversations(s);
+                        })
+                        .build(k)
+                        .key("phone-rename-chat"),
+                )
+                .child(
+                    Button::new("Save name")
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(|s: &mut App| {
+                            submit_rename(s);
+                            close_conversations(s);
+                        })
+                        .build(k)
+                        .h(48.0)
+                        .w_full(),
+                );
+        } else {
+            if let Some(session) = o.session.as_ref().map(|s| s.session.clone()) {
+                if o.scope.is_none() {
+                    let title = session.title.clone();
+                    body = body.child(
+                        Button::new("Rename conversation")
+                            .icon(&icons::PENCIL)
+                            .variant(ButtonVariant::Ghost)
+                            .on_press(move |s: &mut App| {
+                                if let Some(o) = s.open.as_mut() {
+                                    let mut edit = TextEdit::new(title.clone());
+                                    edit.focused = true;
+                                    o.renaming_chat = Some(edit);
+                                }
+                            })
+                            .build(k)
+                            .w_full()
+                            .h(48.0)
+                            .key("phone-rename-conversation"),
+                    );
+                }
+                let sid = session.id;
+                body = body.child(
+                    Button::new("Delete conversation")
+                        .icon(&icons::TRASH)
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(move |s: &mut App| {
+                            close_conversations(s);
+                            let sid = sid.clone();
+                            s.ask("Delete this conversation?", move |s| s.delete_session(sid.clone()));
+                        })
+                        .build(k)
+                        .w_full()
+                        .h(48.0)
+                        .key("phone-delete-conversation"),
+                );
+            }
+            body = body.child(rule(l)).child(text("Conversations").font(k.ty.ui_medium).color(l.text2).pt(16.0).pb(8.0));
+            if o.sessions.is_empty() {
+                body = body.child(text("Your conversations will appear here").font(k.ty.ui).color(l.text3).wrap());
+            }
+            for session in &o.sessions {
+                let sid = session.id.clone();
+                let selected = o.session.as_ref().is_some_and(|s| s.session.id == sid);
+                let title = if session.title.trim().is_empty() { "Untitled conversation" } else { &session.title };
+                let item = row()
+                    .key(format!("phone-session-{sid}"))
+                    .w_full()
+                    .min_h(56.0)
+                    .gap(12.0)
+                    .px(12.0)
+                    .py(12.0)
+                    .radius(8.0)
+                    .fill(if selected { l.raised } else { l.panel })
+                    .center_y()
+                    .role("button")
+                    .label(title.to_owned())
+                    .child(text(title.to_owned()).font(k.ty.body).color(l.text).max_lines(2).grow(1.0).min_w(0.0))
+                    .child(rune::icon(if selected { &rune_kit::glyphs::CHECK } else { &rune_kit::glyphs::CARET_RIGHT }, 16.0).color(l.text3));
+                body = body.child(k.interactive(item).on_press(move |s: &mut App| {
+                    close_conversations(s);
+                    s.open_session(sid.clone());
+                }));
+            }
+        }
+        super::phone_sheet("conversations", "Conversations", body, close_conversations, l, layer);
+    }
+    row().key("center-head").w_full().h(52.0).px(16.0).gap(8.0).center_y().child(picker).child(new)
 }
 
 fn submit_rename(s: &mut App) {
@@ -837,12 +1139,18 @@ fn session_picker(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let current = o.session.as_ref().and_then(|cur| o.sessions.iter().position(|s| s.id == cur.session.id)).map(|i| labels[i].as_str());
     let ids: Vec<String> = o.sessions.iter().map(|s| s.id.clone()).collect();
     let picks = labels.clone();
-    rune_kit::Select::new("sessions", &labels)
+    super::select::Select::new("sessions", &labels)
         .details(&details)
         .label(format!("Conversations, {}", o.sessions.len()))
         .placeholder(format!("New chat · {}", o.sessions.len()))
         .current(current)
-        .width(220.0)
+        .width(if l.phone() {
+            (l.width - 188.0).clamp(120.0, 220.0)
+        } else if compact(l) {
+            (l.width * 0.5 - 188.0).clamp(100.0, 220.0)
+        } else {
+            220.0
+        })
         .open(o.sessions_open)
         .on_toggle(|s: &mut App| {
             if let Some(o) = s.open.as_mut() {
@@ -861,6 +1169,7 @@ fn session_picker(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
             }
         })
         .build(k, layer)
+        .min_h(if compact(l) { 44.0 } else { 0.0 })
 }
 
 fn citable(o: &Open) -> Vec<CitableSource> {
@@ -870,7 +1179,7 @@ fn citable(o: &Open) -> Vec<CitableSource> {
 fn chat(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let sources = citable(o);
-    let mut thread = col().key("thread").w_full().max_w(720.0).gap(18.0).px(l.pad()).py(20.0);
+    let mut thread = col().key("thread").w_full().max_w(720.0).gap(if compact(l) { 24.0 } else { 18.0 }).px(l.pad()).py(if compact(l) { 24.0 } else { 20.0 });
     if let Some((_, title)) = &o.scope {
         thread = thread.child(
             row()
@@ -880,16 +1189,17 @@ fn chat(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
                 .px(12.0)
                 .py(8.0)
                 .radius(10.0)
-                .fill(l.amber_wash)
+                .fill(if compact(l) { l.raised } else { l.amber_wash })
                 .center_y()
                 .child(text(format!("Chatting about {title}")).font(k.ty.ui).color(l.text).grow(1.0).min_w(0.0).max_lines(1))
                 .child(
                     Button::new("Back to notebook chat")
                         .variant(ButtonVariant::Ghost)
-                        .control_size(ControlSize::Small)
+                        .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                         .on_press(|s: &mut App| s.chat_scope(None))
                         .build(k)
-                        .key("scope-back"),
+                        .key("scope-back")
+                        .min_h(if compact(l) { 44.0 } else { 0.0 }),
                 ),
         );
     }
@@ -899,14 +1209,14 @@ fn chat(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         let (title, body) = if o.scope.is_some() {
             ("Ask about this source", "Questions here are answered from this source alone.")
         } else if ready {
-            ("Ask about your sources", "Answers cite the source they come from. Click a citation to read the passage.")
+            ("Ask about your sources", "Answers cite the source they come from. Tap a citation to read the passage.")
         } else {
             ("Add a source to ask about", "Answers come from the pages, PDFs and text you add to this notebook.")
         };
         let mut empty = col()
             .key("chat-empty")
             .w_full()
-            .pt(80.0)
+            .pt(if compact(l) { 32.0 } else { 80.0 })
             .gap(8.0)
             .items_center()
             .child(text(title).font(theme::READ_HEADING).color(l.text2).align(rune::Align::Center).wrap())
@@ -976,7 +1286,7 @@ fn message(id: &str, kind: MessageKind, content: &str, sources: &[CitableSource]
                 Some(i) => mark_cite(&linked.markdown, i),
                 None => linked.markdown,
             };
-            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).link(l.amber).text(l.text);
+            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(reading_font(l)).link(l.amber).text(l.text);
             let mid = id.to_owned();
             let mut c = col().w_full().gap(6.0);
             if !marked.is_empty() {
@@ -1012,17 +1322,19 @@ fn message(id: &str, kind: MessageKind, content: &str, sources: &[CitableSource]
                     .child(
                         IconButton::new(&rune_kit::glyphs::COPY)
                             .variant(IconButtonVariant::GhostMuted)
-                            .control_size(ControlSize::Small)
+                            .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                             .label("Copy")
                             .help("Copy")
                             .on_press_tx(move |_: &mut App, tx: &mut Tx| tx.copy(copy.clone()))
                             .build(k)
-                            .key("copy"),
+                            .key("copy")
+                            .min_w(if compact(l) { 44.0 } else { 0.0 })
+                            .min_h(if compact(l) { 44.0 } else { 0.0 }),
                     )
                     .child(
                         IconButton::new(&icons::SAVE)
                             .variant(IconButtonVariant::GhostMuted)
-                            .control_size(ControlSize::Small)
+                            .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                             .label("Save as note")
                             .help("Save as note")
                             .on_press(move |s: &mut App| {
@@ -1032,7 +1344,9 @@ fn message(id: &str, kind: MessageKind, content: &str, sources: &[CitableSource]
                                 }
                             })
                             .build(k)
-                            .key("save"),
+                            .key("save")
+                            .min_w(if compact(l) { 44.0 } else { 0.0 })
+                            .min_h(if compact(l) { 44.0 } else { 0.0 }),
                     ),
             )
         }
@@ -1047,7 +1361,7 @@ fn composer(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         .placeholder(if o.scope.is_some() { "Ask about this source" } else { "Ask about these sources" })
         .label("Message")
         .width(None)
-        .auto_grow(1, 8)
+        .auto_grow(1, if compact(l) { 4 } else { 8 })
         .on_key(|s: &mut App, ev: &rune::KeyEvent, _: &mut Tx| {
             if ev.key == rune::Key::Enter && !ev.mods.shift && !ev.mods.alt {
                 s.send();
@@ -1078,23 +1392,21 @@ fn composer(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         .child(model_menu(s, o, l, layer))
         .child(el().grow(1.0))
         // A hardware keyboard's hint; a phone's keyboard has no Shift Return.
-        .children((!cfg!(target_os = "ios")).then(|| text("Shift Return for a new line").font(k.ty.small).color(l.text3)));
+        .children((!compact(l) && !cfg!(target_os = "ios")).then(|| text("Shift Return for a new line").font(k.ty.small).color(l.text3)));
     col()
         .key("composer")
         .w_full()
         .items_center()
-        .px(24.0)
+        .px(if compact(l) { 16.0 } else { 24.0 })
         .pb(12.0)
         .pt(8.0)
         .gap(6.0)
         .child(
-            row()
-                .w_full()
-                .max_w(720.0)
-                .gap(8.0)
-                .items_end()
-                .child(col().grow(1.0).min_w(0.0).child(field))
-                .child(col().pb(6.0).child(button.build(k).key("send"))),
+            row().w_full().max_w(720.0).gap(8.0).items_end().child(col().grow(1.0).min_w(0.0).child(field)).child(
+                col()
+                    .pb(if compact(l) { 0.0 } else { 6.0 })
+                    .child(button.build(k).w(if compact(l) { 44.0 } else { 24.0 }).h(if compact(l) { 44.0 } else { 24.0 }).key("send")),
+            ),
         )
         .child(meta)
 }
@@ -1112,7 +1424,7 @@ fn model_menu(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
         None => s.default_model_label(),
     };
     let picks = labels.clone();
-    rune_kit::Select::new("chat-model", &labels)
+    super::select::Select::new("chat-model", &labels)
         .label("Model for this conversation")
         .placeholder(current.clone())
         .current(Some(current.as_str()).filter(|c| labels.iter().any(|x| x == c)))
@@ -1138,6 +1450,7 @@ fn model_menu(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
             }
         })
         .build(&l.k, layer)
+        .min_h(if compact(l) { 44.0 } else { 0.0 })
 }
 
 // Notes
@@ -1176,12 +1489,22 @@ fn notes(o: &Open, l: &Look) -> El {
         lines = lines.child(text(meta).font(k.ty.small).color(l.text3));
         let pill = Button::new(if on { "In chat" } else { "Left out" })
             .variant(ButtonVariant::Ghost)
-            .control_size(ControlSize::Small)
+            .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
             .help(if on { "Chat reads this note. Click to leave it out." } else { "Chat ignores this note. Click to include it." })
             .on_press(move |s: &mut App| s.set_note_included(nid.clone(), !on))
             .build(k)
-            .key("note-context");
-        let card = row().key(format!("note-{}", n.id)).w_full().gap(10.0).padding(14.0).radius(12.0).border(1.0, l.line).fill(l.panel).child(lines).child(pill);
+            .key("note-context")
+            .min_h(if compact(l) { 44.0 } else { 0.0 });
+        let card = (if l.phone() { col() } else { row() })
+            .key(format!("note-{}", n.id))
+            .w_full()
+            .gap(10.0)
+            .padding(14.0)
+            .radius(12.0)
+            .border(1.0, l.line)
+            .fill(l.panel)
+            .child(lines)
+            .child(pill);
         list = list.child(k.interactive(card).on_press(move |s: &mut App| {
             if let Some(o) = s.open.as_mut() {
                 o.edit_note(&card_note);
@@ -1245,10 +1568,11 @@ fn note_editor(o: &Open, d: &NoteDraft, l: &Look) -> El {
             Button::new("All notes")
                 .icon(&icons::BACK)
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .on_press(|s: &mut App| s.leave_note())
                 .build(k)
-                .key("note-back"),
+                .key("note-back")
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         )
         .child(el().grow(1.0))
         .child(mode);
@@ -1257,7 +1581,7 @@ fn note_editor(o: &Open, d: &NoteDraft, l: &Look) -> El {
         let inner = if content.is_empty() {
             text("Empty note").font(k.ty.ui).color(l.text3)
         } else {
-            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(theme::READ_BODY).text(l.text);
+            let style = rune_kit::markdown::MarkdownStyle::from_kit(k).body_font(reading_font(l)).text(l.text);
             Markdown::new(strip_cites(content)).style(style).selectable(true).build(k)
         };
         col().key("note-preview").w_full().min_h(120.0).child(inner).help("Double-click to edit").on_double_press(|s: &mut App| set_read(s, false))
@@ -1285,18 +1609,25 @@ fn note_editor(o: &Open, d: &NoteDraft, l: &Look) -> El {
             Button::new("Delete")
                 .icon(&icons::TRASH)
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if compact(l) { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .on_press(move |s: &mut App| {
                     let id = id.clone();
                     s.ask("Delete this note?", move |s| s.delete_note(id.clone()));
                 })
                 .build(k)
-                .key("note-delete"),
+                .key("note-delete")
+                .min_h(if compact(l) { 44.0 } else { 0.0 }),
         );
     }
-    foot = foot
-        .child(el().grow(1.0))
-        .child(Button::new("Save note").variant(ButtonVariant::Contrast).disabled(!can_save).on_press(|s: &mut App| s.save_note()).build(k).key("note-save"));
+    foot = foot.child(el().grow(1.0)).child(
+        Button::new("Save note")
+            .variant(ButtonVariant::Contrast)
+            .disabled(!can_save)
+            .on_press(|s: &mut App| s.save_note())
+            .build(k)
+            .key("note-save")
+            .min_h(if compact(l) { 44.0 } else { 0.0 }),
+    );
     col()
         .key("note-editor")
         .w_full()

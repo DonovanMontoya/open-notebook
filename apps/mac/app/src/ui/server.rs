@@ -1,7 +1,9 @@
 //! The server admin page: default models, models, API keys and background jobs.
 
+use super::select::Select;
+
 use rune::{El, ScrollSpec, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, Select, TextInput};
+use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, TextInput};
 
 use crate::format;
 use crate::server::{

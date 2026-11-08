@@ -13,6 +13,7 @@ use crate::state::App;
 /// One running app inside the shell's view.
 pub struct OnHost {
     host: LayerHost<App>,
+    system_dark: bool,
 }
 
 /// What the shell does after a frame.
@@ -24,6 +25,10 @@ pub struct OnFrame {
     pub wants_keyboard: bool,
     /// Seconds until a timer wants a frame, or a negative number for none.
     pub wake_after: f64,
+    /// Present the system document picker after this frame.
+    pub pick_files: bool,
+    /// The app appearance, including an explicit setting.
+    pub dark: bool,
 }
 
 /// Called from any thread when work finishes and the app wants a frame.
@@ -58,10 +63,21 @@ pub unsafe extern "C" fn on_create(
     }
     let spec = crate::spec();
     let state = (spec.init)();
+    // The simulator uses the same sample scenes as headless renders.
+    #[cfg(target_abi = "sim")]
+    let state = {
+        let mut state = state;
+        let args: Vec<String> = std::env::args().collect();
+        let scene = args.windows(2).find(|pair| pair[0] == "--scene").map(|pair| pair[1].as_str());
+        if let Some((_, apply)) = spec.scenes.iter().find(|(name, _)| Some(*name) == scene) {
+            apply(&mut state);
+        }
+        state
+    };
     let ctx = Arc::new(WakeCtx(ctx));
     let waker: rune::Waker = Arc::new(move || wake(ctx.0));
     match unsafe { LayerHost::from_core_animation_layer(layer, &spec, state, (width, height), scale, dark, waker) } {
-        Ok(host) => Box::into_raw(Box::new(OnHost { host })),
+        Ok(host) => Box::into_raw(Box::new(OnHost { host, system_dark: dark })),
         Err(e) => {
             eprintln!("open notebook: could not start: {e}");
             std::ptr::null_mut()
@@ -75,10 +91,51 @@ pub unsafe extern "C" fn on_create(
 /// `h` comes from `on_create`; main thread only.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn on_frame(h: *mut OnHost) -> OnFrame {
-    let Some(h) = (unsafe { h.as_mut() }) else { return OnFrame { animating: false, wants_keyboard: false, wake_after: -1.0 } };
+    let Some(h) = (unsafe { h.as_mut() }) else { return OnFrame { animating: false, wants_keyboard: false, wake_after: -1.0, pick_files: false, dark: false } };
     let f = h.host.frame();
+    let pick_files = h.host.runtime_mut().state.open.as_mut().and_then(|o| o.add.as_mut()).is_some_and(|a| std::mem::take(&mut a.pick_files));
     let rt = h.host.runtime();
-    OnFrame { animating: f.animating, wants_keyboard: rt.ime_area.is_some(), wake_after: f.wake_after_secs.unwrap_or(-1.0) }
+    let dark = match rt.state.settings.appearance.as_str() {
+        "dark" => true,
+        "light" => false,
+        _ => h.system_dark,
+    };
+    OnFrame { animating: f.animating, wants_keyboard: rt.ime_area.is_some(), wake_after: f.wake_after_secs.unwrap_or(-1.0), pick_files, dark }
+}
+
+/// The containing view's current system appearance.
+///
+/// # Safety
+/// As `on_frame`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn on_appearance(h: *mut OnHost, dark: bool) {
+    if let Some(h) = unsafe { h.as_mut() } {
+        h.system_dark = dark;
+        h.host.runtime_mut().set_system_dark(dark);
+    }
+}
+
+/// A document copied into the app's temporary directory, or a picker error.
+///
+/// # Safety
+/// As `on_frame`; strings must be NUL-terminated UTF-8 when non-null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn on_file(h: *mut OnHost, path: *const c_char, error: *const c_char) {
+    let Some(h) = (unsafe { h.as_mut() }) else { return };
+    let rt = h.host.runtime_mut();
+    let Some(a) = rt.state.open.as_mut().and_then(|o| o.add.as_mut()) else { return };
+    if !error.is_null() {
+        a.error = Some(unsafe { CStr::from_ptr(error) }.to_string_lossy().into_owned());
+    } else if !path.is_null() {
+        let path = std::path::PathBuf::from(unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned());
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+        if crate::state::accepted().contains(&extension.as_str()) {
+            a.add_files(&[path]);
+        } else {
+            a.error = Some(format!("Unsupported file type: {}", path.file_name().unwrap_or_default().to_string_lossy()));
+        }
+    }
+    rt.invalidate();
 }
 
 /// The view changed size, or the app went to the background (0 x 0 stops drawing).
@@ -128,6 +185,17 @@ pub unsafe extern "C" fn on_text(h: *mut OnHost, text: *const c_char) {
         if !part.is_empty() {
             rt.ime(Ime::Commit(part.to_owned()));
         }
+    }
+}
+
+/// Dismisses the keyboard while retaining the field's text.
+///
+/// # Safety
+/// As `on_frame`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn on_dismiss_keyboard(h: *mut OnHost) {
+    if let Some(h) = unsafe { h.as_mut() } {
+        h.host.runtime_mut().update(|_, tx| tx.blur());
     }
 }
 

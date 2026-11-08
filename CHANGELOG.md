@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Study Studio in notebooks: source-selected flashcard and quiz generation, difficulty and question-count controls, answer reveal, scoring, missed-item review, and decks saved as notebook notes. Generated output is schema-validated and rejects unknown source references. Initial Studio labels are English across locales; generated study content follows the selected UI language.
 
 ### Changed
+
+- Rune on iPhone: compact notebook navigation, larger reading type, touch picker sheets, scrollable forms, a native Files picker and keyboard dismissal. The open Duo keeps sources and conversation on facing pages, clear of the fold.
 -- The Rune Mac app's home lists your notebooks, newest first, with what each is for and its counts. The sidebar groups the notebooks under their own heading with a + button. Amber now marks only cited and checked text.
  **Documentation rewritten against the code.** Every page under `docs/` was checked against v1.15.0 and rewritten where it described an older or imagined product (#1458, #1459, #1460, #1461):
   - **Install:** one canonical path built on the shipped `docker-compose.yml`, with small override files for the Ollama and LM Studio variants. The network-exposure warning (bind ports to `127.0.0.1` or set a password) comes before the first `docker compose up -d`. Example encryption keys are generated, never copied. First-run setup lives in one place, [Connect a provider](docs/4-AI-PROVIDERS/index.md#connect-a-provider), and ends in a working chat via **Auto-assign Defaults**. The provider table is built from the provider registry: 24 providers, with the model types each one offers

@@ -78,6 +78,9 @@ pub struct AddSource {
     pub items: Option<Vec<BatchItem>>,
     /// Files chosen or dropped, with their sizes.
     pub files: Vec<(PathBuf, u64)>,
+    /// The native document picker opens after the current frame finishes.
+    #[cfg(target_os = "ios")]
+    pub pick_files: bool,
     /// Transformations to run on the new sources; None until changed, which means the defaults.
     pub chosen: Option<std::collections::BTreeSet<String>>,
     /// Every source, for the From other notebooks tab, once loaded.
@@ -240,6 +243,7 @@ pub struct Open {
     pub add: Option<AddSource>,
     pub note: Option<NoteDraft>,
     pub sessions_open: bool,
+    pub conversation_actions: bool,
     pub error: Option<String>,
     /// Chat about one source (id, title) instead of the whole notebook.
     pub scope: Option<(String, String)>,
@@ -312,6 +316,7 @@ impl Open {
             add: None,
             note: None,
             sessions_open: false,
+            conversation_actions: false,
             error: None,
             scope: None,
             insights: Vec::new(),

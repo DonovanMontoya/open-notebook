@@ -8,6 +8,7 @@ mod live;
 mod mobile;
 mod notebook;
 mod pages;
+mod select;
 mod server;
 mod settings;
 pub mod study;
@@ -29,6 +30,7 @@ pub fn look(cx: &Cx<App>, s: &App) -> Look {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
+    select::begin_layers();
     // The window's own width picks the layout; until the first layout, guess by platform.
     let width = cx.layout_with("app-root", |r| r[2]).unwrap_or(if cfg!(target_os = "ios") { 400.0 } else { 1280.0 });
     let l = look(cx, s).sized(width);
@@ -38,14 +40,21 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
         Size::Phone | Size::Pages => mobile::view(s, &l, &mut layer),
     };
     if let Some(c) = &s.confirm {
-        Dialog::new("confirm", c.question.clone())
-            .open(true)
-            .width(l.dialog(360.0))
+        let dialog = Dialog::new("confirm", if l.phone() { "Confirm".to_owned() } else { c.question.clone() }).open(true).width(l.dialog(360.0));
+        let dialog = if l.phone() { dialog.fit().child(text(c.question.clone()).font(l.k.ty.ui).color(l.text).wrap().px(20.0).pb(16.0)) } else { dialog };
+        dialog
             .child(
                 row()
                     .gap(8.0)
                     .justify_end()
-                    .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.confirm = None).build(&l.k).key("confirm-no"))
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::Ghost)
+                            .on_press(|s: &mut App| s.confirm = None)
+                            .build(&l.k)
+                            .key("confirm-no")
+                            .min_h(if l.phone() { 48.0 } else { 0.0 }),
+                    )
                     .child(
                         Button::new(c.verb)
                             .variant(if c.verb == "Delete" || c.verb == "Remove" { ButtonVariant::Danger } else { ButtonVariant::Contrast })
@@ -55,7 +64,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                                 }
                             })
                             .build(&l.k)
-                            .key("confirm-yes"),
+                            .key("confirm-yes")
+                            .min_h(if l.phone() { 48.0 } else { 0.0 }),
                     ),
             )
             .on_close(|s: &mut App| s.confirm = None)
@@ -67,6 +77,7 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(message) = &s.toast {
         layer.push(toast(message, &l));
     }
+    select::finish_layers(&mut layer);
     rune_kit::root(col().key("app-root").w_full().h_full().fill(l.page).child(body), layer)
 }
 
@@ -195,6 +206,7 @@ fn new_notebook(s: &App, l: &Look, layer: &mut Vec<El>) {
                 .on_edit(|s: &mut App| s.new_notebook.as_mut().expect("naming"))
                 .on_submit(|s: &mut App, _: &mut Tx| s.create_notebook())
                 .build(k)
+                .min_h(if l.phone() { 48.0 } else { 0.0 })
                 .key("new-notebook-name"),
         )
         .child(text("What it's for").font(k.ty.ui_medium).color(l.text2))
@@ -213,16 +225,28 @@ fn new_notebook(s: &App, l: &Look, layer: &mut Vec<El>) {
                 .w_full()
                 .gap(8.0)
                 .justify_end()
-                .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.new_notebook = None).build(k).key("new-notebook-cancel"))
+                .child(
+                    Button::new("Cancel")
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(|s: &mut App| s.new_notebook = None)
+                        .build(k)
+                        .min_h(if l.phone() { 48.0 } else { 0.0 })
+                        .key("new-notebook-cancel"),
+                )
                 .child(
                     Button::new("Create notebook")
                         .variant(ButtonVariant::Contrast)
                         .disabled(name.text.trim().is_empty())
                         .on_press(|s: &mut App| s.create_notebook())
                         .build(k)
-                        .key("new-notebook-create"),
+                        .key("new-notebook-create")
+                        .min_h(if l.phone() { 48.0 } else { 0.0 }),
                 ),
         );
+    if l.phone() {
+        phone_sheet("new-notebook", "New notebook", body, |s| s.new_notebook = None, l, layer);
+        return;
+    }
     Dialog::new("new-notebook", "New notebook")
         .open(true)
         .width(l.dialog(440.0))
@@ -258,7 +282,14 @@ fn open_new_notebook(s: &mut App) {
 
 /// A centred message for the states with nothing to list.
 fn home_message(title: &str, body: &str, action: Option<El>, l: &Look) -> El {
-    let mut c = col().key("home").gap(10.0).items_center().max_w(420.0).child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text));
+    let mut c = col()
+        .key("home")
+        .w_full()
+        .gap(12.0)
+        .items_center()
+        .max_w(420.0)
+        .px(if l.phone() { 20.0 } else { 0.0 })
+        .child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text));
     if !body.is_empty() {
         c = c.child(text(body.to_owned()).font(l.k.ty.ui).color(l.text2).wrap().align(rune::Align::Center));
     }
@@ -270,9 +301,23 @@ fn home_message(title: &str, body: &str, action: Option<El>, l: &Look) -> El {
 
 fn home(s: &App, l: &Look) -> El {
     let k = &l.k;
-    let settings_button =
-        || Button::new("Open settings").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.open_settings()).build(k).key("home-settings");
-    let new_button = |variant| Button::new("New notebook").icon(&icons::PLUS).variant(variant).on_press(open_new_notebook).build(k).key("home-new");
+    let settings_button = || {
+        Button::new("Open settings")
+            .variant(ButtonVariant::Contrast)
+            .on_press(|s: &mut App| s.open_settings())
+            .build(k)
+            .h(if l.size == Size::Desk { 24.0 } else { 48.0 })
+            .key("home-settings")
+    };
+    let new_button = |variant| {
+        Button::new(if l.phone() && s.notebooks.iter().any(|n| !n.archived) { "New" } else { "New notebook" })
+            .icon(&icons::PLUS)
+            .variant(variant)
+            .on_press(open_new_notebook)
+            .build(k)
+            .h(if l.size == Size::Desk { 24.0 } else { 44.0 })
+            .key("home-new")
+    };
     if let Some(e) = &s.backend_error {
         return home_message("Couldn't open your notebooks", e, Some(settings_button()), l);
     }
@@ -294,15 +339,18 @@ fn home(s: &App, l: &Look) -> El {
         };
     }
     open.sort_by(|a, b| b.updated.cmp(&a.updated));
-    let mut c = col()
-        .key("home")
-        .w_full()
-        .max_w(760.0)
-        .px(l.gutter())
-        .pt(if l.phone() { 16.0 } else { 40.0 })
-        .pb(32.0 + l.inset_bottom)
-        .gap(24.0)
-        .child(row().w_full().center_y().child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0)).child(new_button(ButtonVariant::Ghost)));
+    let mut c = col().key("home").w_full().max_w(760.0).px(l.gutter()).pt(if l.phone() { 16.0 } else { 40.0 }).pb(32.0 + l.inset_bottom).gap(24.0).child(
+        row()
+            .w_full()
+            .center_y()
+            .child(
+                text("Notebooks")
+                    .font(if l.phone() { rune::TextStyle { size: 34.0, ..theme::READ_TITLE }.lh(40.0) } else { theme::READ_TITLE })
+                    .color(l.text)
+                    .grow(1.0),
+            )
+            .child(new_button(ButtonVariant::Ghost)),
+    );
     if l.size != Size::Desk {
         c = c.child(ask_field(l));
     }
@@ -315,15 +363,7 @@ fn home(s: &App, l: &Look) -> El {
                 .padding(16.0)
                 .radius(12.0)
                 .fill(l.raised)
-                .child(
-                    text("Add a chat model to start asking. Questions go to the provider you choose, with your own key.")
-                        .font(k.ty.ui)
-                        .color(l.text2)
-                        .wrap()
-                        .grow(1.0)
-                        .shrink()
-                        .min_w(0.0),
-                )
+                .child(text("Choose a chat model to ask questions about your sources.").font(k.ty.ui).color(l.text2).wrap().grow(1.0).shrink().min_w(0.0))
                 .child(settings_button()),
         );
     }
@@ -340,13 +380,19 @@ fn home(s: &App, l: &Look) -> El {
         if !when.is_empty() {
             meta.push(format!("updated {when}"));
         }
-        let mut info = col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(text(nb.name.clone()).font(theme::READ_HEADING).color(l.text).max_lines(1));
+        let mut info = col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(
+            text(nb.name.clone())
+                .font(if l.phone() { rune::TextStyle { size: 24.0, ..theme::READ_HEADING }.lh(28.0) } else { theme::READ_HEADING })
+                .color(l.text)
+                .max_lines(1),
+        );
         if !nb.description.trim().is_empty() {
             info = info.child(text(nb.description.trim().to_owned()).font(k.ty.ui).color(l.text2).max_lines(2).wrap());
         }
         info = info.child(text(meta.join(" · ")).font(theme::tnum(k.ty.small)).color(l.text3));
         let id = nb.id.clone();
-        let item = row().key(format!("home-nb-{}", nb.id)).w_full().px(12.0).py(16.0).radius(10.0).child(info);
+        let item = row().key(format!("home-nb-{}", nb.id)).w_full().px(12.0).py(16.0).radius(10.0).center_y().gap(12.0).child(info);
+        let item = if l.size != Size::Desk { item.child(rune::icon(&rune_kit::glyphs::CARET_RIGHT, 18.0).color(l.text3)) } else { item };
         if i > 0 {
             list = list.child(row().key(format!("home-rule-{i}")).w_full().px(12.0).child(rune::el().grow(1.0).h(1.0).fill(l.line)));
         }
@@ -365,8 +411,8 @@ fn ask_field(l: &Look) -> El {
     let field = row()
         .key("home-ask")
         .w_full()
-        .h(44.0)
-        .px(12.0)
+        .h(52.0)
+        .px(16.0)
         .gap(8.0)
         .radius(10.0)
         .fill(l.raised)
@@ -385,7 +431,7 @@ fn tools(s: &App, l: &Look) -> El {
         let r = row()
             .key(key.to_owned())
             .w_full()
-            .h(48.0)
+            .h(56.0)
             .px(12.0)
             .gap(12.0)
             .radius(10.0)
@@ -425,6 +471,26 @@ fn toast(message: &str, l: &Look) -> El {
             .shadow(8.0, 24.0, rune::Color::BLACK.alpha(if l.dark { 0.45 } else { 0.08 }))
             .child(text(message.to_owned()).font(l.k.ty.ui).color(l.text).max_w(520.0).wrap()),
     )
+}
+
+/// A bounded sheet keeps forms scrollable above the keyboard on a phone.
+fn phone_sheet(key: &str, title: &str, body: El, close: impl Fn(&mut App) + Clone + 'static, l: &Look, layer: &mut Vec<El>) {
+    let dismiss =
+        rune_kit::IconButton::new(&icons::CLOSE).label("Close").variant(rune_kit::IconButtonVariant::Ghost).on_press(close.clone()).build(&l.k).w(44.0).h(44.0);
+    let panel = col()
+        .key(format!("{key}-sheet"))
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .radius(20.0)
+        .fill(l.panel)
+        .role("dialog")
+        .label(title.to_owned())
+        .modal(true, close)
+        .child(row().w_full().px(20.0).py(8.0).center_y().child(text(title.to_owned()).font(theme::READ_TITLE).color(l.text).grow(1.0)).child(dismiss))
+        .child(col().w_full().grow(1.0).min_h(0.0).child(body.px(20.0).pb(24.0 + l.inset_bottom)).scroll(rune::ScrollSpec { stick_bottom: false }));
+    layer.push(rune::el().key(format!("{key}-scrim")).absolute(0.0, 0.0).w_full().h_full().fill(l.k.c.scrim).a11y_hidden());
+    layer.push(col().key(format!("{key}-layer")).absolute(0.0, 0.0).w_full().h_full().pt(32.0).child(panel));
 }
 
 /// Clears the toast a few seconds after it appears. True when it went.

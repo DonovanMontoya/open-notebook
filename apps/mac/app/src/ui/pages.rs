@@ -4,20 +4,61 @@ use notebook_engine::citations::{self, CitableSource};
 use notebook_engine::types::*;
 use rune::{El, ScrollSpec, Tx, col, el, row, text};
 use rune_kit::markdown::{Markdown, MarkdownStyle};
-use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, Select, Spinner, Switch, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, Spinner, Switch, TextArea, TextInput};
 
 use super::icons;
+use super::select::Select;
 use crate::format;
 use crate::pages::{AskMode, MIN_SEARCH_CHARS, PriceDraft, TransformationDraft};
 use crate::state::App;
 use crate::theme::{self, Look};
+
+/// Equal touch targets on compact pages, with the desktop control kept at the desk.
+pub(super) fn choices<S: AsRef<str>>(
+    labels: &[S],
+    selected: Option<usize>,
+    label: &str,
+    l: &Look,
+    pick: impl Fn(&mut App, usize, &mut Tx) + Clone + 'static,
+) -> El {
+    if l.size == theme::Size::Desk {
+        return SegmentedControl::new(labels, selected).label(label).fit().on_pick(pick).build(&l.k);
+    }
+    let mut bar = col().w_full().gap(4.0).padding(4.0).radius(12.0).fill(l.raised).role("radiogroup").label(label);
+    let per_row = if labels.len() > 4 { labels.len().div_ceil(2) } else { labels.len() };
+    for (group, labels) in labels.chunks(per_row.max(1)).enumerate() {
+        let mut line = row().w_full().gap(4.0);
+        for (offset, label) in labels.iter().enumerate() {
+            let i = group * per_row + offset;
+            let on = selected == Some(i);
+            let action = pick.clone();
+            let item = row()
+                .key(format!("choice-{i}"))
+                .grow(1.0)
+                .min_w(0.0)
+                .h(44.0)
+                .px(8.0)
+                .center()
+                .radius(8.0)
+                .fill(if on { l.panel } else { l.raised })
+                .role("radio")
+                .checked(on)
+                .focus_selected(on)
+                .label(label.as_ref().to_owned())
+                .child(text(label.as_ref().to_owned()).font(l.k.ty.ui_medium).color(if on { l.text } else { l.text2 }).max_lines(1));
+            line = line.child(l.k.interactive(item).on_press_tx(move |s: &mut App, tx: &mut Tx| action(s, i, tx)));
+        }
+        bar = bar.child(line);
+    }
+    bar
+}
 
 /// A centred, scrolling page column with a title and an intro line.
 fn page(key: &str, title: &str, intro: &str, body: El, l: &Look) -> El {
     let c = col()
         .w_full()
         .max_w(720.0)
-        .gap(16.0)
+        .gap(if l.phone() { 24.0 } else { 16.0 })
         .px(l.pad())
         .pt(l.pad_top())
         .pb(l.pad_top() + l.inset_bottom)
@@ -48,16 +89,12 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.ask else { return col() };
     let asking = p.mode == AskMode::Ask;
-    let mode = SegmentedControl::new(&["Ask", "Search"], Some(if asking { 0 } else { 1 }))
-        .label("Mode")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
-            if let Some(p) = s.ask.as_mut() {
-                p.mode = if i == 0 { AskMode::Ask } else { AskMode::Search };
-            }
-        })
-        .build(k)
-        .key("ask-mode");
+    let mode = choices(&["Ask", "Search"], Some(if asking { 0 } else { 1 }), "Mode", l, |s: &mut App, i, _: &mut Tx| {
+        if let Some(p) = s.ask.as_mut() {
+            p.mode = if i == 0 { AskMode::Ask } else { AskMode::Search };
+        }
+    })
+    .key("ask-mode");
     let mut scopes = vec!["All notebooks".to_owned()];
     scopes.extend(s.notebooks.iter().map(|n| n.name.clone()));
     let ids: Vec<String> = s.notebooks.iter().map(|n| n.id.clone()).collect();
@@ -65,7 +102,7 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let scope = Select::new("ask-scope", &scopes)
         .label("Where to look")
         .current(Some(current))
-        .width(200.0)
+        .width(if l.phone() { l.width - 2.0 * l.pad() } else { 200.0 })
         .open(p.scope_open)
         .on_toggle(|s: &mut App| {
             if let Some(p) = s.ask.as_mut() {
@@ -84,7 +121,8 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 p.scope_open = false;
             }
         })
-        .build(k, layer);
+        .build(k, layer)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
     let busy = p.busy.is_some();
     let go = Button::new(if busy {
         if asking { "Researching…" } else { "Searching…" }
@@ -97,6 +135,8 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     .disabled(busy || p.query.text.trim().chars().count() < if asking { 1 } else { MIN_SEARCH_CHARS })
     .on_press(|s: &mut App| s.ask_submit())
     .build(k)
+    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
     .key("ask-go");
     let field = TextInput::new(&p.query)
         .width(None)
@@ -106,8 +146,13 @@ pub fn ask(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .on_edit(|s: &mut App| &mut s.ask.as_mut().expect("ask").query)
         .on_submit(|s: &mut App, _: &mut Tx| s.ask_submit())
         .build(k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
         .key("ask-query");
-    let mut body = col().w_full().gap(14.0).child(field).child(row().w_full().gap(8.0).center_y().child(mode).child(scope).child(el().grow(1.0)).child(go));
+    let mut body = if l.phone() {
+        col().w_full().gap(16.0).child(mode).child(scope).child(field).child(go.w_full())
+    } else {
+        col().w_full().gap(14.0).child(field).child(row().w_full().gap(8.0).center_y().child(mode).child(scope).child(el().grow(1.0)).child(go))
+    };
     if let Some(e) = &p.error {
         body = body.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap());
     }
@@ -217,6 +262,7 @@ pub fn library(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .leading_icon(&rune_kit::glyphs::SEARCH)
         .on_edit(|s: &mut App| &mut s.library.as_mut().expect("library").filter)
         .build(k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
         .key("library-filter");
     let want = p.filter.text.trim().to_lowercase();
     let mut list = col().w_full().gap(8.0);
@@ -277,9 +323,11 @@ fn library_row(s: &App, src: &SourceSummary, add_open: bool, l: &Look, layer: &m
             .child(
                 Button::new(name.to_owned())
                     .variant(ButtonVariant::Ghost)
-                    .control_size(ControlSize::Small)
+                    .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .on_press(move |s: &mut App| s.open_source(sid.clone(), Some(nid.clone()), None))
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("open"),
             )
             .radius(8.0)
@@ -289,10 +337,12 @@ fn library_row(s: &App, src: &SourceSummary, add_open: bool, l: &Look, layer: &m
             chip = chip.child(
                 IconButton::new(k.glyph.close)
                     .variant(IconButtonVariant::GhostMuted)
-                    .control_size(ControlSize::Small)
+                    .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .label(format!("Remove from {name}"))
                     .on_press(move |s: &mut App| s.link_source(sid.clone(), nid.clone(), false))
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("unlink"),
             );
         }
@@ -325,7 +375,8 @@ fn library_row(s: &App, src: &SourceSummary, add_open: bool, l: &Look, layer: &m
                         s.link_source(sid.clone(), nb, true);
                     }
                 })
-                .build(k, layer),
+                .build(k, layer)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 }),
         );
     }
     col()
@@ -353,13 +404,15 @@ pub fn transformations(s: &App, l: &Look) -> El {
         Button::new("New transformation")
             .icon(&icons::PLUS)
             .variant(ButtonVariant::Ghost)
-            .control_size(ControlSize::Small)
+            .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
             .on_press(|s: &mut App| {
                 if let Some(p) = s.transformations.as_mut() {
                     p.editing = Some(TransformationDraft::from(&Transformation::default()));
                 }
             })
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key("new-transformation"),
     );
     if let Some(d) = &p.editing {
@@ -378,13 +431,15 @@ pub fn transformations(s: &App, l: &Look) -> El {
         head = head.child(
             IconButton::new(&icons::TRASH)
                 .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .label("Delete transformation")
                 .on_press(move |s: &mut App| {
                     let id = del.clone();
                     s.ask("Delete this transformation?", move |s| s.delete_transformation(id.clone()));
                 })
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("delete"),
         );
         let mut card = col().key(format!("t-{}", t.id)).w_full().gap(6.0).padding(14.0).radius(12.0).border(1.0, l.line).child(head);
@@ -419,7 +474,14 @@ pub fn transformations(s: &App, l: &Look) -> El {
                 row()
                     .gap(10.0)
                     .center_y()
-                    .child(Button::new("Save instructions").on_press(|s: &mut App| s.save_instructions()).build(k).key("save-instructions"))
+                    .child(
+                        Button::new("Save instructions")
+                            .on_press(|s: &mut App| s.save_instructions())
+                            .build(k)
+                            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                            .key("save-instructions"),
+                    )
                     .child(text(if p.instructions_saved { "Saved" } else { "" }).font(k.ty.ui).color(l.text3)),
             ),
     );
@@ -442,7 +504,13 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
         .border(1.0, l.line_strong)
         .child(field(
             "Title",
-            TextInput::new(&d.title).width(None).placeholder("For example Key arguments").on_edit(|s: &mut App| &mut draft(s).title).build(k).key("t-title"),
+            TextInput::new(&d.title)
+                .width(None)
+                .placeholder("For example Key arguments")
+                .on_edit(|s: &mut App| &mut draft(s).title)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("t-title"),
         ))
         .child(field(
             "What it does",
@@ -451,6 +519,7 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
                 .placeholder("Shown as a hint when choosing it")
                 .on_edit(|s: &mut App| &mut draft(s).description)
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("t-description"),
         ))
         .child(field(
@@ -482,6 +551,8 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
                         }
                     })
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("t-cancel"),
             )
             .child(
@@ -496,6 +567,8 @@ fn transformation_editor(d: &TransformationDraft, l: &Look) -> El {
                 .disabled(!d.can_save())
                 .on_press(|s: &mut App| s.save_transformation())
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("t-save"),
             ),
     );
@@ -525,6 +598,8 @@ fn try_it(d: &TransformationDraft, l: &Look) -> El {
                 .placeholder("Paste some text to run this transformation on")
                 .on_edit(|s: &mut App| &mut draft(s).sample)
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("t-sample"),
         )
         .child(row().w_full().justify_end().child(run.build(k).key("t-run")));
@@ -583,13 +658,10 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let Some(p) = &s.usage else { return col() };
     let local = s.backend.as_ref().is_none_or(|b| b.kind() == notebook_engine::BackendKind::Local);
     const DAYS: [u32; 3] = [7, 30, 90];
-    let range = SegmentedControl::new(&["7 days", "30 days", "90 days"], DAYS.iter().position(|d| *d == p.days))
-        .label("Period")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| s.load_usage(DAYS[i]))
-        .build(k)
-        .key("usage-days");
-    let mut body = col().w_full().gap(14.0).child(row().child(range));
+    let range =
+        choices(&["7 days", "30 days", "90 days"], DAYS.iter().position(|d| *d == p.days), "Period", l, |s: &mut App, i, _: &mut Tx| s.load_usage(DAYS[i]))
+            .key("usage-days");
+    let mut body = col().w_full().gap(14.0).child(row().w_full().child(range));
     match (&p.report, &p.error) {
         (_, Some(e)) => body = body.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap()),
         (None, None) => body = body.child(row().gap(8.0).center_y().child(Spinner::new().build(k)).child(text("Loading").font(k.ty.ui).color(l.text3))),
@@ -650,9 +722,11 @@ pub fn usage(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                     row().w(72.0).justify_end().child(
                         Button::new(label)
                             .variant(ButtonVariant::Ghost)
-                            .control_size(ControlSize::Small)
+                            .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                             .on_press(move |s: &mut App| s.edit_price(&model, audio))
                             .build(k)
+                            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                             .key("price"),
                     )
                 } else {
@@ -731,7 +805,7 @@ fn pricing(s: &mut App) -> &mut PriceDraft {
 fn price_dialog(d: &PriceDraft, l: &Look, layer: &mut Vec<El>) {
     let k = &l.k;
     let field = |label: &str, edit: &rune::TextEdit, placeholder: &str, key: &str, at: fn(&mut App) -> &mut rune::TextEdit| {
-        col().grow(1.0).min_w(0.0).gap(4.0).child(text(label.to_owned()).font(k.ty.small).color(l.text2)).child(
+        (if l.phone() { col().w_full() } else { col().grow(1.0).min_w(0.0) }).gap(4.0).child(text(label.to_owned()).font(k.ty.small).color(l.text2)).child(
             TextInput::new(edit)
                 .width(None)
                 .placeholder(placeholder.to_owned())
@@ -743,33 +817,32 @@ fn price_dialog(d: &PriceDraft, l: &Look, layer: &mut Vec<El>) {
                     }
                 })
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key(key.to_owned()),
         )
     };
     let fields = if d.audio {
         row().w_full().child(field("Dollars per minute of audio", &d.per_minute, "0.015", "price-minute", |s| &mut pricing(s).per_minute))
     } else {
-        row().w_full().gap(10.0).child(field("Input, $ per million tokens", &d.input, "2.00", "price-input", |s| &mut pricing(s).input)).child(field(
-            "Output, $ per million tokens",
-            &d.output,
-            "10.00",
-            "price-output",
-            |s| &mut pricing(s).output,
-        ))
+        (if l.phone() { col().w_full().gap(16.0) } else { row().w_full().gap(10.0) })
+            .child(field("Input, $ per million tokens", &d.input, "2.00", "price-input", |s| &mut pricing(s).input))
+            .child(field("Output, $ per million tokens", &d.output, "10.00", "price-output", |s| &mut pricing(s).output))
     };
     let next = d.price();
-    let mut buttons = row().w_full().gap(8.0).center_y();
+    let mut buttons = if l.phone() { col().w_full().gap(12.0) } else { row().w_full().gap(8.0).center_y() };
     if d.custom {
         buttons = buttons.child(
             Button::new(if d.listed { "Use list price" } else { "Clear price" })
                 .variant(ButtonVariant::Ghost)
                 .on_press(|s: &mut App| s.save_price(None))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("price-clear"),
         );
     }
     buttons = buttons
-        .child(el().grow(1.0))
+        .children((!l.phone()).then(|| el().grow(1.0)))
         .child(
             Button::new("Cancel")
                 .variant(ButtonVariant::Ghost)
@@ -779,6 +852,8 @@ fn price_dialog(d: &PriceDraft, l: &Look, layer: &mut Vec<El>) {
                     }
                 })
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("price-cancel"),
         )
         .child(
@@ -787,33 +862,37 @@ fn price_dialog(d: &PriceDraft, l: &Look, layer: &mut Vec<El>) {
                 .disabled(next.is_none())
                 .on_press(move |s: &mut App| s.save_price(next))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("price-save"),
         );
-    Dialog::new("price", format!("Price for {}", d.model))
-        .open(true)
-        .width(l.dialog(460.0))
-        .fit()
+    let body = col()
+        .w_full()
+        .gap(16.0)
         .child(
-            col()
-                .w_full()
-                .gap(14.0)
-                .px(16.0)
-                .pb(16.0)
-                .child(
-                    text(format!("Copy the rate from your provider's pricing page. It applies to every use of this model on {}.", theme::THIS_DEVICE))
-                        .font(k.ty.ui)
-                        .color(l.text2)
-                        .wrap(),
-                )
-                .child(fields)
-                .child(buttons),
+            text(format!("Copy the rate from your provider's pricing page. It applies to every use of this model on {}.", theme::THIS_DEVICE))
+                .font(k.ty.ui)
+                .color(l.text2)
+                .wrap(),
         )
-        .on_close(|s: &mut App| {
-            if let Some(p) = s.usage.as_mut() {
-                p.pricing = None;
-            }
-        })
-        .build(k, layer);
+        .child(fields)
+        .child(buttons);
+    let close = |s: &mut App| {
+        if let Some(p) = s.usage.as_mut() {
+            p.pricing = None;
+        }
+    };
+    if l.phone() {
+        super::phone_sheet("price", &format!("Price for {}", d.model), body, close, l, layer);
+    } else {
+        Dialog::new("price", format!("Price for {}", d.model))
+            .open(true)
+            .width(l.dialog(460.0))
+            .fit()
+            .child(body.px(16.0).pb(16.0))
+            .on_close(close)
+            .build(k, layer);
+    }
 }
 
 /// 432000 → "432,000".
@@ -831,6 +910,24 @@ fn grouped(n: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn phone_price_sheet_fits_above_keyboard() {
+        for (width, height) in [(393.0, 852.0), (466.0, 678.0), (393.0, 360.0)] {
+            let mut app = crate::state::App::offline();
+            crate::scenes::SCENES.iter().find(|(name, _)| *name == "usage-price").unwrap().1(&mut app);
+            let mut rt = rune::Runtime::new(app, crate::ui::view, (width, height), rune::Env { system_dark: false, scale: 2.0 });
+            for i in 0..3 {
+                rt.frame(i as f64 / 60.0);
+            }
+            let [x, y, w, h] = rt.presented("price-sheet").expect("bounded price sheet").0;
+            assert!(x >= 0.0 && y >= 0.0 && x + w <= width + 0.5 && y + h <= height + 0.5);
+            for key in ["price-input", "price-output", "price-save", "price-cancel"] {
+                let [x, _, w, h] = rt.presented(key).expect(key).0;
+                assert!(x >= 0.0 && x + w <= width + 0.5 && h >= 44.0, "{key}: x={x} w={w} h={h}");
+            }
+        }
+    }
+
     #[test]
     fn groups_thousands() {
         assert_eq!(super::grouped(0), "0");
