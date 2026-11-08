@@ -281,7 +281,7 @@ fn open_new_notebook(s: &mut App) {
 }
 
 /// A centred message for the states with nothing to list.
-fn home_message(title: &str, body: &str, action: Option<El>, l: &Look) -> El {
+fn home_message(s: &App, title: &str, body: &str, action: Option<El>, l: &Look) -> El {
     let mut c = col()
         .key("home")
         .w_full()
@@ -296,7 +296,33 @@ fn home_message(title: &str, body: &str, action: Option<El>, l: &Look) -> El {
     if let Some(a) = action {
         c = c.child(col().pt(8.0).child(a));
     }
-    col().w_full().h_full().center().window_drag().child(c)
+    if l.size == Size::Desk {
+        return col().w_full().h_full().center().window_drag().child(c);
+    }
+    let settings = Button::new("Settings")
+        .icon(&icons::GEAR)
+        .variant(ButtonVariant::Ghost)
+        .on_press(|s: &mut App| s.open_settings())
+        .build(&l.k)
+        .h(44.0)
+        .key("home-navigation-settings");
+    let header = row()
+        .w_full()
+        .min_h(64.0)
+        .px(l.gutter())
+        .gap(8.0)
+        .center_y()
+        .child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0).min_w(0.0))
+        .child(settings);
+    let content =
+        col().w_full().max_w(760.0).px(l.gutter()).pt(12.0).pb(32.0 + l.inset_bottom).gap(24.0).child(ask_field(l)).child(c.py(24.0)).child(tools(s, l));
+    col()
+        .key("home-status")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .child(header)
+        .child(col().w_full().grow(1.0).min_h(0.0).items_center().child(content).scroll(rune::ScrollSpec { stick_bottom: false }))
 }
 
 fn home(s: &App, l: &Look) -> El {
@@ -319,23 +345,24 @@ fn home(s: &App, l: &Look) -> El {
             .key("home-new")
     };
     if let Some(e) = &s.backend_error {
-        return home_message("Couldn't open your notebooks", e, Some(settings_button()), l);
+        return home_message(s, "Couldn't open your notebooks", e, Some(settings_button()), l);
     }
     if !s.loaded {
-        return home_message("Opening", "", None, l);
+        return home_message(s, "Opening", "", None, l);
     }
     let needs_model = s.settings.mode == notebook_engine::settings::Mode::Local && s.settings.chat.is_none();
     let mut open: Vec<&notebook_engine::types::Notebook> = s.notebooks.iter().filter(|n| !n.archived).collect();
     if open.is_empty() {
         return if needs_model {
             home_message(
+                s,
                 "Add a model to start asking",
                 "Notebooks live on this device. Questions go to the AI provider you choose, with your own API key.",
-                Some(row().gap(8.0).child(new_button(ButtonVariant::Ghost)).child(settings_button())),
+                Some(if l.phone() { col() } else { row() }.gap(8.0).child(new_button(ButtonVariant::Ghost)).child(settings_button())),
                 l,
             )
         } else {
-            home_message("Start a notebook", "A notebook holds the sources for one question or project.", Some(new_button(ButtonVariant::Contrast)), l)
+            home_message(s, "Start a notebook", "A notebook holds the sources for one question or project.", Some(new_button(ButtonVariant::Contrast)), l)
         };
     }
     open.sort_by(|a, b| b.updated.cmp(&a.updated));
@@ -349,7 +376,19 @@ fn home(s: &App, l: &Look) -> El {
                     .color(l.text)
                     .grow(1.0),
             )
-            .child(new_button(ButtonVariant::Ghost)),
+            .child(new_button(ButtonVariant::Ghost))
+            .child(if l.size != Size::Desk {
+                rune_kit::IconButton::new(&icons::GEAR)
+                    .label("Settings")
+                    .variant(rune_kit::IconButtonVariant::GhostMuted)
+                    .on_press(|s: &mut App| s.open_settings())
+                    .build(k)
+                    .w(44.0)
+                    .h(44.0)
+                    .key("home-navigation-settings")
+            } else {
+                rune::el()
+            }),
     );
     if l.size != Size::Desk {
         c = c.child(ask_field(l));

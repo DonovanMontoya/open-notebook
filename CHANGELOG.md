@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep Settings, Ask and the other app destinations reachable on the Rune mobile home screen when notebooks are empty, archived, loading or unavailable.
+
 - Rune Mac app: saving settings on device no longer marks sources and episodes being made as failed; deleting a source that is in several notebooks only removes it from the current one; editing a podcast profile keeps its language; dropdowns open under their field; toasts show.
 - Give phones full-width content with a mobile navigation drawer, wrapping notebook headers and model fields, readable touch controls, and viewport-safe dialogs.
 

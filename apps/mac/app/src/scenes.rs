@@ -10,6 +10,8 @@ type Scene = (&'static str, fn(&mut App));
 
 pub const SCENES: &[Scene] = &[
     ("home", home),
+    ("home-empty", home_empty),
+    ("home-error", home_error),
     ("notebook", notebook),
     ("notebook-dark", notebook_dark),
     ("streaming", streaming),
@@ -118,6 +120,14 @@ fn open(s: &mut App) {
         updated: T.into(),
         ..Default::default()
     }];
+}
+
+fn home_empty(s: &mut App) {
+    s.settings.chat = Some(notebook_engine::settings::ModelSetting { provider: "anthropic".into(), model: "sample".into() });
+}
+
+fn home_error(s: &mut App) {
+    s.backend_error = Some("Could not connect to the notebook server. Check the server address in Settings.".into());
 }
 
 fn home(s: &mut App) {

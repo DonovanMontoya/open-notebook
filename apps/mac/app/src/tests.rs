@@ -187,3 +187,44 @@ fn saving_a_source_name_after_dismissing_the_keyboard_returns_to_reading() {
     assert!(rt.state.open.as_ref().unwrap().renaming_source.is_none());
     assert!(rt.find("reader").is_some());
 }
+
+#[test]
+fn mobile_home_states_keep_settings_and_global_navigation_reachable() {
+    for state in ["empty", "no-model", "loading", "error", "archived", "populated"] {
+        for (width, height) in [(393.0, 852.0), (466.0, 678.0), (951.0, 669.0)] {
+            let mut app = App::offline();
+            app.settings.chat = Some(ModelSetting { provider: "anthropic".into(), model: "sample".into() });
+            match state {
+                "populated" => crate::scenes::SCENES.iter().find(|(name, _)| *name == "home").unwrap().1(&mut app),
+                "no-model" => app.settings.chat = None,
+                "loading" => app.loaded = false,
+                "error" => app.backend_error = Some("Server unavailable".into()),
+                "archived" => {
+                    crate::scenes::SCENES.iter().find(|(name, _)| *name == "archived").unwrap().1(&mut app);
+                    for notebook in &mut app.notebooks {
+                        notebook.archived = true;
+                    }
+                }
+                _ => {}
+            }
+            let mut rt = Runtime::new(app, crate::ui::view, (width, height), Env::new(false, 2.0));
+            for frame in 0..3 {
+                rt.frame(frame as f64 / 60.0);
+            }
+            let [x, y, w, h] = rt.presented("home-navigation-settings").unwrap_or_else(|| panic!("{state}: Settings must always be available")).0;
+            assert!(w >= 44.0 && h >= 44.0 && x >= 0.0 && x + w <= width && y >= 0.0 && y + h <= height);
+            for key in ["home-ask", "tool-library", "tool-transformations", "tool-usage", "tool-settings"] {
+                assert!(rt.find(key).is_some(), "{state}: missing {key}");
+            }
+            rt.pointer_down(x + w / 2.0, y + h / 2.0);
+            rt.pointer_up(x + w / 2.0, y + h / 2.0);
+            rt.frame(1.0);
+            assert_eq!(rt.state.route, Route::Settings, "{state}: Settings opens");
+            let (x, y) = rt.find("back").expect("back to notebooks");
+            rt.pointer_down(x, y);
+            rt.pointer_up(x, y);
+            rt.frame(1.1);
+            assert_eq!(rt.state.route, Route::Home, "{state}: can return home");
+        }
+    }
+}
