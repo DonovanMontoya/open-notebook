@@ -300,7 +300,7 @@ fn home(s: &App, l: &Look) -> El {
         .max_w(760.0)
         .px(l.gutter())
         .pt(if l.phone() { 16.0 } else { 40.0 })
-        .pb(32.0)
+        .pb(32.0 + l.inset_bottom)
         .gap(24.0)
         .child(row().w_full().center_y().child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0)).child(new_button(ButtonVariant::Ghost)));
     if l.size != Size::Desk {

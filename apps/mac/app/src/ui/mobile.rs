@@ -24,9 +24,10 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
             Size::Phone => notebook_phone(s, l, layer),
             _ => notebook_pages(s, l, layer),
         },
-        Route::Home => col().w_full().h_full().min_h(0.0).pb(l.inset_bottom).child(super::page(s, l, layer)),
+        // Pages scroll under the home indicator and pad their own ends for it.
+        Route::Home => super::page(s, l, layer),
         // Every other page keeps its own title; the bar only leads back.
-        _ => col().w_full().h_full().min_h(0.0).pb(l.inset_bottom).child(back_bar("Notebooks", go_home, None, l)).child(super::page(s, l, layer)),
+        _ => col().w_full().h_full().min_h(0.0).child(back_bar("Notebooks", go_home, None, l)).child(super::page(s, l, layer)),
     };
     let mut c = col().key("mobile").w_full().h_full().min_h(0.0).fill(l.panel).child(col().w_full().grow(1.0).min_h(0.0).child(main));
     if let Some(p) = &s.playing {
@@ -100,7 +101,8 @@ fn notebook_phone(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         }
         c = c.child(notebook::rule(l)).child(col().w_full().grow(1.0).min_h(0.0).child(notebook::tab_body(s, o, l, layer)));
     }
-    if !reading {
+    // The keyboard takes the bottom of the screen while it's up; the tabs come back after.
+    if !reading && !s.keyboard_up {
         c = c.child(tab_bar(o, l));
     }
     notebook::overlays(o, l, layer);

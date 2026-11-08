@@ -947,12 +947,20 @@ fn page(s: &mut App) -> &mut ProfilesPage {
 pub fn profiles(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.profiles else { return col() };
-    let mut c = col().w_full().max_w(720.0).gap(14.0).px(l.pad()).py(l.pad_top()).child(text("Podcast profiles").font(theme::READ_TITLE).color(l.text)).child(
-        text("An episode profile sets the angle, length and voices of an episode. A speaker profile is the cast: who speaks and in which voice.")
-            .font(k.ty.ui)
-            .color(l.text2)
-            .wrap(),
-    );
+    let mut c = col()
+        .w_full()
+        .max_w(720.0)
+        .gap(14.0)
+        .px(l.pad())
+        .pt(l.pad_top())
+        .pb(l.pad_top() + l.inset_bottom)
+        .child(text("Podcast profiles").font(theme::READ_TITLE).color(l.text))
+        .child(
+            text("An episode profile sets the angle, length and voices of an episode. A speaker profile is the cast: who speaks and in which voice.")
+                .font(k.ty.ui)
+                .color(l.text2)
+                .wrap(),
+        );
     c = c.child(text("Episode profiles").font(theme::READ_HEADING).color(l.text));
     if let Some(d) = &p.episode {
         c = c.child(episode_editor(p, d, l, layer));

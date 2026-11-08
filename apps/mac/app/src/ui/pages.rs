@@ -19,7 +19,8 @@ fn page(key: &str, title: &str, intro: &str, body: El, l: &Look) -> El {
         .max_w(720.0)
         .gap(16.0)
         .px(l.pad())
-        .py(l.pad_top())
+        .pt(l.pad_top())
+        .pb(l.pad_top() + l.inset_bottom)
         .child(text(title.to_owned()).font(theme::READ_TITLE).color(l.text))
         .child(text(intro.to_owned()).font(l.k.ty.ui).color(l.text2).wrap())
         .child(body);

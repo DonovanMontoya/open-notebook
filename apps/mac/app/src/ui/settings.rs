@@ -64,7 +64,8 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .max_w(560.0)
         .gap(18.0)
         .px(l.pad())
-        .py(l.pad_top())
+        .pt(l.pad_top())
+        .pb(l.pad_top() + l.inset_bottom)
         .child(text("Settings").font(theme::READ_TITLE).color(l.text))
         .child(
             section("Notebooks", l).child(row().child(mode)).child(

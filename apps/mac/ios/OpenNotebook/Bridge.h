@@ -19,5 +19,5 @@ void on_touch(OnHost *h, uint64_t id, int32_t phase, float x, float y, double ti
 void on_text(OnHost *h, const char *text);
 void on_backspace(OnHost *h);
 void on_fold(OnHost *h, float x, float y, float width, float height, bool active);
-void on_inset_bottom(OnHost *h, float bottom);
+void on_inset_bottom(OnHost *h, float bottom, bool keyboard);
 void on_destroy(OnHost *h);

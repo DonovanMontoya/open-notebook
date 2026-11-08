@@ -683,6 +683,8 @@ pub struct App {
     /// On iPhone, the height of the home indicator's strip at the bottom when no keyboard covers
     /// it. The app draws under it and pads its last row by this much.
     pub inset_bottom: f32,
+    /// On iPhone, the on-screen keyboard is up.
+    pub keyboard_up: bool,
     /// The sidebar's archived notebooks are showing.
     pub show_archived: bool,
     /// The new-notebook dialog's "What it's for", beside `new_notebook`'s name.
@@ -726,6 +728,7 @@ impl App {
             live: Default::default(),
             fold: None,
             inset_bottom: 0.0,
+            keyboard_up: false,
             show_archived: false,
             new_notebook_description: TextEdit::new(""),
         }

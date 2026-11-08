@@ -63,7 +63,7 @@ final class RuneViewController: UIViewController, UIKeyInput {
         // The home indicator's strip, unless the keyboard is up and covers it.
         if let host {
             let below = view.bounds.maxY - canvas.frame.maxY
-            on_inset_bottom(host, Float(max(0, view.safeAreaInsets.bottom - below)))
+            on_inset_bottom(host, Float(max(0, view.safeAreaInsets.bottom - below)), below > view.safeAreaInsets.bottom + 1)
         }
         wake()
     }
