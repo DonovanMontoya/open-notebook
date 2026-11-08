@@ -63,6 +63,8 @@ pub struct Look {
     pub size: Size,
     /// The window's width in points.
     pub width: f32,
+    /// Room to leave under the last row for the home indicator.
+    pub inset_bottom: f32,
     pub page: Color,
     pub panel: Color,
     pub raised: Color,
@@ -99,6 +101,7 @@ impl Look {
             dark,
             size: Size::Desk,
             width: 1280.0,
+            inset_bottom: 0.0,
             page: c(page),
             panel: c(panel),
             raised: c(raised),

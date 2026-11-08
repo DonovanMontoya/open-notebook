@@ -16,18 +16,21 @@ use crate::state::{App, NotebookTab, Open, Route};
 use crate::theme::{Look, Size};
 
 pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
+    // The last row pads for the home indicator: the player bar when one shows, else the content.
+    let content_look = Look { inset_bottom: if s.playing.is_some() { 0.0 } else { s.inset_bottom }, ..l.clone() };
+    let l = &content_look;
     let main = match &s.route {
         Route::Notebook(_) if s.open.is_some() => match l.size {
             Size::Phone => notebook_phone(s, l, layer),
             _ => notebook_pages(s, l, layer),
         },
-        Route::Home => super::page(s, l, layer),
+        Route::Home => col().w_full().h_full().min_h(0.0).pb(l.inset_bottom).child(super::page(s, l, layer)),
         // Every other page keeps its own title; the bar only leads back.
-        _ => col().w_full().h_full().min_h(0.0).child(back_bar("Notebooks", go_home, None, l)).child(super::page(s, l, layer)),
+        _ => col().w_full().h_full().min_h(0.0).pb(l.inset_bottom).child(back_bar("Notebooks", go_home, None, l)).child(super::page(s, l, layer)),
     };
     let mut c = col().key("mobile").w_full().h_full().min_h(0.0).fill(l.panel).child(col().w_full().grow(1.0).min_h(0.0).child(main));
     if let Some(p) = &s.playing {
-        c = c.child(listen::player_bar(p, l));
+        c = c.child(col().w_full().pb(s.inset_bottom).fill(l.panel).child(listen::player_bar(p, l)));
     }
     c
 }
@@ -88,7 +91,7 @@ fn notebook_phone(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let mut c = col().key("notebook").w_full().h_full().min_h(0.0).child(back_bar(&to, back_in_notebook, trailing, l));
     if reading || o.sources_tab {
         // The source being read, or the list of sources.
-        c = c.child(col().w_full().grow(1.0).min_h(0.0).fill(l.page).child(notebook::rail(o, l, layer)));
+        c = c.child(col().w_full().grow(1.0).min_h(0.0).fill(l.page).pb(if reading { l.inset_bottom } else { 0.0 }).child(notebook::rail(o, l, layer)));
     } else {
         c = c.child(notebook::header(o, l));
         // Chat and Notes have controls above their content; the other tabs don't.
@@ -143,7 +146,7 @@ fn tab_bar(o: &Open, l: &Look) -> El {
             }
         }));
     }
-    col().w_full().child(notebook::rule(l)).child(bar)
+    col().w_full().pb(l.inset_bottom).fill(l.panel).child(notebook::rule(l)).child(bar)
 }
 
 /// A notebook as two facing pages: what you read on the left, what you write on the right.
@@ -154,9 +157,10 @@ fn notebook_pages(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .h_full()
         .min_h(0.0)
         .fill(l.page)
+        .pb(l.inset_bottom)
         .child(back_bar("Notebooks", go_home, None, l))
         .child(col().w_full().grow(1.0).min_h(0.0).child(notebook::rail(o, l, layer)));
-    let mut right = col().key("right-page").h_full().min_h(0.0).child(notebook::header(o, l));
+    let mut right = col().key("right-page").h_full().min_h(0.0).pb(l.inset_bottom).child(notebook::header(o, l));
     if o.search_open
         && let Some(hits) = &o.hits
     {

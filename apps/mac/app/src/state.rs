@@ -680,6 +680,9 @@ pub struct App {
     /// The fold of a partly folded iPhone Duo, `[x, y, w, h]` in window points, while it divides
     /// the screen. The two pages of the notebook sit either side of it.
     pub fold: Option<[f32; 4]>,
+    /// On iPhone, the height of the home indicator's strip at the bottom when no keyboard covers
+    /// it. The app draws under it and pads its last row by this much.
+    pub inset_bottom: f32,
     /// The sidebar's archived notebooks are showing.
     pub show_archived: bool,
     /// The new-notebook dialog's "What it's for", beside `new_notebook`'s name.
@@ -722,6 +725,7 @@ impl App {
             rx,
             live: Default::default(),
             fold: None,
+            inset_bottom: 0.0,
             show_archived: false,
             new_notebook_description: TextEdit::new(""),
         }

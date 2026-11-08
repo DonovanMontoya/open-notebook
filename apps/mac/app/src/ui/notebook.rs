@@ -59,6 +59,10 @@ pub(super) fn tab_head(o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     }
     // On the Duo's narrower page the tab picker gets its own row, and the conversation picker
     // or New note sits on a second one.
+    let lone_plus = o.tab == NotebookTab::Chat && o.sessions.is_empty();
+    if l.size == crate::theme::Size::Pages && lone_plus {
+        return head;
+    }
     if l.size == crate::theme::Size::Pages && matches!(o.tab, NotebookTab::Chat | NotebookTab::Notes) {
         let first = head;
         head = row().key("center-head-2").w_full().h(40.0).px(16.0).gap(8.0).center_y();

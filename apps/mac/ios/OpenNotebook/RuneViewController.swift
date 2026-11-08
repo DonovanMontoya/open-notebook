@@ -26,8 +26,9 @@ final class RuneViewController: UIViewController, UIKeyInput {
         canvas.backgroundColor = Self.pageColor
         canvas.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(canvas)
-        // The app draws inside the safe area and above the keyboard; the page colour fills the
-        // rest, so the edges match.
+        // The app draws inside the safe area at the top and sides, and down to the bottom edge or
+        // the keyboard's top. Under the home indicator it pads its last row instead (`on_inset_bottom`).
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
         let safe = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             canvas.topAnchor.constraint(equalTo: safe.topAnchor),
@@ -59,6 +60,11 @@ final class RuneViewController: UIViewController, UIKeyInput {
             start(size: size, scale: scale)
         }
         sendFold()
+        // The home indicator's strip, unless the keyboard is up and covers it.
+        if let host {
+            let below = view.bounds.maxY - canvas.frame.maxY
+            on_inset_bottom(host, Float(max(0, view.safeAreaInsets.bottom - below)))
+        }
         wake()
     }
 

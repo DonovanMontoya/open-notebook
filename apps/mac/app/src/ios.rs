@@ -158,6 +158,20 @@ pub unsafe extern "C" fn on_fold(h: *mut OnHost, x: f32, y: f32, width: f32, hei
     }
 }
 
+/// The home indicator's strip at the bottom, in points, while no keyboard covers it.
+///
+/// # Safety
+/// As `on_frame`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn on_inset_bottom(h: *mut OnHost, bottom: f32) {
+    let Some(h) = (unsafe { h.as_mut() }) else { return };
+    let rt = h.host.runtime_mut();
+    if (rt.state.inset_bottom - bottom).abs() > 0.5 {
+        rt.state.inset_bottom = bottom;
+        rt.invalidate();
+    }
+}
+
 /// Ends the app and frees the host.
 ///
 /// # Safety
