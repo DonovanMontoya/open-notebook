@@ -246,8 +246,24 @@ test('a source can be in several notebooks; deleting one notebook keeps shared s
   assert.deepEqual((await backend.getSource(shared.id)).notebooks, [b.id])
   await assert.rejects(backend.getSource(only.id), /not found/)
 
-  await backend.unlinkSource(shared.id, b.id)
-  assert.equal((await backend.listSources(b.id)).length, 0)
+  await assert.rejects(backend.unlinkSource(shared.id, b.id), /at least one notebook/)
+  assert.equal((await backend.listSources(b.id)).length, 1)
+})
+
+test('a source taken out of its first notebook survives that notebook being deleted', async () => {
+  const { backend } = await setup()
+  const a = await backend.createNotebook('A')
+  const b = await backend.createNotebook('B')
+  const s = await backend.addSource(a.id, { type: 'text', content: 'Kept text', title: 'Kept' })
+  await backend.idle()
+  await backend.linkSource(s.id, b.id)
+  await backend.unlinkSource(s.id, a.id)
+  // Removing its last notebook would leave source.notebook_id on a notebook that cascades on delete.
+  await assert.rejects(backend.unlinkSource(s.id, b.id), /at least one notebook/)
+  await backend.deleteNotebook(a.id)
+  const kept = await backend.getSource(s.id)
+  assert.deepEqual(kept.notebooks, [b.id])
+  assert.equal(kept.embedded_chunks, 1)
 })
 
 test('audio files are kept, transcribed with the speech to text model, and downloadable', async () => {

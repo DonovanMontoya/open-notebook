@@ -435,6 +435,11 @@ export class LocalBackend implements Backend {
   }
 
   async unlinkSource(sourceId: string, notebookId: string): Promise<void> {
+    // source.notebook_id must name a notebook and cascades when that notebook is deleted, so a source
+    // with no notebook left would be deleted along with its former one. Keep at least one link.
+    const links = await this.db.select<{ notebook_id: string }>(`SELECT notebook_id FROM notebook_source WHERE source_id = $1`, [sourceId])
+    if (!links.some((l) => l.notebook_id === notebookId)) return
+    if (links.length <= 1) throw new Error('A source has to stay in at least one notebook. Delete the source instead.')
     await this.db.execute(`DELETE FROM notebook_source WHERE source_id = $1 AND notebook_id = $2`, [sourceId, notebookId])
     // Keep the home notebook pointing at a notebook the source is still in.
     const [left] = await this.db.select<{ notebook_id: string }>(`SELECT notebook_id FROM notebook_source WHERE source_id = $1`, [sourceId])
