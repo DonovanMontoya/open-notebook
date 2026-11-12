@@ -354,6 +354,11 @@ impl Open {
         }
     }
 
+    /// Whether `request` is the message this view is sending.
+    pub fn is_sending(&self, request: &Cancel) -> bool {
+        self.sending.as_ref().is_some_and(|c| c.same(request))
+    }
+
     /// Whether chat can answer: a source chat, or a notebook with a source that has been read.
     pub fn chat_ready(&self) -> bool {
         self.scope.is_some() || self.sources.iter().any(|s| matches!(s.status.as_deref(), None | Some("completed")))
@@ -1023,14 +1028,15 @@ impl App {
             self.prefs.get::<std::collections::BTreeMap<String, String>>(MODELS_KEY).and_then(|m| m.get(&key).cloned()).filter(|m| !m.is_empty());
         let carried = model_override.clone().filter(|_| session_id.is_none());
         let inbox = self.inbox.clone();
-        let id = notebook_id.clone();
+        let (id, streaming) = (notebook_id.clone(), cancel.clone());
+        let (sent_from, mine) = (notebook_id.clone(), cancel.clone());
         self.run(
             move |b| {
                 let mut on_text = |delta: &str| {
                     let delta = delta.to_owned();
-                    let id = id.clone();
+                    let (id, request) = (id.clone(), streaming.clone());
                     inbox.send(move |app| {
-                        if let Some((_, reply)) = app.open.as_mut().filter(|o| o.id == id).and_then(|o| o.pending.as_mut()) {
+                        if let Some((_, reply)) = app.open.as_mut().filter(|o| o.id == id && o.is_sending(&request)).and_then(|o| o.pending.as_mut()) {
                             reply.push_str(&delta);
                         }
                     });
@@ -1056,20 +1062,21 @@ impl App {
                 }
             },
             move |app, r| {
-                let Some(o) = app.open.as_mut() else { return };
+                // A model picked for a new chat stays with the conversation it started, wherever the user is now.
+                if let (Ok(result), Some(m)) = (&r, carried) {
+                    let mut map: std::collections::BTreeMap<String, String> = app.prefs.get(MODELS_KEY).unwrap_or_default();
+                    map.remove(&key);
+                    map.insert(result.session.id.clone(), m);
+                    let _ = app.prefs.set(MODELS_KEY, &map);
+                }
+                // The user may have opened another notebook, or reopened this one, since: the
+                // engine has saved the message, so only the view that sent it is updated.
+                let Some(o) = app.open.as_mut().filter(|o| o.id == sent_from && o.is_sending(&mine)) else { return };
                 o.sending = None;
                 match r {
                     Ok(result) => {
                         o.pending = None;
                         let session = result.session.clone();
-                        // A model picked for a new chat stays with the conversation it started.
-                        if let Some(m) = carried {
-                            let mut map: std::collections::BTreeMap<String, String> = app.prefs.get(MODELS_KEY).unwrap_or_default();
-                            map.remove(&key);
-                            map.insert(session.id.clone(), m);
-                            let _ = app.prefs.set(MODELS_KEY, &map);
-                        }
-                        let Some(o) = app.open.as_mut() else { return };
                         if !o.sessions.iter().any(|s| s.id == session.id) {
                             o.sessions.insert(0, session.clone());
                         }
