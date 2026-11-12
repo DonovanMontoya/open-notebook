@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Study Studio in notebooks: source-selected flashcard and quiz generation, difficulty and question-count controls, answer reveal, scoring, missed-item review, and decks saved as notebook notes. Generated output is schema-validated and rejects unknown source references. Initial Studio labels are English across locales; generated study content follows the selected UI language.
 
 ### Changed
+
+- Rune on iPhone: compact notebook navigation, larger reading type, touch picker sheets, scrollable forms, a native Files picker and keyboard dismissal. The open Duo keeps sources and conversation on facing pages, clear of the fold.
 - The Rune Mac app's home lists your notebooks, newest first, with what each is for and its counts. The sidebar groups the notebooks under their own heading with a + button. Amber now marks only cited and checked text.
 - **Documentation rewritten against the code.** Every page under `docs/` was checked against v1.15.0 and rewritten where it described an older or imagined product (#1458, #1459, #1460, #1461):
   - **Install:** one canonical path built on the shipped `docker-compose.yml`, with small override files for the Ollama and LM Studio variants. The network-exposure warning (bind ports to `127.0.0.1` or set a password) comes before the first `docker compose up -d`. Example encryption keys are generated, never copied. First-run setup lives in one place, [Connect a provider](docs/4-AI-PROVIDERS/index.md#connect-a-provider), and ends in a working chat via **Auto-assign Defaults**. The provider table is built from the provider registry: 24 providers, with the model types each one offers
@@ -30,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Development:** `architecture.md`, `testing.md`, `api-reference.md` and `code-standards.md` are rewritten from the code. A new playbook covers adding an AI provider. Dev setup lives on one page. The AGENTS files agree with the docs. Contributor conventions (Conventional Commits, CHANGELOG sections, pre-PR checks that match CI) are documented
 
 ### Fixed
+
+- Keep Settings, Ask and the other app destinations reachable on the Rune mobile home screen when notebooks are empty, archived, loading or unavailable.
 
 - Rune Mac app: saving settings on device no longer marks sources and episodes being made as failed; deleting a source that is in several notebooks only removes it from the current one; editing a podcast profile keeps its language; dropdowns open under their field; toasts show.
 - Give phones full-width content with a mobile navigation drawer, wrapping notebook headers and model fields, readable touch controls, and viewport-safe dialogs.

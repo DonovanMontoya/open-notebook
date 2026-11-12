@@ -1,9 +1,10 @@
 //! The add-source sheet: web pages, files, pasted text or sources from other notebooks, and
 //! the list of how each one went once Add is pressed.
 
+#[cfg(not(target_os = "ios"))]
 use rune::file_dialog::FileDialogOptions;
 use rune::{El, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, Dialog, IconButton, IconButtonVariant, TextArea, TextInput};
 
 use super::icons;
 use crate::state::{AddKind, AddSource, App, BatchItem, ItemState, Open};
@@ -20,19 +21,16 @@ pub fn sheet(o: &Open, a: &AddSource, l: &Look, layer: &mut Vec<El>) {
     if let Some(items) = &a.items {
         return batch(a, items, l, layer);
     }
-    let kinds = SegmentedControl::new(&["Web pages", "Files", "Text", "Other notebooks"], KINDS.iter().position(|x| *x == a.kind))
-        .label("Source type")
-        .width(None)
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
-            let a = add(s);
-            a.kind = KINDS[i];
-            a.error = None;
-            if a.kind == AddKind::Library && a.library.is_none() {
-                s.load_add_library();
-            }
-        })
-        .build(k)
-        .key("add-kind");
+    let labels = if l.phone() { ["Links", "Files", "Text", "Library"] } else { ["Web pages", "Files", "Text", "Other notebooks"] };
+    let kinds = super::pages::choices(&labels, KINDS.iter().position(|x| *x == a.kind), "Source type", l, |s: &mut App, i, _: &mut Tx| {
+        let a = add(s);
+        a.kind = KINDS[i];
+        a.error = None;
+        if a.kind == AddKind::Library && a.library.is_none() {
+            s.load_add_library();
+        }
+    })
+    .key("add-kind");
     let count = a.count(&o.id);
     let mut body = col().w_full().gap(12.0).child(kinds);
     match a.kind {
@@ -90,30 +88,55 @@ pub fn sheet(o: &Open, a: &AddSource, l: &Look, layer: &mut Vec<El>) {
         body = body.child(text(e.clone()).font(k.ty.ui).color(l.danger).wrap());
     }
     let label = if count > 1 { format!("Add {count} sources") } else { "Add source".into() };
-    body =
-        body.child(
-            row().w_full().gap(8.0).justify_end().child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(close).build(k).key("add-cancel")).child(
-                Button::new(label).variant(ButtonVariant::Contrast).disabled(count == 0).on_press(|s: &mut App| s.submit_add()).build(k).key("add-submit"),
+    body = body.child(
+        row()
+            .w_full()
+            .gap(8.0)
+            .justify_end()
+            .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(close).build(k).h(if l.phone() { 48.0 } else { 24.0 }).key("add-cancel"))
+            .child(
+                Button::new(label)
+                    .variant(ButtonVariant::Contrast)
+                    .disabled(count == 0)
+                    .on_press(|s: &mut App| s.submit_add())
+                    .build(k)
+                    .h(if l.phone() { 48.0 } else { 24.0 })
+                    .key("add-submit"),
             ),
-        );
-    Dialog::new("add-source", "Add sources").open(true).width(l.dialog(520.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    );
+    if l.phone() {
+        super::phone_sheet("add-source", "Add sources", body, close, l, layer);
+    } else {
+        Dialog::new("add-source", "Add sources").open(true).width(l.dialog(520.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    }
 }
 
 /// The chosen files, a button to choose more, and a drop target for them.
 fn files(a: &AddSource, l: &Look) -> El {
     let k = &l.k;
-    let pick = row()
+    let pick = if l.phone() { col().items_start() } else { row().center_y() }
         .w_full()
         .gap(10.0)
         .center_y()
-        .child(Button::new("Choose file").control_size(ControlSize::Small).on_press_tx(|_: &mut App, tx: &mut Tx| choose_file(tx)).build(k).key("add-choose"))
         .child(
-            text("or drop files here. PDF, Word, PowerPoint, Excel, EPUB, Markdown, text, HTML, audio and video.")
-                .font(k.ty.small)
-                .color(l.text3)
-                .wrap()
-                .shrink()
-                .min_w(0.0),
+            Button::new("Choose file")
+                .control_size(ControlSize::Small)
+                .on_press_tx(|s: &mut App, tx: &mut Tx| choose_file(s, tx))
+                .build(k)
+                .h(if l.phone() { 48.0 } else { 24.0 })
+                .key("add-choose"),
+        )
+        .child(
+            text(if l.phone() {
+                "PDF, documents, books, text, audio and video"
+            } else {
+                "or drop files here. PDF, Word, PowerPoint, Excel, EPUB, Markdown, text, HTML, audio and video."
+            })
+            .font(k.ty.small)
+            .color(l.text3)
+            .wrap()
+            .shrink()
+            .min_w(0.0),
         );
     let mut list = col().key("file-list").w_full().gap(2.0);
     for (i, (path, size)) in a.files.iter().enumerate() {
@@ -140,7 +163,9 @@ fn files(a: &AddSource, l: &Look) -> El {
                             }
                         })
                         .build(k)
-                        .key("remove"),
+                        .key("remove")
+                        .min_w(if l.phone() { 44.0 } else { 0.0 })
+                        .min_h(if l.phone() { 44.0 } else { 0.0 }),
                 ),
         );
     }
@@ -157,13 +182,44 @@ fn files(a: &AddSource, l: &Look) -> El {
         .accepts_extensions(&crate::state::accepted())
 }
 
-fn choose_file(tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Add a source".into(), ..Default::default() }.filter("Documents, audio and video", &crate::state::accepted());
-    tx.open_file(options, |s: &mut App, result, _| match result {
-        Ok(Some(path)) => add(s).add_files(&[path]),
-        Ok(None) => {}
-        Err(e) => add(s).error = Some(e.to_string()),
-    });
+fn choose_file(s: &mut App, tx: &mut Tx) {
+    #[cfg(target_os = "ios")]
+    {
+        let _ = tx;
+        add(s).pick_files = true;
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = s;
+        let options = FileDialogOptions { title: "Add a source".into(), ..Default::default() }.filter("Documents, audio and video", &crate::state::accepted());
+        tx.open_file(options, |s: &mut App, result, _| match result {
+            Ok(Some(path)) => add(s).add_files(&[path]),
+            Ok(None) => {}
+            Err(e) => add(s).error = Some(e.to_string()),
+        });
+    }
+}
+
+fn pick_row(on: bool, label: String, l: &Look, toggle: impl Fn(&mut App) + 'static) -> El {
+    if !l.phone() {
+        return Checkbox::new(on).label(label).on_toggle(toggle).build(&l.k);
+    }
+    let mark = row().w(24.0).h(24.0).center().radius(6.0).border(1.0, if on { l.amber } else { l.line_strong }).fill(if on { l.amber_wash } else { l.panel });
+    let mark = if on { mark.child(rune::icon(&rune_kit::glyphs::CHECK, 16.0).color(l.amber)) } else { mark };
+    l.k.interactive(
+        row()
+            .w_full()
+            .min_h(52.0)
+            .py(8.0)
+            .gap(12.0)
+            .center_y()
+            .role("checkbox")
+            .checked(on)
+            .label(label.clone())
+            .child(mark)
+            .child(text(label).font(l.k.ty.ui).color(l.text).wrap().grow(1.0).min_w(0.0)),
+    )
+    .on_press(toggle)
 }
 
 /// A checklist of sources in other notebooks.
@@ -179,16 +235,18 @@ fn library(o: &Open, a: &AddSource, l: &Look) -> El {
         any = true;
         let id = src.id.clone();
         list = list.child(
-            Checkbox::new(a.picked.contains(&src.id))
-                .label(src.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled source".into()))
-                .on_toggle(move |s: &mut App| {
+            pick_row(
+                a.picked.contains(&src.id),
+                src.title.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| "Untitled source".into()),
+                l,
+                move |s: &mut App| {
                     let a = add(s);
                     if !a.picked.remove(&id) {
                         a.picked.insert(id.clone());
                     }
-                })
-                .build(k)
-                .key(format!("pick-{}", src.id)),
+                },
+            )
+            .key(format!("pick-{}", src.id)),
         );
     }
     if !any {
@@ -201,24 +259,21 @@ fn library(o: &Open, a: &AddSource, l: &Look) -> El {
 fn insight_picks(o: &Open, a: &AddSource, l: &Look) -> El {
     let k = &l.k;
     let selected = a.selected(&o.transformations);
-    let mut checks = row().w_full().gap(14.0).flex_wrap();
+    let mut checks = if l.phone() { col().w_full().gap(4.0) } else { row().w_full().gap(14.0).flex_wrap() };
     for t in &o.transformations {
         let id = t.id.clone();
         checks = checks.child(
-            Checkbox::new(selected.contains(&t.id))
-                .label(t.title.clone())
-                .on_toggle(move |s: &mut App| {
-                    let Some(o) = s.open.as_mut() else { return };
-                    let all = o.transformations.clone();
-                    let Some(a) = o.add.as_mut() else { return };
-                    let mut chosen = a.selected(&all);
-                    if !chosen.remove(&id) {
-                        chosen.insert(id.clone());
-                    }
-                    a.chosen = Some(chosen);
-                })
-                .build(k)
-                .key(format!("insight-{}", t.id)),
+            pick_row(selected.contains(&t.id), t.title.clone(), l, move |s: &mut App| {
+                let Some(o) = s.open.as_mut() else { return };
+                let all = o.transformations.clone();
+                let Some(a) = o.add.as_mut() else { return };
+                let mut chosen = a.selected(&all);
+                if !chosen.remove(&id) {
+                    chosen.insert(id.clone());
+                }
+                a.chosen = Some(chosen);
+            })
+            .key(format!("insight-{}", t.id)),
         );
     }
     col().key("add-insights").w_full().gap(6.0).child(text("Make insights").font(k.ty.ui_medium).color(l.text2)).child(checks)
@@ -246,12 +301,18 @@ fn batch(a: &AddSource, items: &[BatchItem], l: &Look, layer: &mut Vec<El>) {
     if !a.busy && failed > 0 {
         foot = foot.child(text(format!("{failed} could not be added")).font(k.ty.small).color(l.text3));
     }
-    foot = foot.child(el().grow(1.0)).child(Button::new("Close").variant(ButtonVariant::Ghost).disabled(a.busy).on_press(close).build(k).key("add-cancel"));
+    foot = foot.child(el().grow(1.0)).child(
+        Button::new("Close").variant(ButtonVariant::Ghost).disabled(a.busy).on_press(close).build(k).h(if l.phone() { 48.0 } else { 24.0 }).key("add-cancel"),
+    );
     if let Some(p) = a.progress() {
-        foot = foot.child(Button::new(p).variant(ButtonVariant::Contrast).disabled(true).build(k).key("add-submit"));
+        foot = foot.child(Button::new(p).variant(ButtonVariant::Contrast).disabled(true).build(k).h(if l.phone() { 48.0 } else { 24.0 }).key("add-submit"));
     }
     let body = col().w_full().gap(16.0).child(list).child(foot);
-    Dialog::new("add-source", "Add sources").open(true).width(l.dialog(520.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    if l.phone() {
+        super::phone_sheet("add-source", "Add sources", body, close, l, layer);
+    } else {
+        Dialog::new("add-source", "Add sources").open(true).width(l.dialog(520.0)).fit().child(body.px(20.0).pb(20.0)).on_close(close).build(k, layer);
+    }
 }
 
 fn close(s: &mut App) {

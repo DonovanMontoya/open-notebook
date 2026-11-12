@@ -1,5 +1,6 @@
 import QuartzCore
 import UIKit
+import UniformTypeIdentifiers
 
 /// A view backed by a `CAMetalLayer`, which Rune draws the app into.
 final class MetalView: UIView {
@@ -9,12 +10,13 @@ final class MetalView: UIView {
 
 /// Hosts the Rust app: owns the Metal view, the display link and the keyboard, and passes
 /// touches and typed text to Rune through the C interface in `Bridge.h`.
-final class RuneViewController: UIViewController, UIKeyInput {
+final class RuneViewController: UIViewController, UIKeyInput, UIDocumentPickerDelegate {
     private let canvas = MetalView()
     private var host: OpaquePointer?
     private var link: CADisplayLink?
     private var wakeTimer: Timer?
     private var wantsKeyboard = false
+    private var appDark: Bool?
     /// Fingers on the screen. The keyboard waits for them to lift before it goes, so the layout
     /// doesn't move under a tap that is still landing.
     private var fingers = 0
@@ -39,6 +41,12 @@ final class RuneViewController: UIViewController, UIKeyInput {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(background), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(foreground), name: UIApplication.willEnterForegroundNotification, object: nil)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            if let host = self.host {
+                on_appearance(host, self.traitCollection.userInterfaceStyle == .dark)
+                self.wake()
+            }
+        }
     }
 
     /// The surface the app draws on a phone and the Duo, so the edges outside the safe area
@@ -115,6 +123,14 @@ final class RuneViewController: UIViewController, UIKeyInput {
     @objc private func tick() {
         guard let host else { return }
         let f = on_frame(host)
+        if appDark != f.dark {
+            appDark = f.dark
+            let color = f.dark ? UIColor(red: 0x19 / 255, green: 0x19 / 255, blue: 0x1b / 255, alpha: 1) : .white
+            view.backgroundColor = color
+            canvas.backgroundColor = color
+            setNeedsStatusBarAppearanceUpdate()
+        }
+        if f.pick_files { showFiles() }
         if f.wants_keyboard != wantsKeyboard && (f.wants_keyboard || fingers == 0) {
             wantsKeyboard = f.wants_keyboard
             if wantsKeyboard { becomeFirstResponder() } else { resignFirstResponder() }
@@ -127,6 +143,33 @@ final class RuneViewController: UIViewController, UIKeyInput {
                 wakeTimer = Timer.scheduledTimer(withTimeInterval: max(f.wake_after, 0.001), repeats: false) { [weak self] _ in self?.wake() }
             }
         }
+    }
+
+    private func showFiles() {
+        guard presentedViewController == nil else { return }
+        // Import copies so source processing can continue after the picker closes.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.content, .data], asCopy: true)
+        picker.allowsMultipleSelection = true
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let host else { return }
+        for url in urls {
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Imports").appendingPathComponent(UUID().uuidString, isDirectory: true)
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let target = dir.appendingPathComponent(url.lastPathComponent)
+                try FileManager.default.copyItem(at: url, to: target)
+                target.path.withCString { on_file(host, $0, nil) }
+            } catch {
+                error.localizedDescription.withCString { on_file(host, nil, $0) }
+            }
+        }
+        wake()
     }
 
     @objc private func background() {
@@ -168,7 +211,22 @@ final class RuneViewController: UIViewController, UIKeyInput {
 
     // Keyboard: the view controller is the text input while a Rune text field has focus.
 
+    override var preferredStatusBarStyle: UIStatusBarStyle { appDark == true ? .lightContent : .darkContent }
+
     override var canBecomeFirstResponder: Bool { wantsKeyboard }
+    override var inputAccessoryView: UIView? {
+        let bar = UIToolbar()
+        bar.sizeToFit()
+        bar.items = [UIBarButtonItem(systemItem: .flexibleSpace), UIBarButtonItem(title: "Done", style: .done, target: self, action: #selector(dismissKeyboard))]
+        return bar
+    }
+
+    @objc private func dismissKeyboard() {
+        if let host { on_dismiss_keyboard(host) }
+        wantsKeyboard = false
+        resignFirstResponder()
+        wake()
+    }
     var hasText: Bool { true }
     var autocorrectionType: UITextAutocorrectionType = .no
     var autocapitalizationType: UITextAutocapitalizationType = .sentences

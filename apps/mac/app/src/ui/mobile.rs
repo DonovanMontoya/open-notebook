@@ -16,6 +16,11 @@ use crate::state::{App, NotebookTab, Open, Route};
 use crate::theme::{Look, Size};
 
 pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
+    if let Some(p) = &s.playing
+        && p.expanded
+    {
+        return col().w_full().h_full().pb(s.inset_bottom).fill(l.panel).child(listen::player_bar(p, l));
+    }
     // The last row pads for the home indicator: the player bar when one shows, else the content.
     let content_look = Look { inset_bottom: if s.playing.is_some() { 0.0 } else { s.inset_bottom }, ..l.clone() };
     let l = &content_look;
@@ -69,6 +74,8 @@ fn notebook_settings(l: &Look) -> El {
         .on_press(notebook::open_details)
         .build(&l.k)
         .key("notebook-settings")
+        .w(44.0)
+        .h(44.0)
 }
 
 /// Back from a notebook on a phone: out of the source being read first, then home.
@@ -88,13 +95,59 @@ fn notebook_phone(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let o = s.open.as_ref().expect("a notebook is open");
     let name = o.notebook.as_ref().map(|n| n.name.clone()).unwrap_or_default();
     let reading = o.reading.is_some();
-    let (to, trailing) = if reading { (name.clone(), None) } else { ("Notebooks".to_owned(), Some(notebook_settings(l))) };
-    let mut c = col().key("notebook").w_full().h_full().min_h(0.0).child(back_bar(&to, back_in_notebook, trailing, l));
+    let nav = if reading {
+        back_bar(&name, back_in_notebook, None, l)
+    } else {
+        let back =
+            IconButton::new(&icons::BACK).variant(IconButtonVariant::GhostMuted).label("Back to notebooks").on_press(go_home).build(&l.k).w(44.0).h(44.0);
+        let search = IconButton::new(if o.search_open { &icons::CLOSE } else { &rune_kit::glyphs::SEARCH })
+            .variant(IconButtonVariant::GhostMuted)
+            .label(if o.search_open { "Close search" } else { "Search notebook" })
+            .on_press_tx(|s: &mut App, tx: &mut rune::Tx| {
+                if let Some(o) = s.open.as_mut() {
+                    o.search_open = !o.search_open;
+                    o.search.focused = o.search_open;
+                }
+                tx.blur();
+            })
+            .build(&l.k)
+            .w(44.0)
+            .h(44.0);
+        row()
+            .key("phone-navigation")
+            .w_full()
+            .h(56.0)
+            .px(4.0)
+            .gap(4.0)
+            .center_y()
+            .child(back)
+            .child(text(name.clone()).key("notebook-name").font(crate::theme::READ_HEADING).color(l.text).grow(1.0).shrink().min_w(0.0).max_lines(1))
+            .child(search)
+            .child(notebook_settings(l))
+    };
+    let mut c = col().key("notebook").w_full().h_full().min_h(0.0).child(nav);
+    if !reading && o.search_open {
+        c = c.child(
+            rune_kit::TextInput::new(&o.search)
+                .height(48.0)
+                .placeholder("Search notebook")
+                .label("Search notebook")
+                .width(None)
+                .on_edit(|s: &mut App| &mut s.open.as_mut().expect("open").search)
+                .on_change(|s: &mut App, _: &mut rune::Tx| s.search_changed())
+                .build(&l.k)
+                .key("notebook-search")
+                .mx(16.0)
+                .mb(8.0),
+        );
+        if let Some(hits) = &o.hits {
+            c = c.child(notebook::search_results(hits, l));
+        }
+    }
     if reading || o.sources_tab {
         // The source being read, or the list of sources.
         c = c.child(col().w_full().grow(1.0).min_h(0.0).fill(l.page).pb(if reading { l.inset_bottom } else { 0.0 }).child(notebook::rail(o, l, layer)));
     } else {
-        c = c.child(notebook::header(o, l));
         // Chat and Notes have controls above their content; the other tabs don't.
         if matches!(o.tab, NotebookTab::Chat | NotebookTab::Notes) {
             c = c.child(notebook::tab_head(o, l, layer));
@@ -119,7 +172,7 @@ fn tab_bar(o: &Open, l: &Look) -> El {
         ("Study", Some(NotebookTab::Study), &icons::CARDS),
         ("Listen", Some(NotebookTab::Listen), &icons::HEADPHONES),
     ];
-    let mut bar = row().key("tab-bar").w_full().h(56.0).px(4.0).fill(l.panel);
+    let mut bar = row().key("tab-bar").w_full().h(64.0).px(4.0).fill(l.panel);
     for (label, tab, icon) in TABS {
         let on = match tab {
             Some(t) => !o.sources_tab && o.tab == t,
@@ -130,7 +183,7 @@ fn tab_bar(o: &Open, l: &Look) -> El {
             .key(format!("tab-{}", label.to_lowercase()))
             .grow(1.0)
             .h_full()
-            .gap(3.0)
+            .gap(4.0)
             .center()
             .role("tab")
             .label(label)
@@ -154,6 +207,13 @@ fn tab_bar(o: &Open, l: &Look) -> El {
 /// A notebook as two facing pages: what you read on the left, what you write on the right.
 fn notebook_pages(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let o = s.open.as_ref().expect("a notebook is open");
+    let (left_width, right_width) = match s.fold {
+        Some([x, _, w, h]) if h >= w => (x, (l.width - x - w).max(0.0)),
+        Some(_) => (l.width, l.width),
+        None => ((l.width - 1.0) / 2.0, (l.width - 1.0) / 2.0),
+    };
+    let left_look = l.clone().sized(left_width);
+    let right_look = l.clone().sized(right_width);
     let left = col()
         .key("left-page")
         .h_full()
@@ -161,17 +221,19 @@ fn notebook_pages(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .fill(l.page)
         .pb(l.inset_bottom)
         .child(back_bar("Notebooks", go_home, None, l))
-        .child(col().w_full().grow(1.0).min_h(0.0).child(notebook::rail(o, l, layer)));
+        .child(col().w_full().grow(1.0).min_h(0.0).child(notebook::rail(o, &left_look, layer)));
     let mut right = col().key("right-page").h_full().min_h(0.0).pb(l.inset_bottom).child(notebook::header(o, l));
     if o.search_open
         && let Some(hits) = &o.hits
     {
         right = right.child(notebook::search_results(hits, l));
     }
-    let right = right
-        .child(notebook::tab_head(o, l, layer))
-        .child(notebook::rule(l))
-        .child(col().w_full().grow(1.0).min_h(0.0).child(notebook::tab_body(s, o, l, layer)));
+    let right = right.child(notebook::tab_head(o, l, layer)).child(notebook::rule(l)).child(col().w_full().grow(1.0).min_h(0.0).child(notebook::tab_body(
+        s,
+        o,
+        &right_look,
+        layer,
+    )));
     notebook::overlays(o, l, layer);
     // Meet at the fold when the Duo is partly folded; otherwise the left page takes two fifths.
     let body = match s.fold {
@@ -183,7 +245,7 @@ fn notebook_pages(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
             col().key("pages").w_full().h_full().child(left.w_full().h(y)).child(el().w_full().h(h).fill(l.page)).child(right.w_full().grow(1.0).min_h(0.0))
         }
         None => {
-            row().key("pages").w_full().h_full().min_h(0.0).child(left.w_frac(0.42)).child(el().w(1.0).h_full().fill(l.line)).child(right.grow(1.0).min_w(0.0))
+            row().key("pages").w_full().h_full().min_h(0.0).child(left.w_frac(0.5)).child(el().w(1.0).h_full().fill(l.line)).child(right.grow(1.0).min_w(0.0))
         }
     };
     notebook::droppable(body)
