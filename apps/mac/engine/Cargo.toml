@@ -1,0 +1,31 @@
+[package]
+name = "notebook-engine"
+description = "Open Notebook's on-device engine: local SQLite backend, AI providers and the server client."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror = "2"
+rusqlite = { version = "0.37", features = ["bundled"] }
+ureq = { version = "3", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+regex = "1"
+# Server client, file extraction, YouTube and transcription.
+base64 = "0.22"
+dom_query = "0.29"
+dom_smoothie = "0.19"
+pdf-extract = "0.12"
+quick-xml = "0.42"
+url = "2"
+# OpenAI Live voices for episodes.
+tungstenite = { version = "0.29", default-features = false, features = ["handshake", "rustls-tls-webpki-roots"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+# iCloud Keychain for API keys when the user turns sync on.
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", features = ["OSX_10_15"] }

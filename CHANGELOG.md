@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- macOS app drawn with Rune (`apps/mac`), replacing the Tauri shell on the Mac: notebooks, sources (links, text and files read on device), cited chat that opens the passage, notes, insights, transformations, Ask and Search, study decks, Usage and Settings, on device with your own keys or against an Open Notebook server. It opens the Tauri app's data folder, so existing notebooks, keys and files carry over. iOS stays on Tauri ([ADR-019](docs/7-DEVELOPMENT/decisions/ADR-019-rune-mac-app.md)).
+- The Rune Mac app's engine writes and voices podcasts on device (OpenAI speech, OpenAI Live, Gemini and ElevenLabs), with the quote-verified claim check, effort levels and the server's default profiles, and transcribes audio and video sources with the speech to text model from Settings. Episodes are saved in the Tauri app's `podcasts/` folder, so either app plays them.
+- The Rune Mac app now does everything the Tauri desktop app does except volume control and live talk against a server. It adds notebook rename, archive, search and drop-to-add; batch adds with per-item results; per-source and per-note chat context; a per-conversation model picker; note preview; key checks and real model lists in Settings; iCloud Keychain sync for keys (signed builds only); custom model prices; Library add-to and remove-from; the Transformations Try it panel; the server Processing settings; flashcard Again and Got it; a full podcast player with seeking, resume, sleep timer, media keys and Now Playing; episode download; and Live talk on device, through OpenAI's websocket with echo-cancelled microphone input.
 - GPT Live speech rendering for saved podcasts and default TTS, with selectable speaker profiles, script coverage checks, MP3 downloads, and session-based usage estimates.
 
 - Persistent podcast player with streaming seeks, speed controls, media keys, and browser MP3 downloads.
@@ -18,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Study Studio in notebooks: source-selected flashcard and quiz generation, difficulty and question-count controls, answer reveal, scoring, missed-item review, and decks saved as notebook notes. Generated output is schema-validated and rejects unknown source references. Initial Studio labels are English across locales; generated study content follows the selected UI language.
 
 ### Changed
+- The Rune Mac app's home lists your notebooks, newest first, with what each is for and its counts. The sidebar groups the notebooks under their own heading with a + button. Amber now marks only cited and checked text.
 - **Documentation rewritten against the code.** Every page under `docs/` was checked against v1.15.0 and rewritten where it described an older or imagined product (#1458, #1459, #1460, #1461):
   - **Install:** one canonical path built on the shipped `docker-compose.yml`, with small override files for the Ollama and LM Studio variants. The network-exposure warning (bind ports to `127.0.0.1` or set a password) comes before the first `docker compose up -d`. Example encryption keys are generated, never copied. First-run setup lives in one place, [Connect a provider](docs/4-AI-PROVIDERS/index.md#connect-a-provider), and ends in a working chat via **Auto-assign Defaults**. The provider table is built from the provider registry: 24 providers, with the model types each one offers
   - **User guide and concepts:** insights are a first-class concept and the context mode is *Insights only*. Ask is described as three stages. UI labels match the current app. Invented features are gone (tags, export/share, batch transformations, page-number citations and others). About 6,200 lines became about 1,450
@@ -26,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Rune Mac app: saving settings on device no longer marks sources and episodes being made as failed; deleting a source that is in several notebooks only removes it from the current one; editing a podcast profile keeps its language; dropdowns open under their field; toasts show; a chat answer that arrives after you open another notebook stays with the notebook it was asked in; a note that fails to save goes back to the editor instead of being lost; a notebook left while it loads no longer opens its latest conversation in the next one, and removing a shared source no longer hides it in the notebook opened next; deleting a notebook keeps a Library source that was taken out of it; chat on a notebook with many long sources gives each one an excerpt instead of saying there are no processed sources; in server mode the Library loads again (it asked for 500 sources at once, which the server refuses) and notebooks with more than 100 sources list them all.
 - Give phones full-width content with a mobile navigation drawer, wrapping notebook headers and model fields, readable touch controls, and viewport-safe dialogs.
 
 
