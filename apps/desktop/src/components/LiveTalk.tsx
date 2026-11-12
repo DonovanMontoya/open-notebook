@@ -23,8 +23,11 @@ export function LiveTalk({ notebookId }: { notebookId: string }) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   // When OpenAI created the session; it bills from then until the call ends.
   const startedAt = useRef<number>(undefined)
+  // Bumped by every cleanup, so a start still waiting on the microphone or network can tell it was cancelled.
+  const generation = useRef(0)
 
   const cleanup = () => {
+    generation.current++
     clearTimeout(timer.current)
     if (startedAt.current !== undefined) {
       void backend.recordLiveTalk((Date.now() - startedAt.current) / 1000).catch(() => undefined)
@@ -42,8 +45,14 @@ export function LiveTalk({ notebookId }: { notebookId: string }) {
     cleanup()
     setError(undefined)
     setStatus('connecting')
+    const run = generation.current
+    const cancelled = () => run !== generation.current
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (cancelled()) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
       mic.current = stream
       const connection = new RTCPeerConnection()
       peer.current = connection
@@ -83,6 +92,7 @@ export function LiveTalk({ notebookId }: { notebookId: string }) {
         }
       }
       await connection.setLocalDescription(await connection.createOffer())
+      if (cancelled()) return
       if (connection.iceGatheringState !== 'complete') {
         await new Promise<void>((resolve, reject) => {
           const giveUp = setTimeout(() => reject(new Error('Could not reach the network for Live')), 10_000)
@@ -94,7 +104,9 @@ export function LiveTalk({ notebookId }: { notebookId: string }) {
           })
         })
       }
+      if (cancelled()) return
       const answer = await backend.createLiveSession(connection.localDescription!.sdp, voice, notebookId)
+      if (cancelled()) return
       startedAt.current = Date.now()
       timer.current = setTimeout(() => {
         cleanup()
@@ -103,6 +115,7 @@ export function LiveTalk({ notebookId }: { notebookId: string }) {
       }, 20_000)
       await connection.setRemoteDescription({ type: 'answer', sdp: answer })
     } catch (e) {
+      if (cancelled()) return
       cleanup()
       setStatus('failed')
       setError(e instanceof DOMException && e.name === 'NotAllowedError' ? 'Allow microphone access for Open Notebook in System Settings, Privacy & Security.' : errorMessage(e))
