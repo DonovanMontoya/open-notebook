@@ -6,6 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
+from api.podcast_media import valid_media_ticket
 from open_notebook.utils.encryption import get_secret_from_env
 
 
@@ -43,6 +44,16 @@ class PasswordAuthMiddleware(BaseHTTPMiddleware):
 
         # Skip authentication for CORS preflight requests (OPTIONS)
         if request.method == "OPTIONS":
+            return await call_next(request)
+
+        # A ticket grants read access to one audio file only, never API mutations.
+        if (
+            request.scope.get("query_string")
+            and request.method in {"GET", "HEAD"}
+            and valid_media_ticket(
+                request.url.path, request.query_params.get("media_ticket", "")
+            )
+        ):
             return await call_next(request)
 
         # Check authorization header

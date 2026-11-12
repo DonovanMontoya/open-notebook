@@ -1,0 +1,2 @@
+-- Live now has a speech-rendering adapter; preserve model references.
+UPDATE model SET type = 'text_to_speech' WHERE provider = 'openai' AND name = 'gpt-live-1' AND type = 'language';

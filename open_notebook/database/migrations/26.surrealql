@@ -1,0 +1,2 @@
+DEFINE TABLE IF NOT EXISTS usage_event SCHEMALESS;
+DEFINE INDEX IF NOT EXISTS usage_event_created ON TABLE usage_event COLUMNS created;

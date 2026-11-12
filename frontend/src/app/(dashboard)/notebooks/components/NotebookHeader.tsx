@@ -50,24 +50,24 @@ export function NotebookHeader({ notebook }: NotebookHeaderProps) {
 
   return (
     <>
-      <div className="border-b pb-6">
+      <div className="border-b pb-4">
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 flex-1">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
               <InlineEdit
                 id="notebook-name"
                 name="notebook-name"
                 value={notebook.name}
                 onSave={handleUpdateName}
-                className="font-display text-2xl font-bold tracking-tight"
-                inputClassName="font-display text-2xl font-bold tracking-tight"
+                className="min-w-0 font-display text-xl font-semibold leading-snug sm:text-2xl"
+                inputClassName="min-w-0 font-display text-xl font-semibold leading-snug sm:text-2xl"
                 placeholder={t('notebooks.namePlaceholder')}
               />
               {notebook.archived && (
                 <Badge variant="secondary">{t('notebooks.archived')}</Badge>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 size="sm"

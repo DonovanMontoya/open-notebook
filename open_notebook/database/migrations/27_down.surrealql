@@ -1,0 +1,1 @@
+UPDATE model SET type = 'language' WHERE provider = 'openai' AND name = 'gpt-live-1' AND type = 'text_to_speech';

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- GPT Live speech rendering for saved podcasts and default TTS, with selectable speaker profiles, script coverage checks, MP3 downloads, and session-based usage estimates.
+
+- Persistent podcast player with streaming seeks, speed controls, media keys, and browser MP3 downloads.
+- Usage page with a durable local ledger, model and feature breakdowns, and labeled spend estimates.
+
+- Voice-only GPT Live sessions in Study Studio with server-side credential handling, Responses backend delegation, microphone controls, and session cleanup. Notebook source sharing is not enabled.
 - Study Studio in notebooks: source-selected flashcard and quiz generation, difficulty and question-count controls, answer reveal, scoring, missed-item review, and decks saved as notebook notes. Generated output is schema-validated and rejects unknown source references. Initial Studio labels are English across locales; generated study content follows the selected UI language.
 
 ### Changed
@@ -18,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Development:** `architecture.md`, `testing.md`, `api-reference.md` and `code-standards.md` are rewritten from the code. A new playbook covers adding an AI provider. Dev setup lives on one page. The AGENTS files agree with the docs. Contributor conventions (Conventional Commits, CHANGELOG sections, pre-PR checks that match CI) are documented
 
 ### Fixed
+
+- Give phones full-width content with a mobile navigation drawer, wrapping notebook headers and model fields, readable touch controls, and viewport-safe dialogs.
+
+
+- Keep Live voice available with an OpenAI transformation backend when the default chat model uses another provider.
+
+- Recognize GPT-6 reasoning parameters and use Responses for LangChain calls; classify OpenAI transcription models correctly and prevent known embedding/speech models from being registered as language models by default.
 - **Docs no longer recommend settings that do nothing.** `API_CLIENT_TIMEOUT` was never read by Open Notebook; the timeout guidance now covers what actually applies: `ESPERANTO_LLM_TIMEOUT` per model call (keep it below 600) and the web UI's 10-minute request limit (`NEXT_PUBLIC_API_TIMEOUT_MS`, build time only). Remaining `SURREAL_COMMANDS_MAX_TASKS` advice now uses `OPEN_NOTEBOOK_WORKER_MAX_TASKS`. Docker instructions no longer say to edit `.env` and `docker compose restart`: the shipped compose file doesn't load `.env` into the container and `restart` doesn't reload environment changes, so they now point to the `open_notebook` service's `environment:` block and `docker compose up -d`
 - **Timeouts no longer read as connection failures.** A model that doesn't answer within `ESPERANTO_LLM_TIMEOUT` used to report "Could not connect to the AI provider"; it now says the provider took too long and how to raise the limit. Connection failures (including connect timeouts) keep the old message
 - Error hints point to screens that exist: an authentication failure sends you to Manage → Models (not "Settings → Credentials"), and an unsupported podcast voice to Podcasts → Profiles. The empty Podcasts page points to the Generate Podcast button instead of chat screens that can't start a podcast

@@ -64,19 +64,19 @@ function DefaultModelSelect({
   })()
 
   return (
-    <div className="space-y-1">
+    <div className="min-w-0 space-y-1">
       <Label htmlFor={config.id} className="text-xs">
         {config.label}
         {config.required && <span className="text-destructive ml-0.5">*</span>}
       </Label>
-      <div className="flex gap-1">
+      <div className="flex min-w-0 gap-1">
         <Select
           value={currentValue || (config.required ? "" : NONE_VALUE)}
           onValueChange={(v) => onChange(config.key, v === NONE_VALUE ? "" : v)}
         >
           <SelectTrigger
             id={config.id}
-            className={`h-8 text-xs ${config.required && !isValid && available.length > 0 ? 'border-destructive' : ''}`}
+            className={`min-w-0 w-full flex-1 h-auto min-h-10 whitespace-normal text-sm ${config.required && !isValid && available.length > 0 ? 'border-destructive' : ''}`}
           >
             <SelectValue placeholder={
               config.required && !isValid && available.length > 0
@@ -94,9 +94,9 @@ function DefaultModelSelect({
             )}
             {available.sort((a, b) => a.name.localeCompare(b.name)).map(model => (
               <SelectItem key={model.id} value={model.id}>
-                <div className="flex items-center justify-between w-full">
-                  <span>{model.name}</span>
-                  <span className="text-xs text-muted-foreground ml-2">{model.provider}</span>
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 w-full">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{model.name}</span>
+                  <span className="text-xs text-muted-foreground">{model.provider}</span>
                 </div>
               </SelectItem>
             ))}
@@ -109,10 +109,10 @@ function DefaultModelSelect({
         )}
       </div>
       {emptyOptionalHint && (
-        <p className="text-[10px] text-muted-foreground leading-tight italic">{emptyOptionalHint}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{emptyOptionalHint}</p>
       )}
       {showDescription && (
-        <p className="text-[10px] text-muted-foreground leading-tight">{config.description}</p>
+        <p className="text-xs text-muted-foreground leading-relaxed">{config.description}</p>
       )}
     </div>
   )
@@ -203,7 +203,7 @@ export function DefaultModelSelectors({
         {missingRequired.length > 0 && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="flex items-center justify-between gap-4">
+            <AlertDescription className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span>{t('models.missingRequiredModels', { models: missingRequired.join(', ') })}</span>
               <Button
                 variant="outline" size="sm"

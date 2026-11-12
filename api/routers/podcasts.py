@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
+from api.podcast_media import create_media_ticket
 from api.podcast_service import (
     PodcastGenerationRequest,
     PodcastGenerationResponse,
@@ -312,8 +313,17 @@ async def get_podcast_episode(episode_id: str):
         raise HTTPException(status_code=404, detail="Episode not found")
 
 
+@router.post("/podcasts/episodes/{episode_id}/audio-access")
+async def podcast_audio_access(episode_id: str):
+    # Reuse containment/existence validation before minting a scoped ticket.
+    await stream_podcast_episode_audio(episode_id)
+    path = f"/api/podcasts/episodes/{episode_id}/audio"
+    return {"url": f"{path}?media_ticket={create_media_ticket(path)}"}
+
+
 @router.get("/podcasts/episodes/{episode_id}/audio")
-async def stream_podcast_episode_audio(episode_id: str):
+@router.head("/podcasts/episodes/{episode_id}/audio")
+async def stream_podcast_episode_audio(episode_id: str, download: bool = False):
     """Stream the audio file associated with a podcast episode"""
     try:
         episode = await PodcastService.get_episode(episode_id)
@@ -343,6 +353,11 @@ async def stream_podcast_episode_audio(episode_id: str):
         audio_path,
         media_type="audio/mpeg",
         filename=audio_path.name,
+        content_disposition_type="attachment" if download else "inline",
+        headers={
+            "Cache-Control": "private, no-store",
+            "Referrer-Policy": "no-referrer",
+        },
     )
 
 

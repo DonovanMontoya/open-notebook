@@ -204,6 +204,7 @@ export function SpeakerProfileFormDialog({
                     onChange={field.onChange}
                     placeholder={t('podcasts.selectVoiceModel')}
                   />
+                  <p className="mt-2 max-w-prose text-xs leading-relaxed text-muted-foreground">{t('mobile.speechHint')}</p>
                   {errors.voice_model ? (
                     <p className="text-xs text-destructive mt-1">
                       {errors.voice_model.message}

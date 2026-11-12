@@ -1,0 +1,21 @@
+{
+  "name": "@open-notebook/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "On-device Open Notebook engine: local storage, provider adapters, ingestion, retrieval and chat.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types --disable-warning=ExperimentalWarning 'src/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "@open-notebook/api-client": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "~6.0.3"
+  }
+}

@@ -28,6 +28,7 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 import { Separator } from '@/components/ui/separator'
 import {
   Book,
+  ChartNoAxesCombined,
   Search,
   Mic,
   Bot,
@@ -65,6 +66,7 @@ const getNavigation = (t: TFunction) => [
   {
     title: t('navigation.manage'),
     items: [
+      { name: t('usage.title'), href: '/usage', icon: ChartNoAxesCombined, iconClass: undefined },
       { name: t('navigation.models'), href: '/settings/models', icon: Bot, iconClass: undefined },
       { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle, iconClass: undefined },
       { name: t('navigation.settings'), href: '/settings', icon: Settings, iconClass: undefined },
@@ -86,12 +88,13 @@ function LogoPebbles({ className }: { className?: string }) {
 
 type CreateTarget = 'source' | 'notebook' | 'podcast'
 
-export function AppSidebar() {
+export function AppSidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void } = {}) {
   const { t } = useTranslation()
   const navigation = getNavigation(t)
   const pathname = usePathname()
   const { logout } = useAuth()
-  const { isCollapsed, toggleCollapse } = useSidebarStore()
+  const { isCollapsed: storedCollapsed, toggleCollapse } = useSidebarStore()
+  const isCollapsed = !mobile && storedCollapsed
   const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
 
   // The active item is the longest href that prefixes the current path.
@@ -113,6 +116,7 @@ export function AppSidebar() {
 
   const handleCreateSelection = (target: CreateTarget) => {
     setCreateMenuOpen(false)
+    onNavigate?.()
 
     if (target === 'source') {
       openSourceDialog()
@@ -127,8 +131,8 @@ export function AppSidebar() {
     <TooltipProvider delayDuration={0}>
       <div
         className={cn(
-          'app-sidebar flex h-full flex-col bg-sidebar border-sidebar-border border-r transition-all duration-300',
-          isCollapsed ? 'w-16' : 'w-64'
+          'app-sidebar flex h-full min-h-0 shrink-0 flex-col overflow-y-auto bg-sidebar border-sidebar-border border-r',
+          mobile ? 'w-full' : isCollapsed ? 'w-16' : 'w-64'
         )}
       >
         <div
@@ -161,7 +165,7 @@ export function AppSidebar() {
                 variant="ghost"
                 size="sm"
                 onClick={toggleCollapse}
-                className="text-sidebar-foreground hover:bg-sidebar-accent"
+                className={cn("text-sidebar-foreground hover:bg-sidebar-accent", mobile && "hidden")}
                 data-testid="sidebar-toggle"
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -260,7 +264,7 @@ export function AppSidebar() {
               )}
               <div className="space-y-1">
                 {!isCollapsed && (
-                  <h3 className="mb-1.5 px-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-sidebar-foreground/40">
+                  <h3 className="mb-2 px-3 text-xs font-medium text-muted-foreground">
                     {section.title}
                   </h3>
                 )}
@@ -286,7 +290,7 @@ export function AppSidebar() {
                     return (
                       <Tooltip key={item.name}>
                         <TooltipTrigger asChild>
-                          <Link href={item.href}>
+                          <Link href={item.href} onClick={onNavigate}>
                             {button}
                           </Link>
                         </TooltipTrigger>
@@ -296,7 +300,7 @@ export function AppSidebar() {
                   }
 
                   return (
-                    <Link key={item.name} href={item.href}>
+                    <Link key={item.name} href={item.href} onClick={onNavigate}>
                       {button}
                     </Link>
                   )

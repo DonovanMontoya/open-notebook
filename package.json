@@ -1,0 +1,14 @@
+{
+  "name": "open-notebook-workspace",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "npm --workspace @open-notebook/mobile run start",
+    "mobile:ios": "npm --workspace @open-notebook/mobile run ios",
+    "typecheck": "npm --workspaces --if-present run typecheck",
+    "test": "npm --workspaces --if-present run test"
+  }
+}
