@@ -435,6 +435,11 @@ export class LocalBackend implements Backend {
   }
 
   async unlinkSource(sourceId: string, notebookId: string): Promise<void> {
+    // source.notebook_id must name a notebook and cascades when that notebook is deleted, so a source
+    // with no notebook left would be deleted along with its former one. Keep at least one link.
+    const links = await this.db.select<{ notebook_id: string }>(`SELECT notebook_id FROM notebook_source WHERE source_id = $1`, [sourceId])
+    if (!links.some((l) => l.notebook_id === notebookId)) return
+    if (links.length <= 1) throw new Error('A source has to stay in at least one notebook. Delete the source instead.')
     await this.db.execute(`DELETE FROM notebook_source WHERE source_id = $1 AND notebook_id = $2`, [sourceId, notebookId])
     // Keep the home notebook pointing at a notebook the source is still in.
     const [left] = await this.db.select<{ notebook_id: string }>(`SELECT notebook_id FROM notebook_source WHERE source_id = $1`, [sourceId])
@@ -839,6 +844,12 @@ export class LocalBackend implements Backend {
         if (used + c.text.length > share) continue
         picked.add(c.id)
         used += c.text.length
+      }
+      if (!picked.size) {
+        // Every chunk is longer than this source's share: send the most relevant one, cut to fit.
+        const best = own.reduce((top, c) => ((scores.get(c.id) ?? 0) > (scores.get(top.id) ?? 0) ? c : top), opening)
+        if (share > 0) chunks.push({ title, text: best.text.slice(0, share) })
+        continue
       }
       for (const c of own) if (picked.has(c.id)) chunks.push({ title, text: c.text })
     }

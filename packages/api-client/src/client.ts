@@ -54,6 +54,8 @@ export class ApiError extends Error {
 type Query = Record<string, string | number | boolean | undefined>
 
 const DEFAULT_TIMEOUT_MS = 600_000
+/** The largest page GET /api/sources accepts (limit is capped at 100). */
+const SOURCE_PAGE = 100
 
 /** Strips trailing slashes and a trailing /api so either form of the URL works. */
 export function normalizeBaseUrl(raw: string): string {
@@ -190,7 +192,17 @@ export function createClient(config: ClientConfig) {
       /** The original uploaded file. */
       download: (id: string) =>
         request<{ data: ArrayBuffer; name?: string; type: string }>('GET', `/sources/${encodeURIComponent(id)}/download`, { binary: true }),
-      listAll: () => request<SourceSummary[]>('GET', '/sources', { query: { sort_by: 'updated', sort_order: 'desc', limit: 500 } }),
+      /** Every source on the server, newest first. The server returns at most 100 per request, so this pages. */
+      listAll: async () => {
+        const all: SourceSummary[] = []
+        for (let offset = 0; ; offset += SOURCE_PAGE) {
+          const page = await request<SourceSummary[]>('GET', '/sources', {
+            query: { sort_by: 'updated', sort_order: 'desc', limit: SOURCE_PAGE, offset },
+          })
+          all.push(...page)
+          if (page.length < SOURCE_PAGE) return all
+        }
+      },
       update: (id: string, data: { title?: string }) => request<SourceDetail>('PUT', `/sources/${encodeURIComponent(id)}`, { body: data }),
       link: (sourceId: string, notebookId: string) =>
         request<unknown>('POST', `/notebooks/${encodeURIComponent(notebookId)}/sources/${encodeURIComponent(sourceId)}`),
