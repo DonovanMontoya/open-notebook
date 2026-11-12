@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Rune Mac app: saving settings on device no longer marks sources and episodes being made as failed; deleting a source that is in several notebooks only removes it from the current one; editing a podcast profile keeps its language; dropdowns open under their field; toasts show; a chat answer that arrives after you open another notebook stays with the notebook it was asked in; a note that fails to save goes back to the editor instead of being lost.
+- Rune Mac app: saving settings on device no longer marks sources and episodes being made as failed; deleting a source that is in several notebooks only removes it from the current one; editing a podcast profile keeps its language; dropdowns open under their field; toasts show; a chat answer that arrives after you open another notebook stays with the notebook it was asked in; a note that fails to save goes back to the editor instead of being lost; a notebook left while it loads no longer opens its latest conversation in the next one, and removing a shared source no longer hides it in the notebook opened next.
 - Give phones full-width content with a mobile navigation drawer, wrapping notebook headers and model fields, readable touch controls, and viewport-safe dialogs.
 
 

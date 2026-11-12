@@ -916,10 +916,10 @@ impl App {
             let id = id.clone();
             move |app: &mut App, r: notebook_engine::Result<Vec<ChatSession>>| match r {
                 Ok(sessions) => {
+                    // Only while this notebook's chat still shows, or it would open in another.
+                    let Some(o) = app.open.as_mut().filter(|o| o.id == id && o.scope.is_none()) else { return };
                     let latest = sessions.first().map(|s| s.id.clone());
-                    if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
-                        o.sessions = sessions;
-                    }
+                    o.sessions = sessions;
                     if let Some(sid) = latest {
                         app.open_session(sid);
                     }
@@ -955,14 +955,18 @@ impl App {
     pub fn open_session(&self, session_id: String) {
         let Some(o) = self.open.as_ref() else { return };
         let (id, scope) = (o.id.clone(), o.scope.as_ref().map(|(sid, _)| sid.clone()));
+        let asked_in = scope.clone();
         self.run(
             move |b| match &scope {
                 Some(source) => b.get_source_chat_session(source, &session_id),
                 None => b.get_chat_session(&session_id),
             },
-            with_open(&id, |o, s| {
-                o.session = Some(s);
-                o.sessions_open = false;
+            with_open(&id, move |o, s| {
+                // Not if the chat has switched to another source, or back to the notebook, since.
+                if o.scope.as_ref().map(|(sid, _)| sid) == asked_in.as_ref() {
+                    o.session = Some(s);
+                    o.sessions_open = false;
+                }
             }),
         );
     }
@@ -980,17 +984,17 @@ impl App {
         o.error = None;
         let id = o.id.clone();
         let nb = id.clone();
+        let source = scope.as_ref().map(|(sid, _)| sid.clone());
         self.run(
-            move |b| match &scope {
-                Some((source, _)) => b.list_source_chat_sessions(source),
+            move |b| match &source {
+                Some(source) => b.list_source_chat_sessions(source),
                 None => b.list_chat_sessions(&nb),
             },
             move |app: &mut App, r: notebook_engine::Result<Vec<ChatSession>>| match r {
                 Ok(sessions) => {
+                    let Some(o) = app.open.as_mut().filter(|o| o.id == id && o.scope == scope) else { return };
                     let latest = sessions.first().map(|s| s.id.clone());
-                    if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
-                        o.sessions = sessions;
-                    }
+                    o.sessions = sessions;
                     if let Some(sid) = latest {
                         app.open_session(sid);
                     }
@@ -1103,6 +1107,7 @@ impl App {
 
     pub fn delete_session(&mut self, session_id: String) {
         let gone = session_id.clone();
+        let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let scope = self.open.as_ref().and_then(|o| o.scope.as_ref().map(|(sid, _)| sid.clone()));
         self.run(
             move |b| match &scope {
@@ -1111,7 +1116,7 @@ impl App {
             },
             move |app, r| match r {
                 Ok(()) => {
-                    if let Some(o) = app.open.as_mut() {
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == nb) {
                         o.sessions.retain(|s| s.id != gone);
                         if o.session.as_ref().is_some_and(|s| s.session.id == gone) {
                             o.session = None;
@@ -1515,11 +1520,13 @@ impl App {
         let gone = source_id.clone();
         let shared = self.source_is_shared(&source_id);
         let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
+        let from = nb.clone();
         self.run(
             move |b| if shared { b.unlink_source(&source_id, &nb) } else { b.delete_source(&source_id) },
             move |app, r| match r {
                 Ok(()) => {
-                    if let Some(o) = app.open.as_mut() {
+                    // A shared source taken out of this notebook is still in the others.
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == from) {
                         o.sources.retain(|s| s.id != gone);
                         if o.reading.as_ref().is_some_and(|(d, _)| d.summary.id == gone) {
                             o.reading = None;
@@ -1595,11 +1602,12 @@ impl App {
 
     pub fn delete_note(&mut self, note_id: String) {
         let gone = note_id.clone();
+        let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         self.run(
             move |b| b.delete_note(&note_id),
             move |app, r| match r {
                 Ok(()) => {
-                    if let Some(o) = app.open.as_mut() {
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == nb) {
                         o.notes.retain(|n| n.id != gone);
                         if o.note.as_ref().is_some_and(|d| d.id.as_deref() == Some(gone.as_str())) {
                             o.note = None;
@@ -2197,6 +2205,26 @@ mod tests {
         app.delete_source(src.id.clone());
         settle(&mut app, |a| a.open.as_ref().unwrap().sources.is_empty());
         assert!(b.list_sources(&other.id).unwrap().iter().any(|s| s.id == src.id));
+    }
+
+    #[test]
+    fn removing_a_shared_source_leaves_it_in_the_notebook_opened_next() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let b = app.backend.clone().unwrap();
+        let here = app.open.as_ref().unwrap().id.clone();
+        let other = b.create_notebook("Other", "").unwrap();
+        let src = b.add_source(&here, NewSource { input: SourceInput::Text { content: "Shared".into(), title: None }, transformations: Vec::new() }).unwrap();
+        b.link_source(&src.id, &other.id).unwrap();
+        app.refresh_sources();
+        settle(&mut app, |a| a.open.as_ref().unwrap().sources.first().is_some_and(|s| s.notebooks.len() == 2));
+        app.delete_source(src.id.clone());
+        // The other notebook is open, its sources shown, before the removal's result arrives.
+        app.open_offline(&other.id);
+        app.open.as_mut().unwrap().sources = b.list_sources(&other.id).unwrap();
+        settle(&mut app, |_| false);
+        assert!(app.open.as_ref().unwrap().sources.iter().any(|s| s.id == src.id), "still listed where it still is");
+        assert!(b.list_sources(&here).unwrap().is_empty());
     }
 
     #[test]

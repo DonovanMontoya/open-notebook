@@ -217,3 +217,21 @@ fn an_answer_to_an_earlier_visit_leaves_the_reopened_notebook_alone() {
     assert!(o.pending.is_none() && o.error.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_notebook_left_while_loading_does_not_open_its_chat_in_the_next() {
+    let (mut app, _backend, a, b, _release, dir) = two_notebooks("reload", "never sent");
+    app.open.as_mut().unwrap().draft = TextEdit::new("What do spindles do?");
+    app.send();
+    wait(&mut app, "the answer", |a| a.open.as_ref().unwrap().sending.is_none());
+    app.open_notebook(b.clone());
+    // A starts loading, and its latest conversation with it, but B opens first.
+    app.open_notebook(a);
+    app.open_notebook(b.clone());
+    wait(&mut app, "notebook B", |app| app.open.as_ref().is_some_and(|o| o.notebook.is_some()));
+    linger(&mut app);
+    let o = app.open.as_ref().unwrap();
+    assert_eq!(o.id, b);
+    assert!(o.session.is_none() && o.sessions.is_empty(), "{:?}", o.session.as_ref().map(|s| &s.session));
+    let _ = std::fs::remove_dir_all(&dir);
+}
