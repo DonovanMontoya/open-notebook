@@ -71,11 +71,38 @@ impl Client {
     // Sources
 
     pub fn list_sources(&self, notebook_id: &str) -> Result<Vec<ServerSource>> {
-        self.get("/sources", &[("notebook_id", some(notebook_id)), ("sort_by", some("updated")), ("sort_order", some("desc")), ("limit", some(100))])
+        self.sources_paged(Some(notebook_id))
     }
 
     pub fn list_all_sources(&self) -> Result<Vec<ServerSource>> {
-        self.get("/sources", &[("sort_by", some("updated")), ("sort_order", some("desc")), ("limit", some(500))])
+        self.sources_paged(None)
+    }
+
+    /// Every source, newest first, a page at a time: the server takes a limit of at most 100.
+    /// A source that moves between pages while they load is listed once.
+    fn sources_paged(&self, notebook_id: Option<&str>) -> Result<Vec<ServerSource>> {
+        const PAGE: usize = 100;
+        // 10,000 sources, in case a server ignores the offset and repeats a full page.
+        const MAX_PAGES: usize = 100;
+        let mut all: Vec<ServerSource> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for page in 0..MAX_PAGES {
+            let query = [
+                ("notebook_id", notebook_id.map(String::from)),
+                ("sort_by", some("updated")),
+                ("sort_order", some("desc")),
+                ("limit", some(PAGE)),
+                ("offset", some(page * PAGE)),
+            ];
+            let batch: Vec<ServerSource> = self.get("/sources", &query)?;
+            let full = batch.len() == PAGE;
+            let before = all.len();
+            all.extend(batch.into_iter().filter(|s| seen.insert(s.id.clone())));
+            if !full || all.len() == before {
+                break;
+            }
+        }
+        Ok(all)
     }
 
     pub fn get_source(&self, id: &str) -> Result<ServerSource> {
