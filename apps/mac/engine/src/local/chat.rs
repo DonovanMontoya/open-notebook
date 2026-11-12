@@ -334,11 +334,11 @@ impl Engine {
                 chunks.push(ContextChunk { title: r.title.clone(), text: take_chars(&r.text, *share).to_string() });
                 continue;
             }
+            let score = |c: &(String, String)| scores.get(&c.0).copied().unwrap_or(0.0);
             let mut ranked: Vec<&(String, String)> = own.iter().skip(1).collect();
-            ranked.sort_by(|a, b| {
-                let (sa, sb) = (scores.get(&a.0).copied().unwrap_or(0.0), scores.get(&b.0).copied().unwrap_or(0.0));
-                sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            ranked.sort_by(|a, b| score(b).partial_cmp(&score(a)).unwrap_or(std::cmp::Ordering::Equal));
+            // The passage to cut down when no chunk fits the share: the best match, else the opening.
+            let best = ranked.first().copied().filter(|c| score(c) > 0.0).unwrap_or(&own[0]);
             ranked.insert(0, &own[0]);
             let mut picked: HashSet<&str> = HashSet::new();
             let mut used = 0;
@@ -349,6 +349,12 @@ impl Engine {
                 }
                 picked.insert(id);
                 used += len;
+            }
+            // With many sources a share can be smaller than every chunk; the source still gets
+            // an excerpt, cut to its share, instead of dropping out of the prompt.
+            if picked.is_empty() && *share > 0 {
+                chunks.push(ContextChunk { title: r.title.clone(), text: take_chars(&best.1, *share).to_string() });
+                continue;
             }
             for (id, text) in &own {
                 if picked.contains(id.as_str()) {
