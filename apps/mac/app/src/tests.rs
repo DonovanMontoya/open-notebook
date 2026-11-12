@@ -228,3 +228,25 @@ fn mobile_home_states_keep_settings_and_global_navigation_reachable() {
         }
     }
 }
+
+/// A phone notebook shows what its search found, as the desk and the Duo do.
+#[test]
+fn phone_notebook_shows_search_results() {
+    let dir = std::env::temp_dir().join(format!("on-phone-search-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let backend = LocalBackend::open_with(&dir, LocalOptions::default()).unwrap();
+    let mut app = App::with_backend(dir.clone(), Arc::new(backend));
+    wait(&mut app, "the notebook list", |a| a.loaded);
+    app.new_notebook = Some(TextEdit::new("Sleep"));
+    app.create_notebook();
+    wait(&mut app, "the new notebook to open", |a| matches!(a.route, Route::Notebook(_)) && a.open.as_ref().is_some_and(|o| o.notebook.is_some()));
+    let o = app.open.as_mut().unwrap();
+    o.search_open = true;
+    o.hits = Some(("spindles".into(), Ok(Vec::new())));
+    let mut rt = Runtime::new(app, crate::ui::view, (390.0, 800.0), Env { system_dark: false, scale: 3.0 });
+    rt.frame(0.0);
+    assert!(rt.find("search-results").is_some(), "the phone notebook shows search results");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
