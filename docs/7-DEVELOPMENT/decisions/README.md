@@ -55,5 +55,6 @@ What this makes easier, what it makes harder, what to watch. (bullets)
 | [ADR-012](ADR-012-provider-endpoint-overrides.md) | Provider endpoint overrides are declared in the registry | Accepted |
 | [ADR-013](ADR-013-objectmodel-get-error-contract.md) | ObjectModel.get raises NotFoundError only for a missing record | Accepted |
 | [ADR-019](ADR-019-rune-mac-app.md) | The on-device Mac app is drawn with Rune; iOS stays on Tauri | Accepted |
+| [ADR-020](ADR-020-rune-iphone-app.md) | The Rune app also runs on iPhone, inside a small Swift shell | Accepted |
 | [PDR-001](PDR-001-single-user-first.md) | Single-user first; don't preclude multi-user | Accepted |
 | [PDR-002](PDR-002-provider-agnostic-core.md) | Provider-agnostic core by default | Accepted |
