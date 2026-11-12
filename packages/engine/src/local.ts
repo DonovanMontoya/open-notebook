@@ -845,6 +845,12 @@ export class LocalBackend implements Backend {
         picked.add(c.id)
         used += c.text.length
       }
+      if (!picked.size) {
+        // Every chunk is longer than this source's share: send the most relevant one, cut to fit.
+        const best = own.reduce((top, c) => ((scores.get(c.id) ?? 0) > (scores.get(top.id) ?? 0) ? c : top), opening)
+        if (share > 0) chunks.push({ title, text: best.text.slice(0, share) })
+        continue
+      }
       for (const c of own) if (picked.has(c.id)) chunks.push({ title, text: c.text })
     }
     return { sources: [...full.filter((_, i) => shares[i] >= full[i].full_text.length).map(whole), ...sources], chunks }
