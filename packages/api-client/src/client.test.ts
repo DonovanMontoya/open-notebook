@@ -40,6 +40,28 @@ test('new sources are linked to the notebook and processed in the background', a
   })
 })
 
+test('listing every source pages within the server limit of 100', async () => {
+  const calls: string[] = []
+  const total = 230
+  const fetchPages = (async (url: string) => {
+    calls.push(url)
+    const params = new URL(url).searchParams
+    const limit = Number(params.get('limit'))
+    if (limit > 100) return new Response(JSON.stringify({ detail: 'limit too large' }), { status: 422 })
+    const offset = Number(params.get('offset') ?? 0)
+    const page = Array.from({ length: Math.max(0, Math.min(limit, total - offset)) }, (_, i) => ({ id: `source:${offset + i}` }))
+    return new Response(JSON.stringify(page), { status: 200 })
+  }) as unknown as typeof fetch
+  const client = createClient({ baseUrl: 'https://h', fetch: fetchPages })
+  const sources = await client.sources.listAll()
+  assert.equal(sources.length, total)
+  assert.equal(new Set(sources.map((s) => s.id)).size, total)
+  assert.deepEqual(
+    calls.map((url) => new URL(url).searchParams.get('offset')),
+    ['0', '100', '200'],
+  )
+})
+
 test('API errors surface the FastAPI detail message', async () => {
   const client = createClient({ baseUrl: 'https://h', fetch: fakeFetch(404, { detail: 'Notebook not found' }) })
   await assert.rejects(client.notebooks.get('x'), (error: unknown) => {

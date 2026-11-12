@@ -163,6 +163,23 @@ test('chat on a large notebook includes every source, not only the closest match
   assert.ok(system.length < FULL_CONTEXT_CHARS + 4_000, 'prompt stays near the full-context budget')
 })
 
+test('chat still excerpts every source when each share is smaller than any chunk', async () => {
+  const { backend, provider } = await setup()
+  const nb = await backend.createNotebook('Many')
+  // One paragraph of short sentences, so every chunk comes out close to the 1,800 character maximum.
+  const count = 120
+  const body = (n: number) => `Paper ${n} opening sentence. ` + `Finding ${n} holds in detail here. `.repeat(100)
+  for (let n = 1; n <= count; n++) await backend.addSource(nb.id, { type: 'text', content: body(n), title: `Paper ${n}` })
+  await backend.idle()
+  assert.ok(FULL_CONTEXT_CHARS / count < 1_700, 'each source gets less than one chunk')
+
+  await backend.sendChatMessage({ notebookId: nb.id, message: 'What does each paper find?' })
+  const system = provider.chats[0].system
+  assert.doesNotMatch(system, /no processed sources/)
+  for (let n = 1; n <= count; n++) assert.match(system, new RegExp(`<source title="Paper ${n}" excerpts="true">\\n\\S`), `Paper ${n} has an excerpt`)
+  assert.ok(system.length < FULL_CONTEXT_CHARS + 12_000, 'prompt stays near the full-context budget')
+})
+
 test('a failed chat request saves nothing', async () => {
   const { backend, provider } = await setup()
   const nb = await backend.createNotebook('Chat')
@@ -246,8 +263,24 @@ test('a source can be in several notebooks; deleting one notebook keeps shared s
   assert.deepEqual((await backend.getSource(shared.id)).notebooks, [b.id])
   await assert.rejects(backend.getSource(only.id), /not found/)
 
-  await backend.unlinkSource(shared.id, b.id)
-  assert.equal((await backend.listSources(b.id)).length, 0)
+  await assert.rejects(backend.unlinkSource(shared.id, b.id), /at least one notebook/)
+  assert.equal((await backend.listSources(b.id)).length, 1)
+})
+
+test('a source taken out of its first notebook survives that notebook being deleted', async () => {
+  const { backend } = await setup()
+  const a = await backend.createNotebook('A')
+  const b = await backend.createNotebook('B')
+  const s = await backend.addSource(a.id, { type: 'text', content: 'Kept text', title: 'Kept' })
+  await backend.idle()
+  await backend.linkSource(s.id, b.id)
+  await backend.unlinkSource(s.id, a.id)
+  // Removing its last notebook would leave source.notebook_id on a notebook that cascades on delete.
+  await assert.rejects(backend.unlinkSource(s.id, b.id), /at least one notebook/)
+  await backend.deleteNotebook(a.id)
+  const kept = await backend.getSource(s.id)
+  assert.deepEqual(kept.notebooks, [b.id])
+  assert.equal(kept.embedded_chunks, 1)
 })
 
 test('audio files are kept, transcribed with the speech to text model, and downloadable', async () => {

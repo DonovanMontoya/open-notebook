@@ -1,9 +1,11 @@
 //! The app against a real on-device backend in a temp folder, with a fake AI provider:
 //! make a notebook, add a source, ask a question, and check what the window shows.
 
-use std::sync::Arc;
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use notebook_engine::Backend;
 use notebook_engine::local::{LocalBackend, LocalOptions};
 use notebook_engine::net::{Request, Response, Transport};
 use notebook_engine::settings::{AppSettings, ModelSetting, Secrets, provider_secret};
@@ -248,5 +250,115 @@ fn phone_notebook_shows_search_results() {
     rt.frame(0.0);
     assert!(rt.find("search-results").is_some(), "the phone notebook shows search results");
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Two notebooks on a fresh backend with the fake provider, and the app on the first. A
+/// question that contains `held` waits for a value on the returned sender before it is answered.
+fn two_notebooks(name: &str, held: &'static str) -> (App, Arc<dyn Backend>, String, String, Sender<()>, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("on-app-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let settings = AppSettings { chat: Some(ModelSetting { provider: "anthropic".into(), model: "claude-test".into() }), ..AppSettings::default() };
+    settings.save(&dir).unwrap();
+    Secrets::new(&dir).set(&provider_secret("anthropic"), "sk-test").unwrap();
+    let (release, gate) = channel::<()>();
+    let gate = Mutex::new(gate);
+    let http = move |req: Request| {
+        if req.body.as_ref().is_some_and(|b| String::from_utf8_lossy(b).contains(held)) {
+            let _ = gate.lock().unwrap().recv_timeout(Duration::from_secs(10));
+        }
+        fake_anthropic(req)
+    };
+    let backend: Arc<dyn Backend> = Arc::new(LocalBackend::open_with(&dir, LocalOptions { http: Some(Arc::new(http)), ..Default::default() }).unwrap());
+    let a = backend.create_notebook("A", "").unwrap().id;
+    let b = backend.create_notebook("B", "").unwrap().id;
+    let mut app = App::with_backend(dir.clone(), backend.clone());
+    wait(&mut app, "the notebook list", |a| a.loaded);
+    app.open_notebook(a.clone());
+    wait(&mut app, "notebook A", |app| app.open.as_ref().is_some_and(|o| o.notebook.is_some()));
+    (app, backend, a, b, release, dir)
+}
+
+/// Applies worker results for a moment, so late ones have arrived.
+fn linger(app: &mut App) {
+    for _ in 0..30 {
+        app.drain();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn an_answer_that_arrives_after_leaving_stays_with_its_notebook() {
+    let (mut app, backend, a, b, release, dir) = two_notebooks("leave", "held question");
+    app.open.as_mut().unwrap().draft = TextEdit::new("A held question");
+    app.send();
+    app.open_notebook(b.clone());
+    wait(&mut app, "notebook B", |app| app.open.as_ref().is_some_and(|o| o.notebook.is_some()));
+    release.send(()).unwrap();
+    wait(&mut app, "the answer to be saved", |_| backend.list_chat_sessions(&a).unwrap().first().is_some_and(|s| s.message_count == Some(2)));
+    linger(&mut app);
+    let o = app.open.as_ref().unwrap();
+    assert_eq!(o.id, b);
+    assert!(o.session.is_none() && o.sessions.is_empty(), "B shows none of A's conversation");
+    assert!(o.pending.is_none() && o.sending.is_none() && o.error.is_none());
+
+    // B's first message starts B's own conversation.
+    app.open.as_mut().unwrap().draft = TextEdit::new("Anything here?");
+    app.send();
+    wait(&mut app, "B's answer", |a| a.open.as_ref().unwrap().sending.is_none());
+    let session = app.open.as_ref().unwrap().session.clone().expect("a session");
+    assert_eq!(session.session.notebook_id, b);
+    assert_eq!(session.messages.len(), 2);
+    let theirs = backend.list_chat_sessions(&a).unwrap();
+    assert_eq!(theirs.len(), 1);
+    assert_ne!(theirs[0].id, session.session.id);
+    assert_eq!(backend.get_chat_session(&theirs[0].id).unwrap().messages.len(), 2);
+
+    // Back in A, its conversation is there.
+    app.open_notebook(a);
+    wait(&mut app, "A's conversation", |app| app.open.as_ref().unwrap().session.as_ref().is_some_and(|s| s.messages.len() == 2));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_answer_to_an_earlier_visit_leaves_the_reopened_notebook_alone() {
+    let (mut app, backend, a, b, release, dir) = two_notebooks("revisit", "held question");
+    app.open.as_mut().unwrap().draft = TextEdit::new("A held question");
+    app.send();
+    app.open_notebook(b);
+    app.open_notebook(a.clone());
+    wait(&mut app, "notebook A again", |app| app.open.as_ref().is_some_and(|o| o.notebook.is_some()));
+    linger(&mut app);
+    // The reopened view asks its own question while the first is still waiting.
+    app.open.as_mut().unwrap().draft = TextEdit::new("Second question");
+    app.send();
+    wait(&mut app, "the second answer", |a| a.open.as_ref().unwrap().sending.is_none());
+    release.send(()).unwrap();
+    wait(&mut app, "the first answer to be saved", |_| backend.list_chat_sessions(&a).unwrap().len() == 2);
+    linger(&mut app);
+    let o = app.open.as_ref().unwrap();
+    let s = o.session.as_ref().expect("a session");
+    assert_eq!(s.messages[0].content, "Second question", "the view keeps the conversation it sent");
+    assert_eq!(o.sessions.len(), 1, "the earlier conversation is listed once the notebook reloads, not pushed in");
+    assert!(o.pending.is_none() && o.error.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_notebook_left_while_loading_does_not_open_its_chat_in_the_next() {
+    let (mut app, _backend, a, b, _release, dir) = two_notebooks("reload", "never sent");
+    app.open.as_mut().unwrap().draft = TextEdit::new("What do spindles do?");
+    app.send();
+    wait(&mut app, "the answer", |a| a.open.as_ref().unwrap().sending.is_none());
+    app.open_notebook(b.clone());
+    // A starts loading, and its latest conversation with it, but B opens first.
+    app.open_notebook(a);
+    app.open_notebook(b.clone());
+    wait(&mut app, "notebook B", |app| app.open.as_ref().is_some_and(|o| o.notebook.is_some()));
+    linger(&mut app);
+    let o = app.open.as_ref().unwrap();
+    assert_eq!(o.id, b);
+    assert!(o.session.is_none() && o.sessions.is_empty(), "{:?}", o.session.as_ref().map(|s| &s.session));
     let _ = std::fs::remove_dir_all(&dir);
 }

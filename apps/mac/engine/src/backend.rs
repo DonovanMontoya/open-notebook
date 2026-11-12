@@ -30,6 +30,10 @@ impl Cancel {
     pub fn check(&self) -> Result<()> {
         if self.is_cancelled() { Err(crate::Error::Cancelled) } else { Ok(()) }
     }
+    /// Whether `other` is a clone of this handle, so both name the same request.
+    pub fn same(&self, other: &Cancel) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// Receives text as a reply streams in.

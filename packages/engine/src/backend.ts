@@ -221,7 +221,7 @@ export interface Backend {
   listAllSources(): Promise<SourceSummary[]>
   /** Adds an existing source to another notebook. */
   linkSource(sourceId: string, notebookId: string): Promise<void>
-  /** Takes a source out of one notebook without deleting it. */
+  /** Takes a source out of one notebook without deleting it. The local engine refuses to remove its last notebook. */
   unlinkSource(sourceId: string, notebookId: string): Promise<void>
   updateSource(id: string, data: { title?: string }): Promise<SourceDetail>
   /** The original file of an uploaded source, or null when there is none. */

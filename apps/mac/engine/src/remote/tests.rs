@@ -397,7 +397,42 @@ fn sources_map_nulls_and_processing_errors() {
     assert_eq!(s.error.as_deref(), Some("Could not download"));
     assert_eq!(s.asset.as_ref().unwrap().url.as_deref(), Some("https://x"));
     assert!(s.topics.is_empty() && !s.file_available);
-    assert_eq!(target(&calls(&f)[0]), "GET /api/sources?notebook_id=notebook%3A1&sort_by=updated&sort_order=desc&limit=100");
+    assert_eq!(target(&calls(&f)[0]), "GET /api/sources?notebook_id=notebook%3A1&sort_by=updated&sort_order=desc&limit=100&offset=0");
+}
+
+/// A query parameter of a request, as a number.
+fn param(r: &Request, name: &str) -> Option<usize> {
+    let query = r.url.split_once('?')?.1;
+    query.split('&').find_map(|p| p.strip_prefix(&format!("{name}="))?.parse().ok())
+}
+
+#[test]
+fn sources_are_listed_a_page_of_100_at_a_time() {
+    // Like get_sources(): a limit above 100 is a 422; 250 sources in all.
+    let f = fake(|r| {
+        let (limit, offset) = (param(r, "limit").unwrap_or(50), param(r, "offset").unwrap_or(0));
+        if limit > 100 {
+            return Ok(Response::new(422, r#"{"detail":[{"msg":"Input should be less than or equal to 100"}]}"#));
+        }
+        json_ok(Value::Array((offset..(offset + limit).min(250)).map(|i| source(&format!("source:{i}"), 0)).collect()))
+    });
+    let all = backend(&f, None).list_all_sources().unwrap();
+    assert_eq!(all.len(), 250);
+    assert_eq!(all[0].id, "source:0");
+    assert_eq!(all[249].id, "source:249");
+    let offsets: Vec<Option<usize>> = calls(&f).iter().map(|r| param(r, "offset")).collect();
+    assert_eq!(offsets, [Some(0), Some(100), Some(200)]);
+    assert!(calls(&f).iter().all(|r| param(r, "limit") == Some(100)));
+
+    let here = backend(&f, None).list_sources("notebook:1").unwrap();
+    assert_eq!(here.len(), 250, "a notebook's list pages too");
+}
+
+#[test]
+fn a_server_that_ignores_the_offset_is_listed_once() {
+    let f = fake(|_| json_ok(Value::Array((0..100).map(|i| source(&format!("source:{i}"), 0)).collect())));
+    assert_eq!(backend(&f, None).list_all_sources().unwrap().len(), 100);
+    assert_eq!(calls(&f).len(), 2, "it stops when a page brings nothing new");
 }
 
 #[test]

@@ -362,6 +362,11 @@ impl Open {
         }
     }
 
+    /// Whether `request` is the message this view is sending.
+    pub fn is_sending(&self, request: &Cancel) -> bool {
+        self.sending.as_ref().is_some_and(|c| c.same(request))
+    }
+
     /// Whether chat can answer: a source chat, or a notebook with a source that has been read.
     pub fn chat_ready(&self) -> bool {
         self.scope.is_some() || self.sources.iter().any(|s| matches!(s.status.as_deref(), None | Some("completed")))
@@ -930,10 +935,10 @@ impl App {
             let id = id.clone();
             move |app: &mut App, r: notebook_engine::Result<Vec<ChatSession>>| match r {
                 Ok(sessions) => {
+                    // Only while this notebook's chat still shows, or it would open in another.
+                    let Some(o) = app.open.as_mut().filter(|o| o.id == id && o.scope.is_none()) else { return };
                     let latest = sessions.first().map(|s| s.id.clone());
-                    if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
-                        o.sessions = sessions;
-                    }
+                    o.sessions = sessions;
                     if let Some(sid) = latest {
                         app.open_session(sid);
                     }
@@ -969,14 +974,18 @@ impl App {
     pub fn open_session(&self, session_id: String) {
         let Some(o) = self.open.as_ref() else { return };
         let (id, scope) = (o.id.clone(), o.scope.as_ref().map(|(sid, _)| sid.clone()));
+        let asked_in = scope.clone();
         self.run(
             move |b| match &scope {
                 Some(source) => b.get_source_chat_session(source, &session_id),
                 None => b.get_chat_session(&session_id),
             },
-            with_open(&id, |o, s| {
-                o.session = Some(s);
-                o.sessions_open = false;
+            with_open(&id, move |o, s| {
+                // Not if the chat has switched to another source, or back to the notebook, since.
+                if o.scope.as_ref().map(|(sid, _)| sid) == asked_in.as_ref() {
+                    o.session = Some(s);
+                    o.sessions_open = false;
+                }
             }),
         );
     }
@@ -994,17 +1003,17 @@ impl App {
         o.error = None;
         let id = o.id.clone();
         let nb = id.clone();
+        let source = scope.as_ref().map(|(sid, _)| sid.clone());
         self.run(
-            move |b| match &scope {
-                Some((source, _)) => b.list_source_chat_sessions(source),
+            move |b| match &source {
+                Some(source) => b.list_source_chat_sessions(source),
                 None => b.list_chat_sessions(&nb),
             },
             move |app: &mut App, r: notebook_engine::Result<Vec<ChatSession>>| match r {
                 Ok(sessions) => {
+                    let Some(o) = app.open.as_mut().filter(|o| o.id == id && o.scope == scope) else { return };
                     let latest = sessions.first().map(|s| s.id.clone());
-                    if let Some(o) = app.open.as_mut().filter(|o| o.id == id) {
-                        o.sessions = sessions;
-                    }
+                    o.sessions = sessions;
                     if let Some(sid) = latest {
                         app.open_session(sid);
                     }
@@ -1042,14 +1051,15 @@ impl App {
             self.prefs.get::<std::collections::BTreeMap<String, String>>(MODELS_KEY).and_then(|m| m.get(&key).cloned()).filter(|m| !m.is_empty());
         let carried = model_override.clone().filter(|_| session_id.is_none());
         let inbox = self.inbox.clone();
-        let id = notebook_id.clone();
+        let (id, streaming) = (notebook_id.clone(), cancel.clone());
+        let (sent_from, mine) = (notebook_id.clone(), cancel.clone());
         self.run(
             move |b| {
                 let mut on_text = |delta: &str| {
                     let delta = delta.to_owned();
-                    let id = id.clone();
+                    let (id, request) = (id.clone(), streaming.clone());
                     inbox.send(move |app| {
-                        if let Some((_, reply)) = app.open.as_mut().filter(|o| o.id == id).and_then(|o| o.pending.as_mut()) {
+                        if let Some((_, reply)) = app.open.as_mut().filter(|o| o.id == id && o.is_sending(&request)).and_then(|o| o.pending.as_mut()) {
                             reply.push_str(&delta);
                         }
                     });
@@ -1075,20 +1085,21 @@ impl App {
                 }
             },
             move |app, r| {
-                let Some(o) = app.open.as_mut() else { return };
+                // A model picked for a new chat stays with the conversation it started, wherever the user is now.
+                if let (Ok(result), Some(m)) = (&r, carried) {
+                    let mut map: std::collections::BTreeMap<String, String> = app.prefs.get(MODELS_KEY).unwrap_or_default();
+                    map.remove(&key);
+                    map.insert(result.session.id.clone(), m);
+                    let _ = app.prefs.set(MODELS_KEY, &map);
+                }
+                // The user may have opened another notebook, or reopened this one, since: the
+                // engine has saved the message, so only the view that sent it is updated.
+                let Some(o) = app.open.as_mut().filter(|o| o.id == sent_from && o.is_sending(&mine)) else { return };
                 o.sending = None;
                 match r {
                     Ok(result) => {
                         o.pending = None;
                         let session = result.session.clone();
-                        // A model picked for a new chat stays with the conversation it started.
-                        if let Some(m) = carried {
-                            let mut map: std::collections::BTreeMap<String, String> = app.prefs.get(MODELS_KEY).unwrap_or_default();
-                            map.remove(&key);
-                            map.insert(session.id.clone(), m);
-                            let _ = app.prefs.set(MODELS_KEY, &map);
-                        }
-                        let Some(o) = app.open.as_mut() else { return };
                         if !o.sessions.iter().any(|s| s.id == session.id) {
                             o.sessions.insert(0, session.clone());
                         }
@@ -1115,6 +1126,7 @@ impl App {
 
     pub fn delete_session(&mut self, session_id: String) {
         let gone = session_id.clone();
+        let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         let scope = self.open.as_ref().and_then(|o| o.scope.as_ref().map(|(sid, _)| sid.clone()));
         self.run(
             move |b| match &scope {
@@ -1123,7 +1135,7 @@ impl App {
             },
             move |app, r| match r {
                 Ok(()) => {
-                    if let Some(o) = app.open.as_mut() {
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == nb) {
                         o.sessions.retain(|s| s.id != gone);
                         if o.session.as_ref().is_some_and(|s| s.session.id == gone) {
                             o.session = None;
@@ -1527,11 +1539,13 @@ impl App {
         let gone = source_id.clone();
         let shared = self.source_is_shared(&source_id);
         let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
+        let from = nb.clone();
         self.run(
             move |b| if shared { b.unlink_source(&source_id, &nb) } else { b.delete_source(&source_id) },
             move |app, r| match r {
                 Ok(()) => {
-                    if let Some(o) = app.open.as_mut() {
+                    // A shared source taken out of this notebook is still in the others.
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == from) {
                         o.sources.retain(|s| s.id != gone);
                         if o.reading.as_ref().is_some_and(|(d, _)| d.summary.id == gone) {
                             o.reading = None;
@@ -1563,18 +1577,29 @@ impl App {
         }
         let Some(draft) = o.note.take() else { return };
         let (title, content, ai) = (draft.title.text.trim().to_owned(), draft.content.text.clone(), o.note_ai);
-        let nb = o.id.clone();
+        let (note_id, base) = (draft.id.clone(), o.note_base.clone());
+        let (nb, from) = (o.id.clone(), o.id.clone());
         self.run(
             move |b| {
                 let title = (!title.is_empty()).then_some(title.as_str());
-                match &draft.id {
+                match &note_id {
                     Some(id) => b.update_note(id, title, Some(&content)),
                     None => b.create_note(&nb, title, &content, ai),
                 }
             },
-            |app, r| match r {
+            move |app, r| match r {
                 Ok(_) => app.refresh_notes(),
-                Err(e) => app.fail(e),
+                Err(e) => {
+                    // Back in the editor, unless another note was opened there since.
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == from && o.note.is_none()) {
+                        o.note = Some(draft);
+                        o.note_base = base;
+                        o.note_ai = ai;
+                        o.note_read = false;
+                        o.tab = NotebookTab::Notes;
+                    }
+                    app.fail(e);
+                }
             },
         );
     }
@@ -1596,11 +1621,12 @@ impl App {
 
     pub fn delete_note(&mut self, note_id: String) {
         let gone = note_id.clone();
+        let Some(nb) = self.open.as_ref().map(|o| o.id.clone()) else { return };
         self.run(
             move |b| b.delete_note(&note_id),
             move |app, r| match r {
                 Ok(()) => {
-                    if let Some(o) = app.open.as_mut() {
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == nb) {
                         o.notes.retain(|n| n.id != gone);
                         if o.note.as_ref().is_some_and(|d| d.id.as_deref() == Some(gone.as_str())) {
                             o.note = None;
@@ -2198,5 +2224,57 @@ mod tests {
         app.delete_source(src.id.clone());
         settle(&mut app, |a| a.open.as_ref().unwrap().sources.is_empty());
         assert!(b.list_sources(&other.id).unwrap().iter().any(|s| s.id == src.id));
+    }
+
+    #[test]
+    fn removing_a_shared_source_leaves_it_in_the_notebook_opened_next() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        let b = app.backend.clone().unwrap();
+        let here = app.open.as_ref().unwrap().id.clone();
+        let other = b.create_notebook("Other", "").unwrap();
+        let src = b.add_source(&here, NewSource { input: SourceInput::Text { content: "Shared".into(), title: None }, transformations: Vec::new() }).unwrap();
+        b.link_source(&src.id, &other.id).unwrap();
+        app.refresh_sources();
+        settle(&mut app, |a| a.open.as_ref().unwrap().sources.first().is_some_and(|s| s.notebooks.len() == 2));
+        app.delete_source(src.id.clone());
+        // The other notebook is open, its sources shown, before the removal's result arrives.
+        app.open_offline(&other.id);
+        app.open.as_mut().unwrap().sources = b.list_sources(&other.id).unwrap();
+        settle(&mut app, |_| false);
+        assert!(app.open.as_ref().unwrap().sources.iter().any(|s| s.id == src.id), "still listed where it still is");
+        assert!(b.list_sources(&here).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_note_that_fails_to_save_comes_back_to_the_editor() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        // A note the backend doesn't have, so the save fails as an unreachable server's would.
+        let note = Note { id: "note:missing".into(), title: Some("Plan".into()), content: Some("Body".into()), ..Default::default() };
+        app.open.as_mut().unwrap().edit_note(&note);
+        app.open.as_mut().unwrap().note.as_mut().unwrap().content = TextEdit::new("Body, edited");
+        app.save_note();
+        assert!(app.open.as_ref().unwrap().note.is_none(), "the editor closes while it saves");
+        settle(&mut app, |a| a.toast.is_some());
+        assert!(app.toast.is_some(), "the failure is shown");
+        let o = app.open.as_ref().unwrap();
+        let draft = o.note.as_ref().expect("the draft is back");
+        assert_eq!(draft.id.as_deref(), Some("note:missing"));
+        assert_eq!(draft.content.text, "Body, edited");
+        assert_eq!(o.tab, NotebookTab::Notes);
+        assert!(o.note_dirty(), "it still counts as unsaved");
+
+        // A new note that fails goes back too, still new.
+        let nb = o.id.clone();
+        app.open = None;
+        app.open_offline("notebook:gone");
+        app.open.as_mut().unwrap().new_note(String::new(), "Draft text".into(), false);
+        app.save_note();
+        settle(&mut app, |a| a.open.as_ref().unwrap().note.is_some());
+        let draft = app.open.as_ref().unwrap().note.as_ref().expect("the new draft is back");
+        assert!(draft.id.is_none());
+        assert_eq!(draft.content.text, "Draft text");
+        assert!(app.backend.clone().unwrap().list_notes(&nb).unwrap().is_empty());
     }
 }

@@ -77,6 +77,36 @@ fn chat_on_a_large_notebook_includes_every_source_not_only_the_closest_matches()
 }
 
 #[test]
+fn chat_on_a_notebook_of_many_sources_gives_each_an_excerpt_when_no_chunk_fits_its_share() {
+    // Keyword ranking, no embedding model.
+    let env = setup_with(AppSettings { chat: model("fake-chat"), ..Default::default() });
+    let b = &env.backend;
+    let nb = b.create_notebook("Many", "").unwrap();
+    let sentence = |n: usize, k: usize| match (n, k) {
+        (1, 50) => "The xylophone wizards appear only here. ".to_owned(),
+        _ => format!("Paper {n} sentence {k} on general matters. "),
+    };
+    let body = |n: usize| (0..75).map(|k| sentence(n, k)).collect::<String>();
+    // 150 sources of about 3,200 characters: each share is about 1,070 and every chunk 1,500 or
+    // more. Paper 1's match is early in its second chunk, past the opening.
+    for n in 1..=150 {
+        b.add_source(&nb.id, text(&body(n), &format!("Paper {n}"))).unwrap();
+    }
+    b.idle();
+
+    b.send_chat_message(chat(&nb.id, "xylophone wizards")).unwrap();
+    let system = env.fake.last().system;
+    assert!(!system.contains("no processed sources"), "the sources are there");
+    for n in 1..=150 {
+        assert!(system.contains(&format!("<source title=\"Paper {n}\" excerpts=\"true\">\n")), "Paper {n} has an excerpt");
+    }
+    let start = system.find("<source title=\"Paper 1\" excerpts=\"true\">").unwrap();
+    let excerpt = &system[start..start + system[start..].find("</source>").unwrap()];
+    assert!(excerpt.contains("xylophone wizards"), "the excerpt is the passage that matches: {excerpt}");
+    assert!(system.chars().count() < FULL_CONTEXT_CHARS + 20_000, "prompt stays near the full-context budget");
+}
+
+#[test]
 fn a_failed_chat_request_saves_nothing() {
     let env = setup();
     let nb = env.backend.create_notebook("Chat", "").unwrap();

@@ -180,6 +180,41 @@ fn a_source_can_be_in_several_notebooks_and_deleting_one_notebook_keeps_shared_s
     assert!(b.list_sources(&nb_b.id).unwrap().is_empty());
 }
 
+#[test]
+fn a_source_taken_out_of_its_last_notebook_survives_that_notebook_being_deleted() {
+    let env = setup();
+    let b = &env.backend;
+    let a = b.create_notebook("A", "").unwrap();
+    let other = b.create_notebook("Other", "").unwrap();
+    let kept = b.add_source(&a.id, text("Kept in the Library", "Kept")).unwrap();
+    b.idle();
+    b.db.lock()
+        .execute(
+            "INSERT INTO source_insight (id, source_id, insight_type, content, created, updated) VALUES ('source_insight:1', ?1, 'Summary', 'S', 'c', 'u')",
+            [&kept.id],
+        )
+        .unwrap();
+    let chunks = count(&env, "chunk");
+    assert!(chunks > 0);
+
+    b.unlink_source(&kept.id, &a.id).unwrap();
+    b.delete_notebook(&a.id).unwrap();
+    let source = b.get_source(&kept.id).expect("the source is still there");
+    assert_eq!(source.full_text, "Kept in the Library");
+    assert_eq!(count(&env, "chunk"), chunks, "its chunks too");
+    assert_eq!(b.list_insights(&kept.id).unwrap().len(), 1, "and its insights");
+    assert!(b.list_sources(&other.id).unwrap().is_empty(), "it isn't added to the notebook that now holds it");
+
+    // Deleting the notebook that now holds it keeps it again while there is another.
+    let third = b.create_notebook("Third", "").unwrap();
+    b.delete_notebook(&other.id).unwrap();
+    assert!(b.get_source(&kept.id).is_ok());
+    // With no notebook left there is nowhere to keep it.
+    b.delete_notebook(&third.id).unwrap();
+    assert!(b.get_source(&kept.id).is_err());
+    assert_eq!(count(&env, "chunk"), 0);
+}
+
 fn document(title: &str, content: &str, file_name: &str, data: &[u8], mime: &str) -> NewSource {
     NewSource {
         input: SourceInput::Document {

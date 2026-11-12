@@ -92,6 +92,7 @@ impl Engine {
         for (source, links) in sources {
             if links <= 1 { self.delete_source(&source)? } else { self.unlink_source(&source, id)? }
         }
+        self.rehome_sources(id)?;
         let sessions: Vec<String> = {
             let conn = self.db.lock();
             let mut stmt = conn.prepare("SELECT id FROM chat_session WHERE notebook_id = ?1")?;
@@ -104,6 +105,34 @@ impl Engine {
         conn.execute("DELETE FROM podcast_episode WHERE notebook_id = ?1", [id])?;
         conn.execute("DELETE FROM note WHERE notebook_id = ?1", [id])?;
         conn.execute("DELETE FROM notebook WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Sources whose home is `id` but which are no longer in it: taken out of their last
+    /// notebook and kept in the Library. `source.notebook_id` cascades on delete and can't be
+    /// null (the schema is shared with the TypeScript engine), so before the notebook goes they
+    /// move to a notebook they are in, else to the most recently used other notebook. With no
+    /// other notebook left there is nowhere to keep them, so they are deleted properly, with
+    /// their file and chats, rather than by the cascade.
+    fn rehome_sources(&self, id: &str) -> Result<()> {
+        let stranded: Vec<(String, Option<String>)> = {
+            let conn = self.db.lock();
+            let mut stmt = conn.prepare(
+                "SELECT s.id,
+                        COALESCE((SELECT l.notebook_id FROM notebook_source l WHERE l.source_id = s.id LIMIT 1),
+                                 (SELECT n.id FROM notebook n WHERE n.id != ?1 ORDER BY n.updated DESC LIMIT 1))
+                   FROM source s WHERE s.notebook_id = ?1",
+            )?;
+            stmt.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+        };
+        for (source, home) in stranded {
+            match home {
+                Some(home) => {
+                    self.db.lock().execute("UPDATE source SET notebook_id = ?1 WHERE id = ?2", params![home, source])?;
+                }
+                None => self.delete_source(&source)?,
+            }
+        }
         Ok(())
     }
 
