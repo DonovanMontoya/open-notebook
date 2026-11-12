@@ -2,9 +2,10 @@
 
 use notebook_engine::podcast::live_talk::{LiveStatus, MAX_MINUTES, VOICES};
 use rune::{El, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Select, Spinner};
+use rune_kit::{Button, ButtonVariant, ControlSize, Spinner};
 
 use super::icons;
+use super::select::Select;
 use crate::listen::clock;
 use crate::live::unavailable;
 use crate::state::App;

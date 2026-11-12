@@ -10,7 +10,10 @@ type Scene = (&'static str, fn(&mut App));
 
 pub const SCENES: &[Scene] = &[
     ("home", home),
+    ("home-empty", home_empty),
+    ("home-error", home_error),
     ("notebook", notebook),
+    ("notebook-dark", notebook_dark),
     ("streaming", streaming),
     ("notes", notes),
     ("add-source", add_source),
@@ -55,6 +58,9 @@ pub const SCENES: &[Scene] = &[
     ("chat-empty", chat_empty),
     ("notes-list", notes_list),
     ("note-read", note_read),
+    ("chat", chat),
+    ("sources-tab", sources_tab),
+    ("fold", fold),
 ];
 
 /// Whether this run renders a scene, so `init` skips opening the real backend.
@@ -116,8 +122,21 @@ fn open(s: &mut App) {
     }];
 }
 
+fn home_empty(s: &mut App) {
+    s.settings.chat = Some(notebook_engine::settings::ModelSetting { provider: "anthropic".into(), model: "sample".into() });
+}
+
+fn home_error(s: &mut App) {
+    s.backend_error = Some("Could not connect to the notebook server. Check the server address in Settings.".into());
+}
+
 fn home(s: &mut App) {
     s.notebooks = notebooks();
+}
+
+fn notebook_dark(s: &mut App) {
+    notebook(s);
+    s.settings.appearance = "dark".into();
 }
 
 fn notebook(s: &mut App) {
@@ -846,4 +865,24 @@ fn note_read(s: &mut App) {
     let mut n = o.notes[1].clone();
     n.content = Some("## What the studies found\n\nSpindle density after learning predicted recall the next morning [Sleep spindles and memory consolidation](cite:0).\n\n- Strongest for **declarative** memory\n- Weaker for skills".into());
     o.edit_note(&n);
+}
+
+/// The notebook's chat with nothing open in the rail.
+fn chat(s: &mut App) {
+    notebook(s);
+    let o = s.open.as_mut().unwrap();
+    o.reading = None;
+    o.active_cite = None;
+}
+
+/// A phone's Sources tab.
+fn sources_tab(s: &mut App) {
+    chat(s);
+    s.open.as_mut().unwrap().sources_tab = true;
+}
+
+/// A partly folded iPhone Duo: a vertical fold 24 points wide, 400 points in.
+fn fold(s: &mut App) {
+    notebook(s);
+    s.fold = Some([400.0, 0.0, 24.0, 2000.0]);
 }

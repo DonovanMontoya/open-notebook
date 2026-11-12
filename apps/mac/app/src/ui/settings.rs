@@ -3,11 +3,10 @@
 use notebook_engine::providers::ProviderKind;
 use notebook_engine::settings::{self as engine_settings, Mode, SyncError};
 use rune::{El, ScrollSpec, Tx, col, el, row, text};
-use rune_kit::{
-    Button, ButtonVariant, Combobox, ComboboxOption, ControlSize, IconButton, IconButtonVariant, SegmentedControl, Select, Spinner, Switch, TextInput,
-};
+use rune_kit::{Button, ButtonVariant, Combobox, ComboboxOption, ControlSize, IconButton, IconButtonVariant, Spinner, Switch, TextInput};
 
 use super::icons;
+use super::select::Select;
 use crate::state::{App, Check, ModelList, SettingsForm, models_for};
 use crate::theme::{self, Look};
 
@@ -46,22 +45,32 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(f) = &s.form else { return col() };
     let local = s.settings.mode == Mode::Local;
-    let mode = SegmentedControl::new(&["On this Mac", "Open Notebook server"], Some(if local { 0 } else { 1 }))
-        .label("Where notebooks live")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
+    let mode = super::pages::choices(
+        &[if cfg!(target_os = "ios") { "On this iPhone" } else { "On this Mac" }, if l.phone() { "Server" } else { "Open Notebook server" }],
+        Some(if local { 0 } else { 1 }),
+        "Where notebooks live",
+        l,
+        |s: &mut App, i, _: &mut Tx| {
             s.settings.mode = if i == 0 { Mode::Local } else { Mode::Remote };
             s.save_settings();
-        })
-        .build(k)
-        .key("mode");
-    let mut c =
-        col().key("settings-body").w_full().max_w(560.0).gap(18.0).px(24.0).py(28.0).child(text("Settings").font(theme::READ_TITLE).color(l.text)).child(
-            section("Notebooks", l).child(row().child(mode)).child(
+        },
+    )
+    .key("mode");
+    let mut c = col()
+        .key("settings-body")
+        .w_full()
+        .max_w(560.0)
+        .gap(if l.phone() { 32.0 } else { 18.0 })
+        .px(l.pad())
+        .pt(l.pad_top())
+        .pb(l.pad_top() + l.inset_bottom)
+        .child(text("Settings").font(theme::READ_TITLE).color(l.text))
+        .child(
+            section("Notebooks", l).child(row().w_full().child(mode)).child(
                 text(if local {
-                    "Everything stays on this Mac. Questions go to the AI provider you pick, with your own key."
+                    format!("Everything stays on {}. Questions go to the AI provider you pick, with your own key.", theme::THIS_DEVICE)
                 } else {
-                    "Notebooks live on your server, which can use local models."
+                    "Notebooks live on your server, which can use local models.".to_owned()
                 })
                 .font(k.ty.ui)
                 .color(l.text2)
@@ -83,7 +92,15 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
                 .w_full()
                 .gap(10.0)
                 .center_y()
-                .child(Button::new("Save models").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.save_settings()).build(k).key("save-settings"))
+                .child(
+                    Button::new("Save models")
+                        .variant(ButtonVariant::Contrast)
+                        .on_press(|s: &mut App| s.save_settings())
+                        .build(k)
+                        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                        .key("save-settings"),
+                )
                 .child(text(if f.saved { "Saved" } else { "" }).font(k.ty.ui).color(l.text3)),
         );
         c = c.child(models).child(podcasts(l));
@@ -105,16 +122,18 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let appearance = ["system", "light", "dark"];
     c = c.child(
         section("Appearance", l).child(
-            row().child(
-                SegmentedControl::new(&["System", "Light", "Dark"], appearance.iter().position(|a| *a == s.settings.appearance))
-                    .label("Appearance")
-                    .fit()
-                    .on_pick(move |s: &mut App, i, _: &mut Tx| {
+            row().w_full().child(
+                super::pages::choices(
+                    &["System", "Light", "Dark"],
+                    appearance.iter().position(|a| *a == s.settings.appearance),
+                    "Appearance",
+                    l,
+                    move |s: &mut App, i, _: &mut Tx| {
                         s.settings.appearance = appearance[i].into();
                         s.save_settings();
-                    })
-                    .build(k)
-                    .key("appearance"),
+                    },
+                )
+                .key("appearance"),
             ),
         ),
     );
@@ -122,7 +141,7 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
 }
 
 fn section(title: &str, l: &Look) -> El {
-    col().w_full().gap(10.0).child(text(title.to_owned()).font(l.k.ty.ui_medium).color(l.text))
+    col().w_full().gap(if l.phone() { 16.0 } else { 10.0 }).child(text(title.to_owned()).font(l.k.ty.ui_medium).color(l.text))
 }
 
 fn field_row(label: &str, field: El, l: &Look) -> El {
@@ -152,7 +171,16 @@ fn podcasts(l: &Look) -> El {
     let k = &l.k;
     section("Podcasts", l)
         .child(text("Episode profiles set the angle and length; speaker profiles set who talks and with which voices.").font(k.ty.small).color(l.text3).wrap())
-        .child(row().child(Button::new("Podcast profiles").on_press(|s: &mut App| s.open_profiles()).build(k).key("open-profiles")))
+        .child(
+            row().child(
+                Button::new("Podcast profiles")
+                    .on_press(|s: &mut App| s.open_profiles())
+                    .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .key("open-profiles"),
+            ),
+        )
 }
 
 fn rebuild_row(f: &SettingsForm, l: &Look) -> El {
@@ -164,6 +192,8 @@ fn rebuild_row(f: &SettingsForm, l: &Look) -> El {
             .disabled(busy)
             .on_press(|s: &mut App| s.ask_to("Rebuild", "Read and index every source again with the current embedding model?", |s| s.rebuild_local_index()))
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key("rebuild-index"),
     );
     match &f.rebuild {
@@ -204,7 +234,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
     let select = Select::new(format!("{role}-provider"), &names)
         .label(format!("{label} provider"))
         .current(Some(kind.label()))
-        .width(190.0)
+        .width(if l.phone() { l.width - 2.0 * l.pad() } else { 190.0 })
         .open(f.open_select == Some(role))
         .on_toggle(move |s: &mut App| {
             let f = form(s);
@@ -216,13 +246,15 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
             f.open_select = None;
             if let Some(p) = ProviderKind::ALL.into_iter().find(|p| p.label() == name) {
                 f.choose_provider(role, p);
-                f.saved = false;
                 if !matches!(f.models.get(&p), Some(ModelList::Ready(_))) {
                     s.load_models(p, false);
                 }
+                // A pick is saved at once; leaving the page can't lose it.
+                s.save_settings();
             }
         })
-        .build(k, layer);
+        .build(k, layer)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
     let state = f.pickers.get(role).cloned().unwrap_or_default();
     let list = f.models.get(&kind);
     let mut options: Vec<ComboboxOption> = match list {
@@ -243,26 +275,112 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
     if !typed.is_empty() && !options.iter().any(|o| o.id == typed) {
         options.insert(0, ComboboxOption::new(typed.clone(), format!("Use {typed}")));
     }
-    let picker = Combobox::new(format!("{role}-model"), &state, &options, move |s: &mut App| form(s).pickers.entry(role).or_default())
-        .label(label)
-        .current((!current.is_empty()).then_some(current.as_str()))
-        .placeholder(if list == Some(&ModelList::Loading) { "Loading models" } else { "Choose or type a model" })
-        .search_placeholder("Search or type a model name")
-        .empty_message("No models; type a name")
-        .width(320.0)
-        .on_choose(move |s: &mut App, id: &str, _: &mut Tx| {
-            let f = form(s);
-            *f.slot(role).1 = rune::TextEdit::new(id);
-            f.saved = false;
-        })
-        .build(k, layer);
-    let mut c = field_row(label, row().w_full().gap(8.0).center_y().child(select).child(col().grow(1.0).min_w(0.0).child(picker)), l);
+    let picker = if l.phone() {
+        model_sheet(role, label, &current, &state, &options, l, layer)
+    } else {
+        Combobox::new(format!("{role}-model"), &state, &options, move |s: &mut App| form(s).pickers.entry(role).or_default())
+            .label(label)
+            .current((!current.is_empty()).then_some(current.as_str()))
+            .placeholder(if list == Some(&ModelList::Loading) { "Loading models" } else { "Choose or type a model" })
+            .search_placeholder("Search or type a model name")
+            .empty_message("No models; type a name")
+            .width(if l.phone() { (l.width - 2.0 * l.pad()).max(200.0) } else { 320.0 })
+            .on_choose(move |s: &mut App, id: &str, _: &mut Tx| {
+                *form(s).slot(role).1 = rune::TextEdit::new(id);
+                s.save_settings();
+            })
+            .build(k, layer)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+    };
+    // Provider beside the model on a wide window, above it on a phone.
+    let pair = if l.phone() {
+        col().w_full().gap(8.0).child(select).child(picker)
+    } else {
+        row().w_full().gap(8.0).center_y().child(select).child(col().grow(1.0).min_w(0.0).child(picker))
+    };
+    let mut c = field_row(label, pair, l);
     if let Some(ModelList::Failed(e)) = list {
         c = c.child(text(format!("Could not list models: {e}")).font(k.ty.small).color(l.danger).wrap());
     } else if let Some(help) = role_help(role) {
         c = c.child(text(help).font(k.ty.small).color(l.text3).wrap());
     }
     c
+}
+
+fn model_sheet(
+    role: &'static str,
+    label: &str,
+    current: &str,
+    state: &rune_kit::ComboboxState,
+    options: &[ComboboxOption],
+    l: &Look,
+    layer: &mut Vec<El>,
+) -> El {
+    if state.open {
+        let mut list = col().w_full().gap(4.0).child(
+            TextInput::new(&state.search)
+                .width(None)
+                .height(48.0)
+                .placeholder("Search or type a model name")
+                .label("Model name")
+                .on_edit(move |s: &mut App| &mut form(s).pickers.entry(role).or_default().search)
+                .build(&l.k),
+        );
+        let query = state.search.text.trim().to_lowercase();
+        for option in options.iter().filter(|o| query.is_empty() || o.label.to_lowercase().contains(&query) || o.id.to_lowercase().contains(&query)) {
+            let id = option.id.clone();
+            let item = row()
+                .w_full()
+                .min_h(52.0)
+                .py(12.0)
+                .px(8.0)
+                .gap(12.0)
+                .center_y()
+                .role("option")
+                .label(option.label.clone())
+                .child(
+                    col()
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .child(text(option.label.clone()).font(l.k.ty.ui).color(l.text).wrap())
+                        .child(text(option.detail.clone()).font(l.k.ty.small).color(l.text3).wrap()),
+                )
+                .child(rune::icon(&rune_kit::glyphs::CHECK, 18.0).color(l.amber).opacity(if option.id == current { 1.0 } else { 0.0 }));
+            list = list.child(l.k.interactive(item).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                *form(s).slot(role).1 = rune::TextEdit::new(id.clone());
+                form(s).pickers.entry(role).or_default().close();
+                tx.blur();
+                s.save_settings();
+            }));
+        }
+        super::phone_sheet(&format!("{role}-model"), label, list, move |s| form(s).pickers.entry(role).or_default().close(), l, layer);
+    }
+    let trigger = row()
+        .w_full()
+        .min_h(48.0)
+        .px(12.0)
+        .py(8.0)
+        .gap(8.0)
+        .radius(8.0)
+        .fill(l.raised)
+        .center_y()
+        .role("button")
+        .label(label.to_owned())
+        .child(
+            text(if current.is_empty() { "Choose or type a model".to_owned() } else { current.to_owned() })
+                .font(l.k.ty.ui)
+                .color(l.text)
+                .wrap()
+                .grow(1.0)
+                .min_w(0.0),
+        )
+        .child(rune::icon(l.k.glyph.chevron_down, 16.0).color(l.text3));
+    l.k.interactive(trigger).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+        tx.blur();
+        let state = form(s).pickers.entry(role).or_default();
+        state.open = true;
+        state.search = rune::TextEdit::new("");
+    })
 }
 
 fn sync_row(s: &App, f: &SettingsForm, l: &Look) -> El {
@@ -324,6 +442,7 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
                 .placeholder("https://openrouter.ai/api/v1")
                 .on_edit(|s: &mut App| &mut form(s).compatible_base_url)
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("compatible-url"),
         );
     }
@@ -337,6 +456,7 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
                 .on_edit(move |s: &mut App| &mut form(s).keys[i].1)
                 .on_submit(move |s: &mut App, _: &mut Tx| s.save_and_check_key(kind))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key(format!("key-{}", kind.as_str())),
         ),
     );
@@ -345,6 +465,8 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
             .disabled(!(pasted || url_changed || saved || kind == ProviderKind::OpenAiCompatible) || check == Some(&Check::Checking))
             .on_press(move |s: &mut App| s.save_and_check_key(kind))
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key(format!("check-{}", kind.as_str())),
     );
     if saved {
@@ -360,10 +482,12 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
 fn remove_button(name: String, l: &Look) -> El {
     IconButton::new(&icons::TRASH)
         .variant(IconButtonVariant::GhostMuted)
-        .control_size(ControlSize::Small)
+        .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
         .label("Remove key")
         .on_press(move |s: &mut App| s.remove_key(name.clone()))
         .build(&l.k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
         .key("remove-key")
 }
 
@@ -383,6 +507,7 @@ fn elevenlabs_key(f: &SettingsForm, l: &Look) -> El {
                 .on_edit(|s: &mut App| &mut form(s).elevenlabs)
                 .on_submit(|s: &mut App, _: &mut Tx| s.save_and_check_elevenlabs())
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("key-elevenlabs"),
         ),
     );
@@ -391,6 +516,8 @@ fn elevenlabs_key(f: &SettingsForm, l: &Look) -> El {
             .disabled(!(pasted || saved) || check == Some(&Check::Checking))
             .on_press(|s: &mut App| s.save_and_check_elevenlabs())
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key("check-elevenlabs"),
     );
     if saved {
@@ -422,11 +549,19 @@ fn server_section(s: &App, f: &SettingsForm, l: &Look) -> El {
             .disabled(f.server_url.text.trim().is_empty() || check == Some(&Check::Checking))
             .on_press(|s: &mut App| s.save_and_test_server())
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key("save-connect"),
     );
     if has_password {
         actions = actions.child(
-            Button::new("Forget password").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.forget_server_password()).build(k).key("forget-password"),
+            Button::new("Forget password")
+                .variant(ButtonVariant::Ghost)
+                .on_press(|s: &mut App| s.forget_server_password())
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("forget-password"),
         );
     }
     actions = actions.child(el().grow(1.0));
@@ -444,6 +579,7 @@ fn server_section(s: &App, f: &SettingsForm, l: &Look) -> El {
                 .placeholder("https://notebook.example.ts.net:8502")
                 .on_edit(|s: &mut App| &mut form(s).server_url)
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("server-url"),
             l,
         ))
@@ -452,10 +588,15 @@ fn server_section(s: &App, f: &SettingsForm, l: &Look) -> El {
             TextInput::new(&f.server_password)
                 .width(None)
                 .secure()
-                .placeholder(if has_password { "Saved on this Mac" } else { "Only if the server has one" })
+                .placeholder(if has_password {
+                    if cfg!(target_os = "ios") { "Saved on this iPhone" } else { "Saved on this Mac" }
+                } else {
+                    "Only if the server has one"
+                })
                 .on_edit(|s: &mut App| &mut form(s).server_password)
                 .on_submit(|s: &mut App, _: &mut Tx| s.save_and_test_server())
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("server-password"),
             l,
         ))

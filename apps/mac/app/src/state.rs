@@ -78,6 +78,9 @@ pub struct AddSource {
     pub items: Option<Vec<BatchItem>>,
     /// Files chosen or dropped, with their sizes.
     pub files: Vec<(PathBuf, u64)>,
+    /// The native document picker opens after the current frame finishes.
+    #[cfg(target_os = "ios")]
+    pub pick_files: bool,
     /// Transformations to run on the new sources; None until changed, which means the defaults.
     pub chosen: Option<std::collections::BTreeSet<String>>,
     /// Every source, for the From other notebooks tab, once loaded.
@@ -240,6 +243,7 @@ pub struct Open {
     pub add: Option<AddSource>,
     pub note: Option<NoteDraft>,
     pub sessions_open: bool,
+    pub conversation_actions: bool,
     pub error: Option<String>,
     /// Chat about one source (id, title) instead of the whole notebook.
     pub scope: Option<(String, String)>,
@@ -291,6 +295,8 @@ pub struct Open {
     pub renaming_chat: Option<TextEdit>,
     /// The citation last clicked (message id, citation index), marked until the rail goes back to the list.
     pub active_cite: Option<(String, usize)>,
+    /// On a phone, the Sources tab is showing in place of the notebook's other tabs.
+    pub sources_tab: bool,
 }
 
 impl Open {
@@ -310,6 +316,7 @@ impl Open {
             add: None,
             note: None,
             sessions_open: false,
+            conversation_actions: false,
             error: None,
             scope: None,
             insights: Vec::new(),
@@ -342,6 +349,7 @@ impl Open {
             models_open: false,
             renaming_chat: None,
             active_cite: None,
+            sources_tab: false,
         }
     }
 
@@ -679,6 +687,14 @@ pub struct App {
     inbox: Inbox,
     rx: Receiver<Apply>,
     pub live: crate::live::LiveTalk,
+    /// The fold of a partly folded iPhone Duo, `[x, y, w, h]` in window points, while it divides
+    /// the screen. The two pages of the notebook sit either side of it.
+    pub fold: Option<[f32; 4]>,
+    /// On iPhone, the height of the home indicator's strip at the bottom when no keyboard covers
+    /// it. The app draws under it and pads its last row by this much.
+    pub inset_bottom: f32,
+    /// On iPhone, the on-screen keyboard is up.
+    pub keyboard_up: bool,
     /// The sidebar's archived notebooks are showing.
     pub show_archived: bool,
     /// The new-notebook dialog's "What it's for", beside `new_notebook`'s name.
@@ -720,6 +736,9 @@ impl App {
             inbox: Inbox { tx, waker: None },
             rx,
             live: Default::default(),
+            fold: None,
+            inset_bottom: 0.0,
+            keyboard_up: false,
             show_archived: false,
             new_notebook_description: TextEdit::new(""),
         }

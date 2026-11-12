@@ -1,7 +1,9 @@
 //! The server admin page: default models, models, API keys and background jobs.
 
+use super::select::Select;
+
 use rune::{El, ScrollSpec, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, Select, TextInput};
+use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, TextInput};
 
 use crate::format;
 use crate::server::{
@@ -34,8 +36,9 @@ pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         .w_full()
         .max_w(720.0)
         .gap(14.0)
-        .px(24.0)
-        .py(28.0)
+        .px(l.pad())
+        .pt(l.pad_top())
+        .pb(l.pad_top() + l.inset_bottom)
         .child(text("Server").font(theme::READ_TITLE).color(l.text))
         .child(text(format!("Admin for {}.", s.settings.server_url)).font(k.ty.ui).color(l.text2).wrap());
 

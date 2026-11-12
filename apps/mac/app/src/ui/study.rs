@@ -3,7 +3,7 @@
 
 use notebook_engine::types::*;
 use rune::{El, Key, KeyEvent, ScrollSpec, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, SegmentedControl, TextArea};
+use rune_kit::{Button, ButtonVariant, Checkbox, ControlSize, TextArea};
 
 use crate::format;
 use crate::state::{App, Open};
@@ -44,7 +44,7 @@ pub fn deck_details(d: &StoredDeck) -> String {
 
 pub fn view(o: &Open, l: &Look) -> El {
     let k = &l.k;
-    let mut c = col().key("study").w_full().max_w(720.0).gap(14.0).px(24.0).py(20.0);
+    let mut c = col().key("study").w_full().max_w(720.0).gap(14.0).px(l.pad()).py(20.0);
     if let Some(v) = &o.viewing
         && let Some(deck) = o.decks.get(v.index)
     {
@@ -62,7 +62,7 @@ pub fn view(o: &Open, l: &Look) -> El {
                 .key(format!("deck-{i}-{}", d.note_id))
                 .w_full()
                 .gap(4.0)
-                .padding(14.0)
+                .padding(if l.phone() { 16.0 } else { 14.0 })
                 .radius(12.0)
                 .border(1.0, l.line)
                 .child(text(d.deck.title.clone()).font(theme::READ_HEADING).color(l.text).max_lines(1))
@@ -95,66 +95,87 @@ fn study_form(o: &Open, l: &Look) -> El {
             &fallback
         }
     };
-    let kind = SegmentedControl::new(&["Flashcards", "Quiz"], Some(if f.kind == StudyKind::Flashcards { 0 } else { 1 }))
-        .label("Kind")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| form(s).kind = if i == 0 { StudyKind::Flashcards } else { StudyKind::Quiz })
-        .build(k)
+    let kind =
+        super::pages::choices(&["Flashcards", "Quiz"], Some(if f.kind == StudyKind::Flashcards { 0 } else { 1 }), "Kind", l, |s: &mut App, i, _: &mut Tx| {
+            form(s).kind = if i == 0 { StudyKind::Flashcards } else { StudyKind::Quiz }
+        })
         .key("study-kind");
-    let difficulty = SegmentedControl::new(&["Easy", "Medium", "Hard"], Some(f.difficulty))
-        .label("Difficulty")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| form(s).difficulty = i.min(DIFFICULTIES.len() - 1))
-        .build(k)
-        .key("study-difficulty");
+    let difficulty = super::pages::choices(&["Easy", "Medium", "Hard"], Some(f.difficulty), "Difficulty", l, |s: &mut App, i, _: &mut Tx| {
+        form(s).difficulty = i.min(DIFFICULTIES.len() - 1)
+    })
+    .key("study-difficulty");
     let count = row()
         .gap(6.0)
         .center_y()
         .child(
             Button::new("−")
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .disabled(f.count <= 4)
                 .on_press(|s: &mut App| form(s).count = form(s).count.saturating_sub(1).max(4))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("count-down"),
         )
         .child(text(format!("{} {}", f.count, nouns(f.kind))).font(k.ty.ui).color(l.text))
         .child(
             Button::new("+")
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .disabled(f.count >= 20)
                 .on_press(|s: &mut App| form(s).count = (form(s).count + 1).min(20))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("count-up"),
         );
     let ready_sources: Vec<&SourceSummary> = o.sources.iter().filter(|s| ready(s.status.as_deref())).collect();
     let chosen = ready_sources.iter().filter(|s| f.selected.contains(&s.id)).count();
-    let mut c = col()
-        .key("study-form")
-        .w_full()
-        .gap(12.0)
-        .padding(14.0)
-        .radius(12.0)
-        .border(1.0, l.line)
-        .child(row().gap(12.0).center_y().flex_wrap().child(kind).child(difficulty).child(count));
+    let mut c = col().key("study-form").w_full().gap(12.0).padding(if l.phone() { 16.0 } else { 14.0 }).radius(12.0).border(1.0, l.line).child(if l.phone() {
+        col().w_full().gap(16.0).child(kind).child(difficulty).child(count)
+    } else {
+        row().gap(12.0).center_y().flex_wrap().child(kind).child(difficulty).child(count)
+    });
     if ready_sources.len() > 1 {
         let mut sources = col().w_full().gap(6.0);
         for src in &ready_sources {
             let id = src.id.clone();
-            sources = sources.child(
-                Checkbox::new(f.selected.contains(&src.id))
-                    .label(src.title.clone().unwrap_or_else(|| "Untitled source".into()))
-                    .on_toggle(move |s: &mut App| {
-                        let f = form(s);
-                        if !f.selected.remove(&id) {
-                            f.selected.insert(id.clone());
-                        }
-                    })
-                    .build(k)
-                    .key(format!("pick-{}", src.id)),
-            );
+            let selected = f.selected.contains(&src.id);
+            let title = src.title.clone().unwrap_or_else(|| "Untitled source".into());
+            let toggle = move |s: &mut App| {
+                let f = form(s);
+                if !f.selected.remove(&id) {
+                    f.selected.insert(id.clone());
+                }
+            };
+            let choice = if l.phone() {
+                k.interactive(
+                    row()
+                        .w_full()
+                        .min_h(52.0)
+                        .gap(12.0)
+                        .py(8.0)
+                        .center_y()
+                        .role("checkbox")
+                        .checked(selected)
+                        .label(title.clone())
+                        .child(
+                            row()
+                                .w(24.0)
+                                .h(24.0)
+                                .center()
+                                .radius(6.0)
+                                .fill(if selected { l.amber_wash } else { l.raised })
+                                .child(text(if selected { "✓" } else { "" }).font(k.ty.ui_medium).color(l.amber)),
+                        )
+                        .child(text(title).font(k.ty.ui).color(l.text).wrap().grow(1.0).min_w(0.0)),
+                )
+                .on_press(toggle)
+            } else {
+                Checkbox::new(selected).label(title).on_toggle(toggle).build(k)
+            };
+            sources = sources.child(choice.key(format!("pick-{}", src.id)));
         }
         c = c.child(sources);
     }
@@ -188,6 +209,8 @@ fn study_form(o: &Open, l: &Look) -> El {
                     s.make_deck();
                 })
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("study-make"),
         ),
     )
@@ -203,9 +226,11 @@ fn source_links(o: &Open, ids: &[String], l: &Look) -> El {
         r = r.child(
             Button::new(title)
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .on_press(move |s: &mut App| s.read_source(sid.clone(), None))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key(format!("src-{id}")),
         );
     }
@@ -232,13 +257,15 @@ fn deck_view(o: &Open, deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
     let total = deck.items.len();
     let back = Button::new("All decks")
         .variant(ButtonVariant::Ghost)
-        .control_size(ControlSize::Small)
+        .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
         .on_press(|s: &mut App| {
             if let Some(o) = s.open.as_mut() {
                 o.viewing = None;
             }
         })
         .build(k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
         .key("deck-back");
     let item = v.item().and_then(|i| deck.items.get(i));
     let progress = match (deck.kind, item) {
@@ -266,6 +293,8 @@ fn deck_view(o: &Open, deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                         }
                     })
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("deck-restart"),
             ),
         );
@@ -298,15 +327,19 @@ fn deck_view(o: &Open, deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                         }
                     })
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key(key.to_owned())
             };
             let controls = if v.flipped {
-                row()
-                    .gap(8.0)
-                    .child(button("Again  ←", "deck-again", false, |v| v.answer(false)))
-                    .child(button("Got it  →", "deck-known", true, |v| v.answer(true)))
+                row().gap(8.0).child(button(if l.phone() { "Again" } else { "Again  ←" }, "deck-again", false, |v| v.answer(false))).child(button(
+                    if l.phone() { "Got it" } else { "Got it  →" },
+                    "deck-known",
+                    true,
+                    |v| v.answer(true),
+                ))
             } else {
-                row().gap(8.0).child(button("Show answer  Space", "deck-flip", false, |v| v.flipped = true))
+                row().gap(8.0).child(button(if l.phone() { "Show answer" } else { "Show answer  Space" }, "deck-flip", false, |v| v.flipped = true))
             };
             let mut deck_col = col().key("flashcards").w_full().gap(14.0).child(k.interactive(card)).child(row().w_full().justify_center().child(controls));
             if v.flipped && !item.source_ids.is_empty() {
@@ -326,6 +359,7 @@ fn deck_view(o: &Open, deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                 let choice = row()
                     .key(format!("opt-{i}"))
                     .w_full()
+                    .min_h(52.0)
                     .padding(12.0)
                     .radius(10.0)
                     .border(1.0, l.line)
@@ -360,6 +394,8 @@ fn deck_view(o: &Open, deck: &StudyDeck, v: &DeckView, l: &Look) -> El {
                                 }
                             })
                             .build(k)
+                            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                             .key("deck-next"),
                     ),
                 );

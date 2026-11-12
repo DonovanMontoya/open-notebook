@@ -21,15 +21,50 @@ pub const READ_BODY: TextStyle = TextStyle::new(16.0, 400.0).family(READ).lh(25.
 pub const READ_TITLE: TextStyle = TextStyle::new(26.0, 500.0).family(READ).lh(32.0);
 pub const READ_HEADING: TextStyle = TextStyle::new(19.0, 500.0).family(READ).lh(26.0);
 
+/// This device, as copy names it.
+#[cfg(target_os = "ios")]
+pub const THIS_DEVICE: &str = "this iPhone";
+#[cfg(not(target_os = "ios"))]
+pub const THIS_DEVICE: &str = "this Mac";
+
 /// A style with tabular figures, for counts, times and prices that line up.
 pub const fn tnum(style: TextStyle) -> TextStyle {
     style.features("'tnum' 1")
+}
+
+/// How much room the window has, which decides the layout. Measured from the window, never
+/// from the device: a folded iPhone Duo, an open one and a Mac window can each be any of these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Size {
+    /// One column, with a back bar and tabs at the bottom: an iPhone, or a folded Duo.
+    Phone,
+    /// Two facing pages: an open iPhone Duo, an iPad, a narrow Mac window.
+    Pages,
+    /// Sidebar, sources and the notebook side by side: the Mac.
+    Desk,
+}
+
+impl Size {
+    pub fn of(width: f32) -> Size {
+        if width < 560.0 {
+            Size::Phone
+        } else if width < 1100.0 {
+            Size::Pages
+        } else {
+            Size::Desk
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct Look {
     pub k: Kit,
     pub dark: bool,
+    pub size: Size,
+    /// The window's width in points.
+    pub width: f32,
+    /// Room to leave under the last row for the home indicator.
+    pub inset_bottom: f32,
     pub page: Color,
     pub panel: Color,
     pub raised: Color,
@@ -64,6 +99,9 @@ impl Look {
         k.c.text_faint = c(text3);
         Look {
             dark,
+            size: Size::Desk,
+            width: 1280.0,
+            inset_bottom: 0.0,
             page: c(page),
             panel: c(panel),
             raised: c(raised),
@@ -78,5 +116,52 @@ impl Look {
             ok: if dark { c("#6fb48a") } else { c("#3f7f57") },
             k,
         }
+    }
+
+    /// The same look for a window `width` points wide.
+    pub fn sized(mut self, width: f32) -> Look {
+        self.size = Size::of(width);
+        self.width = width;
+        if self.size != Size::Desk {
+            self.k.elevation.button_neutral.clear();
+            self.k.elevation.button_contrast.clear();
+            let ty = &mut self.k.ty;
+            ty.ui = TextStyle::new(16.0, 400.0).lh(24.0);
+            ty.ui_medium = TextStyle::new(16.0, 500.0).lh(24.0);
+            ty.ui_compact = TextStyle::new(16.0, 400.0).lh(20.0);
+            ty.body = ty.ui;
+            ty.body_medium = ty.ui_medium;
+            ty.small = TextStyle::new(13.0, 400.0).lh(18.0);
+            ty.small_medium = TextStyle::new(13.0, 500.0).lh(18.0);
+            ty.text_small = ty.ui;
+            ty.text_small_medium = ty.ui_medium;
+            ty.text_xsmall = ty.small;
+            ty.text_xsmall_medium = ty.small_medium;
+        }
+        self
+    }
+
+    pub fn phone(&self) -> bool {
+        self.size == Size::Phone
+    }
+
+    /// Side padding for a page: tighter on a phone.
+    pub fn gutter(&self) -> f32 {
+        if self.phone() { 20.0 } else { 32.0 }
+    }
+
+    /// Side padding inside a page's column.
+    pub fn pad(&self) -> f32 {
+        if self.phone() { 16.0 } else { 24.0 }
+    }
+
+    /// Space above a page's title.
+    pub fn pad_top(&self) -> f32 {
+        if self.phone() { 12.0 } else { 28.0 }
+    }
+
+    /// A dialog's width: `want`, or the window less a 16 point margin each side.
+    pub fn dialog(&self, want: f32) -> f32 {
+        want.min(self.width - 32.0).max(240.0)
     }
 }

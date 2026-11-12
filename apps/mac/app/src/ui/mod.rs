@@ -5,8 +5,10 @@ mod add;
 mod icons;
 mod listen;
 mod live;
+mod mobile;
 mod notebook;
 mod pages;
+mod select;
 mod server;
 mod settings;
 pub mod study;
@@ -16,7 +18,7 @@ use rune_kit::shell::{PaneMotion, Sidebar, SidebarRow, SidebarSection, SidebarTo
 use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, TextInput};
 
 use crate::state::{App, Route};
-use crate::theme::{self, Look};
+use crate::theme::{self, Look, Size};
 
 pub fn look(cx: &Cx<App>, s: &App) -> Look {
     let dark = match s.settings.appearance.as_str() {
@@ -28,32 +30,31 @@ pub fn look(cx: &Cx<App>, s: &App) -> Look {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
-    let l = look(cx, s);
+    select::begin_layers();
+    // The window's own width picks the layout; until the first layout, guess by platform.
+    let width = cx.layout_with("app-root", |r| r[2]).unwrap_or(if cfg!(target_os = "ios") { 400.0 } else { 1280.0 });
+    let l = look(cx, s).sized(width);
     let mut layer = Vec::new();
-    // Every page has its own heading, so the title bar stays empty.
-    let main = match &s.route {
-        Route::Notebook(_) if s.open.is_some() => {
-            // The notebook draws its own name and description.
-            notebook::view(s, &l, &mut layer)
-        }
-        Route::Settings => settings::view(s, &l, &mut layer),
-        Route::Ask => pages::ask(s, &l, &mut layer),
-        Route::Library => pages::library(s, &l, &mut layer),
-        Route::Transformations => pages::transformations(s, &l),
-        Route::Usage => pages::usage(s, &l, &mut layer),
-        Route::Server => server::view(s, &l, &mut layer),
-        Route::Profiles => listen::profiles(s, &l, &mut layer),
-        _ => home(s, &l),
+    let body = match l.size {
+        Size::Desk => desk(s, cx, &l, &mut layer),
+        Size::Phone | Size::Pages => mobile::view(s, &l, &mut layer),
     };
     if let Some(c) = &s.confirm {
-        Dialog::new("confirm", c.question.clone())
-            .open(true)
-            .width(360.0)
+        let dialog = Dialog::new("confirm", if l.phone() { "Confirm".to_owned() } else { c.question.clone() }).open(true).width(l.dialog(360.0));
+        let dialog = if l.phone() { dialog.fit().child(text(c.question.clone()).font(l.k.ty.ui).color(l.text).wrap().px(20.0).pb(16.0)) } else { dialog };
+        dialog
             .child(
                 row()
                     .gap(8.0)
                     .justify_end()
-                    .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.confirm = None).build(&l.k).key("confirm-no"))
+                    .child(
+                        Button::new("Cancel")
+                            .variant(ButtonVariant::Ghost)
+                            .on_press(|s: &mut App| s.confirm = None)
+                            .build(&l.k)
+                            .key("confirm-no")
+                            .min_h(if l.phone() { 48.0 } else { 0.0 }),
+                    )
                     .child(
                         Button::new(c.verb)
                             .variant(if c.verb == "Delete" || c.verb == "Remove" { ButtonVariant::Danger } else { ButtonVariant::Contrast })
@@ -63,7 +64,8 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
                                 }
                             })
                             .build(&l.k)
-                            .key("confirm-yes"),
+                            .key("confirm-yes")
+                            .min_h(if l.phone() { 48.0 } else { 0.0 }),
                     ),
             )
             .on_close(|s: &mut App| s.confirm = None)
@@ -75,20 +77,44 @@ pub fn view(s: &App, cx: &mut Cx<App>) -> El {
     if let Some(message) = &s.toast {
         layer.push(toast(message, &l));
     }
+    select::finish_layers(&mut layer);
+    rune_kit::root(col().key("app-root").w_full().h_full().fill(l.page).child(body), layer)
+}
+
+/// The page a route shows, other than a notebook.
+fn page(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
+    match &s.route {
+        Route::Settings => settings::view(s, l, layer),
+        Route::Ask => pages::ask(s, l, layer),
+        Route::Library => pages::library(s, l, layer),
+        Route::Transformations => pages::transformations(s, l),
+        Route::Usage => pages::usage(s, l, layer),
+        Route::Server => server::view(s, l, layer),
+        Route::Profiles => listen::profiles(s, l, layer),
+        _ => home(s, l),
+    }
+}
+
+/// The Mac: a sidebar of notebooks beside the desk.
+fn desk(s: &App, cx: &mut Cx<App>, l: &Look, layer: &mut Vec<El>) -> El {
+    let main = match &s.route {
+        // The notebook draws its own name and description; every page has its own heading.
+        Route::Notebook(_) if s.open.is_some() => notebook::view(s, l, layer),
+        _ => page(s, l, layer),
+    };
     let mut desk = col().key("desk").w_full().h_full().min_h(0.0).fill(l.panel).child(col().w_full().grow(1.0).min_h(0.0).child(main));
     if let Some(p) = &s.playing {
-        desk = desk.child(listen::player_bar(p, &l));
+        desk = desk.child(listen::player_bar(p, l));
     }
-    let split = SplitView::new(desk)
-        .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, &l))
+    SplitView::new(desk)
+        .sidebar(&s.sidebar, |s: &mut App| &mut s.sidebar, sidebar(s, l))
         .toolbar(Toolbar::new())
         .titlebar_inset(cx.titlebar_inset())
         .sidebar_padding(12.0, 8.0)
         .sidebar_toggle(SidebarToggle::new().size(ControlSize::Large).past_lights(16.0).edge(16.0).gap(4.0).in_header())
         .pane_motion(PaneMotion::new().spring(Spring::new(0.3, 0.0)))
         .reduced_motion(cx.is_reduced_motion())
-        .build(&l.k);
-    rune_kit::root(col().w_full().h_full().fill(l.page).child(split), layer)
+        .build(&l.k)
 }
 
 fn sidebar(s: &App, l: &Look) -> El {
@@ -180,6 +206,7 @@ fn new_notebook(s: &App, l: &Look, layer: &mut Vec<El>) {
                 .on_edit(|s: &mut App| s.new_notebook.as_mut().expect("naming"))
                 .on_submit(|s: &mut App, _: &mut Tx| s.create_notebook())
                 .build(k)
+                .min_h(if l.phone() { 48.0 } else { 0.0 })
                 .key("new-notebook-name"),
         )
         .child(text("What it's for").font(k.ty.ui_medium).color(l.text2))
@@ -198,19 +225,31 @@ fn new_notebook(s: &App, l: &Look, layer: &mut Vec<El>) {
                 .w_full()
                 .gap(8.0)
                 .justify_end()
-                .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(|s: &mut App| s.new_notebook = None).build(k).key("new-notebook-cancel"))
+                .child(
+                    Button::new("Cancel")
+                        .variant(ButtonVariant::Ghost)
+                        .on_press(|s: &mut App| s.new_notebook = None)
+                        .build(k)
+                        .min_h(if l.phone() { 48.0 } else { 0.0 })
+                        .key("new-notebook-cancel"),
+                )
                 .child(
                     Button::new("Create notebook")
                         .variant(ButtonVariant::Contrast)
                         .disabled(name.text.trim().is_empty())
                         .on_press(|s: &mut App| s.create_notebook())
                         .build(k)
-                        .key("new-notebook-create"),
+                        .key("new-notebook-create")
+                        .min_h(if l.phone() { 48.0 } else { 0.0 }),
                 ),
         );
+    if l.phone() {
+        phone_sheet("new-notebook", "New notebook", body, |s| s.new_notebook = None, l, layer);
+        return;
+    }
     Dialog::new("new-notebook", "New notebook")
         .open(true)
-        .width(440.0)
+        .width(l.dialog(440.0))
         .fit()
         .child(body.px(20.0).pb(20.0))
         .on_close(|s: &mut App| s.new_notebook = None)
@@ -242,71 +281,128 @@ fn open_new_notebook(s: &mut App) {
 }
 
 /// A centred message for the states with nothing to list.
-fn home_message(title: &str, body: &str, action: Option<El>, l: &Look) -> El {
-    let mut c = col().key("home").gap(10.0).items_center().max_w(420.0).child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text));
+fn home_message(s: &App, title: &str, body: &str, action: Option<El>, l: &Look) -> El {
+    let mut c = col()
+        .key("home")
+        .w_full()
+        .gap(12.0)
+        .items_center()
+        .max_w(420.0)
+        .px(if l.phone() { 20.0 } else { 0.0 })
+        .child(text(title.to_owned()).font(theme::READ_HEADING).color(l.text));
     if !body.is_empty() {
         c = c.child(text(body.to_owned()).font(l.k.ty.ui).color(l.text2).wrap().align(rune::Align::Center));
     }
     if let Some(a) = action {
         c = c.child(col().pt(8.0).child(a));
     }
-    col().w_full().h_full().center().window_drag().child(c)
+    if l.size == Size::Desk {
+        return col().w_full().h_full().center().window_drag().child(c);
+    }
+    let settings = Button::new("Settings")
+        .icon(&icons::GEAR)
+        .variant(ButtonVariant::Ghost)
+        .on_press(|s: &mut App| s.open_settings())
+        .build(&l.k)
+        .h(44.0)
+        .key("home-navigation-settings");
+    let header = row()
+        .w_full()
+        .min_h(64.0)
+        .px(l.gutter())
+        .gap(8.0)
+        .center_y()
+        .child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0).min_w(0.0))
+        .child(settings);
+    let content =
+        col().w_full().max_w(760.0).px(l.gutter()).pt(12.0).pb(32.0 + l.inset_bottom).gap(24.0).child(ask_field(l)).child(c.py(24.0)).child(tools(s, l));
+    col()
+        .key("home-status")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .child(header)
+        .child(col().w_full().grow(1.0).min_h(0.0).items_center().child(content).scroll(rune::ScrollSpec { stick_bottom: false }))
 }
 
 fn home(s: &App, l: &Look) -> El {
     let k = &l.k;
-    let settings_button =
-        || Button::new("Open settings").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.open_settings()).build(k).key("home-settings");
-    let new_button = |variant| Button::new("New notebook").icon(&icons::PLUS).variant(variant).on_press(open_new_notebook).build(k).key("home-new");
+    let settings_button = || {
+        Button::new("Open settings")
+            .variant(ButtonVariant::Contrast)
+            .on_press(|s: &mut App| s.open_settings())
+            .build(k)
+            .h(if l.size == Size::Desk { 24.0 } else { 48.0 })
+            .key("home-settings")
+    };
+    let new_button = |variant| {
+        Button::new(if l.phone() && s.notebooks.iter().any(|n| !n.archived) { "New" } else { "New notebook" })
+            .icon(&icons::PLUS)
+            .variant(variant)
+            .on_press(open_new_notebook)
+            .build(k)
+            .h(if l.size == Size::Desk { 24.0 } else { 44.0 })
+            .key("home-new")
+    };
     if let Some(e) = &s.backend_error {
-        return home_message("Couldn't open your notebooks", e, Some(settings_button()), l);
+        return home_message(s, "Couldn't open your notebooks", e, Some(settings_button()), l);
     }
     if !s.loaded {
-        return home_message("Opening", "", None, l);
+        return home_message(s, "Opening", "", None, l);
     }
     let needs_model = s.settings.mode == notebook_engine::settings::Mode::Local && s.settings.chat.is_none();
     let mut open: Vec<&notebook_engine::types::Notebook> = s.notebooks.iter().filter(|n| !n.archived).collect();
     if open.is_empty() {
         return if needs_model {
             home_message(
+                s,
                 "Add a model to start asking",
                 "Notebooks live on this device. Questions go to the AI provider you choose, with your own API key.",
-                Some(settings_button()),
+                Some(if l.phone() { col() } else { row() }.gap(8.0).child(new_button(ButtonVariant::Ghost)).child(settings_button())),
                 l,
             )
         } else {
-            home_message("Start a notebook", "A notebook holds the sources for one question or project.", Some(new_button(ButtonVariant::Contrast)), l)
+            home_message(s, "Start a notebook", "A notebook holds the sources for one question or project.", Some(new_button(ButtonVariant::Contrast)), l)
         };
     }
     open.sort_by(|a, b| b.updated.cmp(&a.updated));
-    let mut c = col()
-        .key("home")
-        .w_full()
-        .max_w(760.0)
-        .px(32.0)
-        .pt(40.0)
-        .pb(32.0)
-        .gap(24.0)
-        .child(row().w_full().center_y().child(text("Notebooks").font(theme::READ_TITLE).color(l.text).grow(1.0)).child(new_button(ButtonVariant::Ghost)));
+    let mut c = col().key("home").w_full().max_w(760.0).px(l.gutter()).pt(if l.phone() { 16.0 } else { 40.0 }).pb(32.0 + l.inset_bottom).gap(24.0).child(
+        row()
+            .w_full()
+            .center_y()
+            .child(
+                text("Notebooks")
+                    .font(if l.phone() { rune::TextStyle { size: 34.0, ..theme::READ_TITLE }.lh(40.0) } else { theme::READ_TITLE })
+                    .color(l.text)
+                    .grow(1.0),
+            )
+            .child(new_button(ButtonVariant::Ghost))
+            .child(if l.size != Size::Desk {
+                rune_kit::IconButton::new(&icons::GEAR)
+                    .label("Settings")
+                    .variant(rune_kit::IconButtonVariant::GhostMuted)
+                    .on_press(|s: &mut App| s.open_settings())
+                    .build(k)
+                    .w(44.0)
+                    .h(44.0)
+                    .key("home-navigation-settings")
+            } else {
+                rune::el()
+            }),
+    );
+    if l.size != Size::Desk {
+        c = c.child(ask_field(l));
+    }
     if needs_model {
         c = c.child(
-            row()
+            if l.phone() { col().items_start() } else { row().center_y() }
                 .key("home-model")
                 .w_full()
                 .gap(16.0)
                 .padding(16.0)
                 .radius(12.0)
                 .fill(l.raised)
-                .center_y()
-                .child(
-                    text("Add a chat model to start asking. Questions go to the provider you choose, with your own key.")
-                        .font(k.ty.ui)
-                        .color(l.text2)
-                        .wrap()
-                        .grow(1.0)
-                        .shrink()
-                        .min_w(0.0),
-                )
+                .child(text("Choose a chat model to ask questions about your sources.").font(k.ty.ui).color(l.text2).wrap().grow(1.0).shrink().min_w(0.0))
                 .child(settings_button()),
         );
     }
@@ -323,19 +419,83 @@ fn home(s: &App, l: &Look) -> El {
         if !when.is_empty() {
             meta.push(format!("updated {when}"));
         }
-        let mut info = col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(text(nb.name.clone()).font(theme::READ_HEADING).color(l.text).max_lines(1));
+        let mut info = col().grow(1.0).shrink().min_w(0.0).gap(4.0).child(
+            text(nb.name.clone())
+                .font(if l.phone() { rune::TextStyle { size: 24.0, ..theme::READ_HEADING }.lh(28.0) } else { theme::READ_HEADING })
+                .color(l.text)
+                .max_lines(1),
+        );
         if !nb.description.trim().is_empty() {
             info = info.child(text(nb.description.trim().to_owned()).font(k.ty.ui).color(l.text2).max_lines(2).wrap());
         }
         info = info.child(text(meta.join(" · ")).font(theme::tnum(k.ty.small)).color(l.text3));
         let id = nb.id.clone();
-        let item = row().key(format!("home-nb-{}", nb.id)).w_full().px(12.0).py(16.0).radius(10.0).child(info);
+        let item = row().key(format!("home-nb-{}", nb.id)).w_full().px(12.0).py(16.0).radius(10.0).center_y().gap(12.0).child(info);
+        let item = if l.size != Size::Desk { item.child(rune::icon(&rune_kit::glyphs::CARET_RIGHT, 18.0).color(l.text3)) } else { item };
         if i > 0 {
             list = list.child(row().key(format!("home-rule-{i}")).w_full().px(12.0).child(rune::el().grow(1.0).h(1.0).fill(l.line)));
         }
         list = list.child(k.interactive(item).on_press(move |s: &mut App| s.open_notebook(id.clone())));
     }
-    col().w_full().h_full().items_center().child(c.child(list)).scroll(rune::ScrollSpec { stick_bottom: false }).window_drag()
+    c = c.child(list);
+    if l.size != Size::Desk {
+        c = c.child(tools(s, l));
+    }
+    col().w_full().h_full().items_center().child(c).scroll(rune::ScrollSpec { stick_bottom: false }).window_drag()
+}
+
+/// Without a sidebar: a field that opens Ask, at the top of home.
+fn ask_field(l: &Look) -> El {
+    let k = &l.k;
+    let field = row()
+        .key("home-ask")
+        .w_full()
+        .h(52.0)
+        .px(16.0)
+        .gap(8.0)
+        .radius(10.0)
+        .fill(l.raised)
+        .center_y()
+        .role("button")
+        .label("Ask your notebooks")
+        .child(rune::icon(&rune_kit::glyphs::SEARCH, 16.0).color(l.text3))
+        .child(text("Ask your notebooks").font(k.ty.body).color(l.text3));
+    k.interactive(field).on_press(|s: &mut App| s.go(Route::Ask))
+}
+
+/// Without a sidebar: everything the sidebar holds besides the notebooks, below them.
+fn tools(s: &App, l: &Look) -> El {
+    let k = &l.k;
+    let item = |label: &str, icon: &'static rune::Icon, route: Route, key: &str| {
+        let r = row()
+            .key(key.to_owned())
+            .w_full()
+            .h(56.0)
+            .px(12.0)
+            .gap(12.0)
+            .radius(10.0)
+            .center_y()
+            .child(rune::icon(icon, 18.0).color(l.text2))
+            .child(text(label.to_owned()).font(k.ty.body).color(l.text).grow(1.0))
+            .child(rune::icon(&rune_kit::glyphs::CARET_RIGHT, 14.0).color(l.text3));
+        k.interactive(r).on_press(move |s: &mut App| match &route {
+            Route::Settings => s.open_settings(),
+            r => s.go(r.clone()),
+        })
+    };
+    let mut c = col()
+        .key("home-tools")
+        .w_full()
+        .gap(2.0)
+        .pt(8.0)
+        .child(text("Tools").font(k.ty.ui_medium).color(l.text2).px(12.0).pb(4.0))
+        .child(item("Library", &icons::DOC, Route::Library, "tool-library"))
+        .child(item("Transformations", &rune_kit::glyphs::SPARKLE, Route::Transformations, "tool-transformations"))
+        .child(item("Usage", &icons::GAUGE, Route::Usage, "tool-usage"));
+    if s.remote.is_some() {
+        c = c.child(item("Server", &icons::SERVER, Route::Server, "tool-server"));
+    }
+    c.child(item("Settings", &icons::GEAR, Route::Settings, "tool-settings"))
 }
 
 fn toast(message: &str, l: &Look) -> El {
@@ -350,6 +510,26 @@ fn toast(message: &str, l: &Look) -> El {
             .shadow(8.0, 24.0, rune::Color::BLACK.alpha(if l.dark { 0.45 } else { 0.08 }))
             .child(text(message.to_owned()).font(l.k.ty.ui).color(l.text).max_w(520.0).wrap()),
     )
+}
+
+/// A bounded sheet keeps forms scrollable above the keyboard on a phone.
+fn phone_sheet(key: &str, title: &str, body: El, close: impl Fn(&mut App) + Clone + 'static, l: &Look, layer: &mut Vec<El>) {
+    let dismiss =
+        rune_kit::IconButton::new(&icons::CLOSE).label("Close").variant(rune_kit::IconButtonVariant::Ghost).on_press(close.clone()).build(&l.k).w(44.0).h(44.0);
+    let panel = col()
+        .key(format!("{key}-sheet"))
+        .w_full()
+        .h_full()
+        .min_h(0.0)
+        .radius(20.0)
+        .fill(l.panel)
+        .role("dialog")
+        .label(title.to_owned())
+        .modal(true, close)
+        .child(row().w_full().px(20.0).py(8.0).center_y().child(text(title.to_owned()).font(theme::READ_TITLE).color(l.text).grow(1.0)).child(dismiss))
+        .child(col().w_full().grow(1.0).min_h(0.0).child(body.px(20.0).pb(24.0 + l.inset_bottom)).scroll(rune::ScrollSpec { stick_bottom: false }));
+    layer.push(rune::el().key(format!("{key}-scrim")).absolute(0.0, 0.0).w_full().h_full().fill(l.k.c.scrim).a11y_hidden());
+    layer.push(col().key(format!("{key}-layer")).absolute(0.0, 0.0).w_full().h_full().pt(32.0).child(panel));
 }
 
 /// Clears the toast a few seconds after it appears. True when it went.

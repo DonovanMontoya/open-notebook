@@ -104,3 +104,18 @@ icon!(
     "on-next-chapter",
     r#"<path d="M12 3.5V12.5M4 3.5L10 8L4 12.5V3.5Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
 );
+icon!(
+    PAGES,
+    "on-pages",
+    r#"<path d="M5.5 2.5H11.5L13.5 4.5V11.5H5.5V2.5Z M2.5 5V13.5H10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);
+icon!(
+    CARDS,
+    "on-cards",
+    r#"<path d="M3.5 5.5H10.5V13.5H3.5V5.5Z M6 3H13V11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);
+icon!(
+    HEADPHONES,
+    "on-headphones",
+    r#"<path d="M2.5 10.5V8.5C2.5 5.46 4.96 3 8 3C11.04 3 13.5 5.46 13.5 8.5V10.5 M2.5 10H4.5V13.5H3.5C2.95 13.5 2.5 13.05 2.5 12.5V10Z M13.5 10H11.5V13.5H12.5C13.05 13.5 13.5 13.05 13.5 12.5V10Z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>"#
+);

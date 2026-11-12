@@ -3,9 +3,10 @@
 use notebook_engine::podcast::voices::VoiceKind;
 use notebook_engine::types::*;
 use rune::{El, PlayerState, ScrollSpec, TextEdit, Tx, col, el, row, text};
-use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, SegmentedControl, Select, TextArea, TextInput};
+use rune_kit::{Button, ButtonVariant, ControlSize, Dialog, IconButton, IconButtonVariant, TextArea, TextInput};
 
 use super::icons;
+use super::select::Select;
 use crate::listen::{
     EFFORTS, EpisodeDraft, EpisodeOpen, LANGUAGES, NewEpisode, NowPlaying, PlayerTab, ProfilesPage, PromptView, RATES, SKIP_BACK, SKIP_FORWARD, SLEEPS, Sleep,
     SpeakerDraft, chapter_at, check_history, check_models, check_verdict, clock, episode_minutes, language_name, line_at, line_times,
@@ -18,26 +19,37 @@ fn form(s: &mut App) -> &mut NewEpisode {
 }
 
 fn small(label: &str, key: &str, l: &Look, f: impl Fn(&mut App) + 'static) -> El {
-    Button::new(label.to_owned()).variant(ButtonVariant::Ghost).control_size(ControlSize::Small).on_press(f).build(&l.k).key(key.to_owned())
+    Button::new(label.to_owned())
+        .variant(ButtonVariant::Ghost)
+        .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
+        .on_press(f)
+        .build(&l.k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .key(key.to_owned())
 }
 
 pub fn view(s: &App, o: &Open, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
-    let mut c = col().key("listen").w_full().max_w(720.0).gap(14.0).px(24.0).py(20.0);
+    let mut c = col().key("listen").w_full().max_w(720.0).gap(14.0).px(l.pad()).py(20.0);
     let mut actions = row().gap(4.0);
     if o.new_episode.is_none() {
         actions = actions.child(
             Button::new("New episode")
                 .icon(&icons::PLUS)
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .on_press(|s: &mut App| s.new_episode_form())
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("new-episode"),
         );
     }
     actions = actions.child(small("Profiles", "open-profiles", l, |s| s.open_profiles()));
-    c = c.child(super::live::card(s, l, layer));
+    if !cfg!(target_os = "ios") {
+        c = c.child(super::live::card(s, l, layer));
+    }
     c = c.child(actions);
     if let Some(f) = &o.new_episode {
         c = c.child(new_episode(s, f, l, layer));
@@ -74,7 +86,7 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
         .label("Episode profile")
         .placeholder("Episode profile")
         .current(current.map(|p| p.name.as_str()))
-        .width(260.0)
+        .width(if l.phone() { l.width - 2.0 * l.pad() - 32.0 } else { 260.0 })
         .open(f.open_select == Some("episode"))
         .on_toggle(|s: &mut App| {
             let f = form(s);
@@ -88,7 +100,8 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
             f.speaker_profile = None;
             f.open_select = None;
         })
-        .build(k, layer);
+        .build(k, layer)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
     let mut speaker_names = vec!["Profile's own voices".to_owned()];
     speaker_names.extend(profiles.speaker.iter().map(|p| p.name.clone()));
     let speaker_ids: Vec<String> = profiles.speaker.iter().map(|p| p.id.clone()).collect();
@@ -97,7 +110,7 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
     let speakers = Select::new("speaker-profile", &speaker_names)
         .label("Voices")
         .current(Some(speaker_current))
-        .width(260.0)
+        .width(if l.phone() { l.width - 2.0 * l.pad() - 32.0 } else { 260.0 })
         .open(f.open_select == Some("speaker"))
         .on_toggle(|s: &mut App| {
             let f = form(s);
@@ -112,7 +125,8 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
                 f.open_select = None;
             }
         })
-        .build(k, layer);
+        .build(k, layer)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
     let cast = current.and_then(|ep| {
         let id = f.speaker_profile.as_deref().unwrap_or(&ep.speaker_profile_id);
         profiles.speaker.iter().find(|p| p.id == id)
@@ -126,7 +140,7 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
         .radius(12.0)
         .border(1.0, l.line_strong)
         .child(text("New episode").font(theme::READ_HEADING).color(l.text))
-        .child(row().w_full().gap(10.0).child(profile).child(speakers));
+        .child(if l.phone() { col().w_full().gap(12.0).child(profile).child(speakers) } else { row().w_full().gap(10.0).child(profile).child(speakers) });
     let about = [current.map(|p| p.description.clone()).filter(|d| !d.is_empty()), minutes.map(|m| format!("About {m} min"))];
     let about: Vec<String> = about.into_iter().flatten().collect();
     if !about.is_empty() {
@@ -136,7 +150,15 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
         c = c.child(text(cast_line(sp)).font(k.ty.small).color(l.text3).key("episode-cast"));
     }
     c = c
-        .child(TextInput::new(&f.name).width(None).placeholder("Title (optional)").on_edit(|s: &mut App| &mut form(s).name).build(k).key("episode-name"))
+        .child(
+            TextInput::new(&f.name)
+                .width(None)
+                .placeholder("Title (optional)")
+                .on_edit(|s: &mut App| &mut form(s).name)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("episode-name"),
+        )
         .child(
             TextArea::new(&f.focus)
                 .width(None)
@@ -148,12 +170,9 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
         );
     if local {
         let effort_at = EFFORTS.iter().position(|(e, _, _)| *e == f.effort).unwrap_or(1);
-        let effort = SegmentedControl::new(&EFFORTS.map(|(_, n, _)| n), Some(effort_at))
-            .label("Checking")
-            .fit()
-            .on_pick(|s: &mut App, i, _: &mut Tx| s.set_effort(EFFORTS[i].0))
-            .build(k)
-            .key("effort");
+        let effort =
+            super::pages::choices(&EFFORTS.map(|(_, n, _)| n), Some(effort_at), "Checking", l, |s: &mut App, i, _: &mut Tx| s.set_effort(EFFORTS[i].0))
+                .key("effort");
         c = c.child(
             col()
                 .gap(6.0)
@@ -191,6 +210,8 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
                         }
                     })
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("episode-cancel"),
             )
             .child(
@@ -199,6 +220,8 @@ fn new_episode(s: &App, f: &NewEpisode, l: &Look, layer: &mut Vec<El>) -> El {
                     .disabled(f.busy || needs_chat || current.is_none())
                     .on_press(|s: &mut App| s.create_episode())
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("episode-make"),
             ),
     )
@@ -252,6 +275,8 @@ fn episode_card(s: &App, o: &Open, e: &Episode, l: &Look) -> El {
                 .label(if on { "Pause" } else { "Play" })
                 .on_press(move |s: &mut App| s.play(ep.clone()))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("play"),
         );
     }
@@ -288,7 +313,7 @@ fn episode_card(s: &App, o: &Open, e: &Episode, l: &Look) -> El {
         card = card.child(claim_check(e, &view, l));
     }
     let (tid, pid, rid, did, dlep) = (e.id.clone(), e.id.clone(), e.id.clone(), e.id.clone(), e.clone());
-    let mut actions = row().w_full().gap(2.0);
+    let mut actions = row().w_full().gap(4.0).flex_wrap();
     if done && !e.transcript.is_empty() {
         actions = actions.child(small(if view.transcript { "Hide transcript" } else { "Transcript" }, "transcript", l, move |s| {
             if let Some(o) = s.open.as_mut() {
@@ -304,9 +329,11 @@ fn episode_card(s: &App, o: &Open, e: &Episode, l: &Look) -> El {
         actions = actions.child(
             Button::new("Download")
                 .variant(ButtonVariant::Ghost)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .on_press_tx(move |s: &mut App, tx: &mut Tx| s.download_episode(&dlep, tx))
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("download"),
         );
     }
@@ -319,13 +346,15 @@ fn episode_card(s: &App, o: &Open, e: &Episode, l: &Look) -> El {
         actions = actions.child(
             IconButton::new(&icons::TRASH)
                 .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .label("Delete episode")
                 .on_press(move |s: &mut App| {
                     let id = did.clone();
                     s.ask(format!("Delete “{name}” and its audio?"), move |s| s.delete_episode(id.clone()));
                 })
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("delete"),
         );
     }
@@ -419,6 +448,8 @@ fn prompt_dialog(e: &Episode, v: &PromptView, l: &Look, layer: &mut Vec<El>) {
                         }
                     })
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("prompt-copy"),
             );
         }
@@ -427,8 +458,26 @@ fn prompt_dialog(e: &Episode, v: &PromptView, l: &Look, layer: &mut Vec<El>) {
     if let Some(c) = copy {
         buttons = buttons.child(c);
     }
-    buttons = buttons.child(Button::new("Done").variant(ButtonVariant::Contrast).on_press(|s: &mut App| s.close_prompt()).build(k).key("prompt-done"));
-    Dialog::new("prompt-dialog", "Script prompt").open(true).width(640.0).child(body).child(buttons).on_close(|s: &mut App| s.close_prompt()).build(k, layer);
+    buttons = buttons.child(
+        Button::new("Done")
+            .variant(ButtonVariant::Contrast)
+            .on_press(|s: &mut App| s.close_prompt())
+            .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .key("prompt-done"),
+    );
+    if l.phone() {
+        super::phone_sheet("prompt-dialog", "Script prompt", col().w_full().gap(16.0).child(body).child(buttons), |s| s.close_prompt(), l, layer);
+    } else {
+        Dialog::new("prompt-dialog", "Script prompt")
+            .open(true)
+            .width(l.dialog(640.0))
+            .child(body)
+            .child(buttons)
+            .on_close(|s: &mut App| s.close_prompt())
+            .build(k, layer);
+    }
 }
 
 /// 12345 as "12,345".
@@ -492,11 +541,12 @@ fn claim_check(e: &Episode, view: &EpisodeOpen, l: &Look) -> El {
         .child(seg(c.supported, l.amber))
         .child(seg(c.overstated, l.text3))
         .child(seg(c.unsupported, l.danger));
-    let mut headline = row().gap(6.0).shrink().min_w(0.0).child(text(check_verdict(c)).font(k.ty.ui_medium).color(l.text));
+    let mut headline =
+        (if l.phone() { col().gap(4.0) } else { row().gap(6.0) }).shrink().min_w(0.0).child(text(check_verdict(c)).font(k.ty.ui_medium).color(l.text).wrap());
     if total > 0 {
         headline = headline.child(text(format!("{} of {total} claims", c.supported)).font(k.ty.ui).color(l.text2));
     }
-    let mut out = col().key("claims").w_full().gap(6.0).child(row().w_full().center_y().justify_between().child(headline).child(small(
+    let mut out = col().key("claims").w_full().gap(8.0).child(row().w_full().gap(8.0).center_y().justify_between().child(headline.grow(1.0)).child(small(
         if view.claims { "Hide details" } else { "Details" },
         "claims-toggle",
         l,
@@ -530,7 +580,11 @@ fn claim_check(e: &Episode, view: &EpisodeOpen, l: &Look) -> El {
         }
     }
     if !matched.is_empty() {
-        let label = format!("{} claims that match your sources ({})", if view.matched { "Hide" } else { "Show" }, matched.len());
+        let label = if l.phone() {
+            format!("{} matched passages ({})", if view.matched { "Hide" } else { "Show" }, matched.len())
+        } else {
+            format!("{} claims that match your sources ({})", if view.matched { "Hide" } else { "Show" }, matched.len())
+        };
         out = out.child(row().child(small(&label, "claims-matched", l, claims_toggle(&e.id, |v| &mut v.matched))));
         if view.matched {
             for (i, claim) in matched.iter().enumerate() {
@@ -632,7 +686,7 @@ fn scrubber(p: &NowPlaying, l: &Look, key: &str) -> El {
         let fill = if duration > 0.0 { ((shown - start) / span).clamp(0.0, 1.0) as f32 } else { 0.0 };
         bar = bar.child(el().grow(span as f32).h(4.0).radius(2.0).fill(l.raised).child(el().w_frac(fill).h(4.0).radius(2.0).fill(l.text)));
     }
-    col().key(key.to_owned()).w_full().h(16.0).justify_center().child(bar).cursor(rune::Cursor::Pointer).on_drag(
+    col().key(key.to_owned()).w_full().h(if l.phone() { 44.0 } else { 16.0 }).justify_center().child(bar).cursor(rune::Cursor::Pointer).on_drag(
         |s: &mut App, d: &mut rune::Drag, _: &mut Tx| {
             let Some(p) = s.playing.as_mut() else { return };
             let t = (d.x / d.w.max(1.0)).clamp(0.0, 1.0) as f64 * p.duration();
@@ -686,12 +740,42 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
             p.followed = None;
         }
     });
+    if l.phone() {
+        // A phone: play, what's playing and how long is left, and close. The title opens the full
+        // player, which has the rest.
+        let play = IconButton::new(if on { &icons::PAUSE } else { &icons::PLAY })
+            .variant(IconButtonVariant::Contrast)
+            .label(if on { "Pause" } else { "Play" })
+            .on_press(move |s: &mut App| s.play(ep.clone()))
+            .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .key("player-play");
+        let info = col().grow(1.0).min_w(0.0).gap(2.0).child(name).child(text(status).font(theme::tnum(k.ty.small)).color(l.text3).max_lines(1));
+        let close = IconButton::new(&icons::CLOSE)
+            .variant(IconButtonVariant::GhostMuted)
+            .label("Close player")
+            .on_press(|s: &mut App| s.stop_playing())
+            .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .key("player-close");
+        return col()
+            .key("player")
+            .w_full()
+            .fill(l.panel)
+            .child(el().w_full().h(1.0).fill(l.line))
+            .child(row().w_full().h(56.0).px(12.0).gap(10.0).center_y().child(play).child(info).child(close))
+            .child(scrubber(p, l, "player-track"));
+    }
     let mut r = row().key("player").w_full().h(56.0).px(16.0).gap(4.0).center_y().fill(l.panel).border(1.0, l.line).child(
         IconButton::new(if on { &icons::PAUSE } else { &icons::PLAY })
             .variant(IconButtonVariant::Contrast)
             .label(if on { "Pause" } else { "Play" })
             .on_press(move |s: &mut App| s.play(ep.clone()))
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key("player-play"),
     );
     if has_chapters {
@@ -701,6 +785,8 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
                 .label("Previous chapter")
                 .on_press(|s: &mut App| s.previous_chapter())
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("player-prev"),
         );
     }
@@ -712,6 +798,8 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
                 .label("Next chapter")
                 .on_press(|s: &mut App| s.next_chapter())
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("player-next"),
         );
     }
@@ -732,6 +820,8 @@ pub fn player_bar(p: &NowPlaying, l: &Look) -> El {
             .label("Close player")
             .on_press(|s: &mut App| s.stop_playing())
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key("player-close"),
     )
 }
@@ -800,12 +890,14 @@ fn now_playing(p: &NowPlaying, l: &Look) -> El {
             .justify_center()
             .center_y()
             .child(
-                Button::new("Previous chapter")
+                Button::new(if l.phone() { "Previous" } else { "Previous chapter" })
                     .variant(ButtonVariant::Ghost)
-                    .control_size(ControlSize::Small)
+                    .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .disabled(!has_chapters)
                     .on_press(|s: &mut App| s.previous_chapter())
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("np-prev"),
             )
             .child(small("−15", "np-back", l, |s| s.skip(-SKIP_BACK)))
@@ -815,24 +907,31 @@ fn now_playing(p: &NowPlaying, l: &Look) -> El {
                     .label(if on { "Pause" } else { "Play" })
                     .on_press(move |s: &mut App| s.play(ep.clone()))
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("np-play"),
             )
             .child(small("+30", "np-forward", l, |s| s.skip(SKIP_FORWARD)))
             .child(
-                Button::new("Next chapter")
+                Button::new(if l.phone() { "Next" } else { "Next chapter" })
                     .variant(ButtonVariant::Ghost)
-                    .control_size(ControlSize::Small)
+                    .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .disabled(!has_chapters || last)
                     .on_press(|s: &mut App| s.next_chapter())
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("np-next"),
             ),
     );
     let rates: Vec<String> = RATES.iter().map(|r| format!("{r}×")).collect();
     stage = stage
-        .child(col().gap(6.0).child(text("Speed").font(k.ty.small).color(l.text2)).child(
-            SegmentedControl::new(&rates, Some(p.rate)).label("Speed").fit().on_pick(|s: &mut App, i, _: &mut Tx| s.set_rate(i)).build(k).key("np-rate"),
-        ))
+        .child(
+            col()
+                .gap(6.0)
+                .child(text("Speed").font(k.ty.small).color(l.text2))
+                .child(super::pages::choices(&rates, Some(p.rate), "Speed", l, |s: &mut App, i, _: &mut Tx| s.set_rate(i)).key("np-rate")),
+        )
         .child(
             col()
                 .gap(6.0)
@@ -842,29 +941,23 @@ fn now_playing(p: &NowPlaying, l: &Look) -> El {
                         .color(l.text2),
                 )
                 .child(
-                    SegmentedControl::new(&SLEEPS.map(|(_, n)| n), Some(p.sleep.index()))
-                        .label("Sleep timer")
-                        .fit()
-                        .on_pick(|s: &mut App, i, _: &mut Tx| s.set_sleep(SLEEPS[i].0))
-                        .build(k)
-                        .key("np-sleep"),
+                    super::pages::choices(&SLEEPS.map(|(_, n)| n), Some(p.sleep.index()), "Sleep timer", l, |s: &mut App, i, _: &mut Tx| {
+                        s.set_sleep(SLEEPS[i].0)
+                    })
+                    .key("np-sleep"),
                 ),
         );
     if let PlayerState::Failed(err) = p.player.state() {
         stage = stage.child(text(err).font(k.ty.small).color(l.danger).wrap());
     }
     let tab_at = if p.tab == PlayerTab::Transcript { 0 } else { 1 };
-    let tabs = SegmentedControl::new(&["Transcript", "Chapters"], Some(tab_at))
-        .label("Show")
-        .fit()
-        .on_pick(|s: &mut App, i, _: &mut Tx| {
-            if let Some(p) = s.playing.as_mut() {
-                p.tab = if i == 0 { PlayerTab::Transcript } else { PlayerTab::Chapters };
-                p.followed = None;
-            }
-        })
-        .build(k)
-        .key("np-tabs");
+    let tabs = super::pages::choices(&["Transcript", "Chapters"], Some(tab_at), "Show", l, |s: &mut App, i, _: &mut Tx| {
+        if let Some(p) = s.playing.as_mut() {
+            p.tab = if i == 0 { PlayerTab::Transcript } else { PlayerTab::Chapters };
+            p.followed = None;
+        }
+    })
+    .key("np-tabs");
     let list = match p.tab {
         PlayerTab::Transcript if e.transcript.is_empty() => text("No transcript for this episode").font(k.ty.ui).color(l.text3),
         PlayerTab::Transcript => transcript(e, Some(p), l, "np-line", true),
@@ -879,12 +972,12 @@ fn now_playing(p: &NowPlaying, l: &Look) -> El {
             false
         },
     );
-    let mut side = col().key("np-side").grow(1.0).min_w(0.0).h_full().min_h(0.0).gap(10.0).child(row().child(tabs)).child(scroller);
+    let mut side = col().key("np-side").grow(1.0).min_w(0.0).h_full().min_h(0.0).gap(10.0).child(row().w_full().child(tabs)).child(scroller);
     if !p.following && p.tab == PlayerTab::Transcript {
         side = side.child(
             row().child(
                 Button::new("Follow along")
-                    .control_size(ControlSize::Small)
+                    .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .on_press(|s: &mut App| {
                         if let Some(p) = s.playing.as_mut() {
                             p.following = true;
@@ -892,20 +985,30 @@ fn now_playing(p: &NowPlaying, l: &Look) -> El {
                         }
                     })
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key("np-follow"),
             ),
         );
     }
+    let content = if l.phone() {
+        col().w_full().gap(24.0).child(stage.w_full()).child(side.w_full().h(440.0)).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0)
+    } else {
+        row().w_full().grow(1.0).min_h(0.0).gap(28.0).child(stage).child(side)
+    };
     col()
         .key("now-playing")
+        .w_full()
+        .h_full()
+        .min_h(0.0)
         .pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0))
         .fill(l.panel)
-        .px(24.0)
-        .pt(48.0)
-        .pb(20.0)
+        .px(if l.phone() { 16.0 } else { 24.0 })
+        .pt(if l.phone() { 12.0 } else { 48.0 })
+        .pb(20.0 + l.inset_bottom)
         .gap(16.0)
         .child(header)
-        .child(row().w_full().grow(1.0).min_h(0.0).gap(28.0).child(stage).child(side))
+        .child(content)
 }
 
 // Profiles
@@ -917,12 +1020,20 @@ fn page(s: &mut App) -> &mut ProfilesPage {
 pub fn profiles(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.profiles else { return col() };
-    let mut c = col().w_full().max_w(720.0).gap(14.0).px(24.0).py(28.0).child(text("Podcast profiles").font(theme::READ_TITLE).color(l.text)).child(
-        text("An episode profile sets the angle, length and voices of an episode. A speaker profile is the cast: who speaks and in which voice.")
-            .font(k.ty.ui)
-            .color(l.text2)
-            .wrap(),
-    );
+    let mut c = col()
+        .w_full()
+        .max_w(720.0)
+        .gap(14.0)
+        .px(l.pad())
+        .pt(l.pad_top())
+        .pb(l.pad_top() + l.inset_bottom)
+        .child(text("Podcast profiles").font(theme::READ_TITLE).color(l.text))
+        .child(
+            text("An episode profile sets the angle, length and voices of an episode. A speaker profile is the cast: who speaks and in which voice.")
+                .font(k.ty.ui)
+                .color(l.text2)
+                .wrap(),
+        );
     c = c.child(text("Episode profiles").font(theme::READ_HEADING).color(l.text));
     if let Some(d) = &p.episode {
         c = c.child(episode_editor(p, d, l, layer));
@@ -992,10 +1103,12 @@ fn profile_row(key: &str, name: &str, detail: &str, l: &Look, edit: impl Fn(&mut
         .child(
             IconButton::new(&icons::TRASH)
                 .variant(IconButtonVariant::GhostMuted)
-                .control_size(ControlSize::Small)
+                .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                 .label("Delete")
                 .on_press(delete)
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("delete"),
         );
     k.interactive(r).on_press(edit)
@@ -1015,12 +1128,30 @@ fn save_row(l: &Look, cancel: impl Fn(&mut App) + 'static, save: impl Fn(&mut Ap
         .w_full()
         .gap(8.0)
         .justify_end()
-        .child(Button::new("Cancel").variant(ButtonVariant::Ghost).on_press(cancel).build(k).key("cancel"))
-        .child(Button::new("Save").variant(ButtonVariant::Contrast).disabled(!can_save).on_press(save).build(k).key("save"))
+        .child(
+            Button::new("Cancel")
+                .variant(ButtonVariant::Ghost)
+                .on_press(cancel)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("cancel"),
+        )
+        .child(
+            Button::new("Save")
+                .variant(ButtonVariant::Contrast)
+                .disabled(!can_save)
+                .on_press(save)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("save"),
+        )
 }
 
 fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
+    let field_width = l.width.min(720.0) - 2.0 * l.pad() - 28.0;
     fn draft(s: &mut App) -> &mut EpisodeDraft {
         page(s).episode.as_mut().expect("editing an episode profile")
     }
@@ -1031,7 +1162,7 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
         .label("Voices")
         .placeholder("Speaker profile")
         .current(current)
-        .width(260.0)
+        .width(if l.phone() { field_width } else { 260.0 })
         .open(p.open_select == Some("ep-speakers"))
         .on_toggle(|s: &mut App| {
             let p = page(s);
@@ -1047,13 +1178,14 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
                 page(s).open_select = None;
             }
         })
-        .build(k, layer);
+        .build(k, layer)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
     let language_names: Vec<&str> = LANGUAGES.iter().map(|(_, n)| *n).collect();
     let language_now = language_name(d.language.as_deref());
     let language = Select::new("ep-language", &language_names)
         .label("Language")
         .current(Some(language_now.as_str()))
-        .width(200.0)
+        .width(if l.phone() { field_width } else { 200.0 })
         .open(p.open_select == Some("ep-language"))
         .on_toggle(|s: &mut App| {
             let p = page(s);
@@ -1066,7 +1198,8 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
             }
             page(s).open_select = None;
         })
-        .build(k, layer);
+        .build(k, layer)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
     let segments = row()
         .gap(6.0)
         .center_y()
@@ -1074,13 +1207,31 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
         .child(text(format!("{} segments", d.segments)).font(k.ty.ui).color(l.text))
         .child(small("+", "seg-up", l, |s| draft(s).segments = (draft(s).segments + 1).min(12)));
     editor_frame("episode-editor", l)
-        .child(field("Name", TextInput::new(&d.name).width(None).on_edit(|s: &mut App| &mut draft(s).name).build(k).key("ep-name"), l))
         .child(field(
-            "Description",
-            TextInput::new(&d.description).width(None).on_edit(|s: &mut App| &mut draft(s).description).build(k).key("ep-description"),
+            "Name",
+            TextInput::new(&d.name)
+                .width(None)
+                .on_edit(|s: &mut App| &mut draft(s).name)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("ep-name"),
             l,
         ))
-        .child(row().w_full().gap(12.0).center_y().child(speakers).child(language).child(segments))
+        .child(field(
+            "Description",
+            TextInput::new(&d.description)
+                .width(None)
+                .on_edit(|s: &mut App| &mut draft(s).description)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("ep-description"),
+            l,
+        ))
+        .child(if l.phone() {
+            col().w_full().gap(16.0).child(field("Speaker profile", speakers, l)).child(field("Language", language, l)).child(segments)
+        } else {
+            row().w_full().gap(12.0).center_y().child(speakers).child(language).child(segments)
+        })
         .child(field(
             "Briefing: the angle and style of the episode",
             TextArea::new(&d.briefing)
@@ -1103,6 +1254,7 @@ fn episode_editor(p: &ProfilesPage, d: &EpisodeDraft, l: &Look, layer: &mut Vec<
 
 fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
+    let field_width = l.width.min(720.0) - 2.0 * l.pad() - 28.0;
     fn draft(s: &mut App) -> &mut SpeakerDraft {
         page(s).speaker.as_mut().expect("editing a speaker profile")
     }
@@ -1116,12 +1268,23 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
     let mut c = editor_frame("speaker-editor", l)
         .child(field(
             "Name",
-            TextInput::new(&d.name).width(None).placeholder("Two analysts").on_edit(|s: &mut App| &mut draft(s).name).build(k).key("sp-name"),
+            TextInput::new(&d.name)
+                .width(None)
+                .placeholder("Two analysts")
+                .on_edit(|s: &mut App| &mut draft(s).name)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("sp-name"),
             l,
         ))
         .child(field(
             "Description",
-            TextInput::new(&d.description).width(None).on_edit(|s: &mut App| &mut draft(s).description).build(k).key("sp-description"),
+            TextInput::new(&d.description)
+                .width(None)
+                .on_edit(|s: &mut App| &mut draft(s).description)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("sp-description"),
             l,
         ));
     if local {
@@ -1129,7 +1292,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
         let kind = Select::new("sp-kind", &kinds)
             .label("Voice provider")
             .current(Some(kind_now.label()))
-            .width(220.0)
+            .width(if l.phone() { field_width } else { 220.0 })
             .open(p.open_select == Some("sp-kind"))
             .on_toggle(|s: &mut App| toggle(s, "sp-kind"))
             .on_close(|s: &mut App| page(s).open_select = None)
@@ -1139,9 +1302,16 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     s.set_voice_kind(v);
                 }
             })
-            .build(k, layer);
+            .build(k, layer)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
         let model = if p.voice_models.is_empty() {
-            TextInput::new(&d.voice_model).width(None).placeholder("Voice model").on_edit(|s: &mut App| &mut draft(s).voice_model).build(k).key("sp-model")
+            TextInput::new(&d.voice_model)
+                .width(None)
+                .placeholder("Voice model")
+                .on_edit(|s: &mut App| &mut draft(s).voice_model)
+                .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .key("sp-model")
         } else {
             let mut models = p.voice_models.clone();
             let current = d.voice_model.text.trim().to_owned();
@@ -1152,7 +1322,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                 .label("Voice model")
                 .current(Some(current.as_str()).filter(|c| !c.is_empty()))
                 .placeholder("Voice model")
-                .width(260.0)
+                .width(if l.phone() { field_width } else { 260.0 })
                 .open(p.open_select == Some("sp-model"))
                 .on_toggle(|s: &mut App| toggle(s, "sp-model"))
                 .on_close(|s: &mut App| page(s).open_select = None)
@@ -1161,12 +1331,13 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     page(s).open_select = None;
                 })
                 .build(k, layer)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
         };
-        c = c.child(row().w_full().gap(10.0).child(field("Voice provider", kind, l).w(220.0)).child(col().grow(1.0).min_w(0.0).child(field(
-            "Voice model",
-            model,
-            l,
-        ))));
+        c = c.child(if l.phone() {
+            col().w_full().gap(16.0).child(field("Voice provider", kind, l)).child(field("Voice model", model, l))
+        } else {
+            row().w_full().gap(10.0).child(field("Voice provider", kind, l).w(220.0)).child(col().grow(1.0).min_w(0.0).child(field("Voice model", model, l)))
+        });
         if kind_now == VoiceKind::OpenAiLive {
             c = c.child(
                 text("OpenAI Live records in real time, so episodes take about one and a half times their length to make")
@@ -1189,7 +1360,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
         let model = Select::new("sp-server-model", &names)
             .label("Voice model on the server")
             .current(Some(current.as_str()))
-            .width(320.0)
+            .width(if l.phone() { field_width } else { 320.0 })
             .open(p.open_select == Some("sp-server-model"))
             .on_toggle(|s: &mut App| toggle(s, "sp-server-model"))
             .on_close(|s: &mut App| page(s).open_select = None)
@@ -1201,7 +1372,8 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     page(s).open_select = None;
                 }
             })
-            .build(k, layer);
+            .build(k, layer)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 });
         c = c.child(field("Voice model on the server", model, l));
     }
     let voice_list: Option<&Vec<notebook_engine::podcast::voices::VoiceOption>> =
@@ -1222,6 +1394,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
             .label("Name")
             .on_edit(move |s: &mut App| &mut draft(s).speakers[i][0])
             .build(k)
+            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             .key(format!("sp-{i}-0"));
         let voice = match voice_list {
             Some(list) => {
@@ -1237,7 +1410,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     .label("Voice")
                     .placeholder("Choose a voice")
                     .current(current.as_deref())
-                    .width(220.0)
+                    .width(if l.phone() { field_width - 20.0 } else { 220.0 })
                     .open(p.open_voice == Some(i))
                     .on_toggle(move |s: &mut App| {
                         let p = page(s);
@@ -1252,6 +1425,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                         page(s).open_voice = None;
                     })
                     .build(k, layer)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
             }
             None => TextInput::new(&sp[1])
                 .width(None)
@@ -1259,18 +1433,25 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                 .label("Voice")
                 .on_edit(move |s: &mut App| &mut draft(s).speakers[i][1])
                 .build(k)
+                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key(format!("sp-{i}-1")),
         };
-        let mut top = row().w_full().gap(8.0).center_y().child(col().grow(1.0).min_w(0.0).child(name)).child(voice);
+        let mut top = if l.phone() {
+            col().w_full().gap(12.0).child(name).child(voice)
+        } else {
+            row().w_full().gap(8.0).center_y().child(col().grow(1.0).min_w(0.0).child(name)).child(voice)
+        };
         if local {
             let busy = p.previewing == Some(i);
             top = top.child(
                 Button::new(if busy { "Speaking…" } else { "Hear this voice" })
                     .variant(ButtonVariant::Ghost)
-                    .control_size(ControlSize::Small)
+                    .control_size(if l.phone() { ControlSize::ExtraLarge } else { ControlSize::Small })
                     .disabled(busy || sp[1].text.trim().is_empty())
                     .on_press(move |s: &mut App| s.preview_voice(i))
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                    .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key(format!("sp-{i}-preview")),
             );
         }
@@ -1283,6 +1464,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     .label("Background")
                     .on_edit(move |s: &mut App| &mut draft(s).speakers[i][2])
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key(format!("sp-{i}-2")),
             )
             .child(
@@ -1292,6 +1474,7 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
                     .label("Personality")
                     .on_edit(move |s: &mut App| &mut draft(s).speakers[i][3])
                     .build(k)
+                    .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                     .key(format!("sp-{i}-3")),
             );
         if let Some((_, e)) = p.preview_error.as_ref().filter(|(j, _)| *j == i) {
@@ -1309,4 +1492,37 @@ fn speaker_editor(s: &App, p: &ProfilesPage, d: &SpeakerDraft, l: &Look, layer: 
         c = c.child(row().child(small("Add speaker", "add-speaker", l, |s| draft(s).speakers.push(std::array::from_fn(|_| TextEdit::new(""))))));
     }
     c.child(save_row(l, |s| page(s).speaker = None, |s| s.save_speaker_profile(), d.can_save()))
+}
+
+#[cfg(test)]
+mod mobile_layout_tests {
+    use crate::state::App;
+    use rune::{Env, Runtime};
+
+    #[test]
+    fn profile_fields_fit_phone_and_keyboard_widths() {
+        for scene in ["profile-editor", "speaker-editor"] {
+            for (width, height) in [(393.0, 852.0), (466.0, 678.0), (393.0, 360.0)] {
+                let mut app = App::offline();
+                crate::scenes::SCENES.iter().find(|(name, _)| *name == scene).unwrap().1(&mut app);
+                // Test the form itself, with its optional popup closed.
+                let profiles = app.profiles.as_mut().unwrap();
+                profiles.open_select = None;
+                profiles.open_voice = None;
+                let mut rt = Runtime::new(app, crate::ui::view, (width, height), Env { system_dark: false, scale: 2.0 });
+                for i in 0..3 {
+                    rt.frame(i as f64 / 60.0);
+                }
+                let keys: &[&str] = if scene == "profile-editor" {
+                    &["ep-name", "ep-description", "ep-speakers-trigger", "ep-language-trigger"]
+                } else {
+                    &["sp-name", "sp-description", "sp-kind-trigger", "sp-model-trigger", "sp-0-0", "sp-voice-0-trigger"]
+                };
+                for key in keys {
+                    let [x, _, w, h] = rt.presented(key).unwrap_or_else(|| panic!("missing {scene} {key}")).0;
+                    assert!(x >= 0.0 && x + w <= width + 0.5 && w >= 160.0 && h >= 44.0, "{scene} {key}: x={x} w={w} h={h}, window={width}");
+                }
+            }
+        }
+    }
 }
