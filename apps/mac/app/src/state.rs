@@ -1551,18 +1551,29 @@ impl App {
         }
         let Some(draft) = o.note.take() else { return };
         let (title, content, ai) = (draft.title.text.trim().to_owned(), draft.content.text.clone(), o.note_ai);
-        let nb = o.id.clone();
+        let (note_id, base) = (draft.id.clone(), o.note_base.clone());
+        let (nb, from) = (o.id.clone(), o.id.clone());
         self.run(
             move |b| {
                 let title = (!title.is_empty()).then_some(title.as_str());
-                match &draft.id {
+                match &note_id {
                     Some(id) => b.update_note(id, title, Some(&content)),
                     None => b.create_note(&nb, title, &content, ai),
                 }
             },
-            |app, r| match r {
+            move |app, r| match r {
                 Ok(_) => app.refresh_notes(),
-                Err(e) => app.fail(e),
+                Err(e) => {
+                    // Back in the editor, unless another note was opened there since.
+                    if let Some(o) = app.open.as_mut().filter(|o| o.id == from && o.note.is_none()) {
+                        o.note = Some(draft);
+                        o.note_base = base;
+                        o.note_ai = ai;
+                        o.note_read = false;
+                        o.tab = NotebookTab::Notes;
+                    }
+                    app.fail(e);
+                }
             },
         );
     }
@@ -2186,5 +2197,37 @@ mod tests {
         app.delete_source(src.id.clone());
         settle(&mut app, |a| a.open.as_ref().unwrap().sources.is_empty());
         assert!(b.list_sources(&other.id).unwrap().iter().any(|s| s.id == src.id));
+    }
+
+    #[test]
+    fn a_note_that_fails_to_save_comes_back_to_the_editor() {
+        let dir = scratch();
+        let mut app = opened(&dir);
+        // A note the backend doesn't have, so the save fails as an unreachable server's would.
+        let note = Note { id: "note:missing".into(), title: Some("Plan".into()), content: Some("Body".into()), ..Default::default() };
+        app.open.as_mut().unwrap().edit_note(&note);
+        app.open.as_mut().unwrap().note.as_mut().unwrap().content = TextEdit::new("Body, edited");
+        app.save_note();
+        assert!(app.open.as_ref().unwrap().note.is_none(), "the editor closes while it saves");
+        settle(&mut app, |a| a.toast.is_some());
+        assert!(app.toast.is_some(), "the failure is shown");
+        let o = app.open.as_ref().unwrap();
+        let draft = o.note.as_ref().expect("the draft is back");
+        assert_eq!(draft.id.as_deref(), Some("note:missing"));
+        assert_eq!(draft.content.text, "Body, edited");
+        assert_eq!(o.tab, NotebookTab::Notes);
+        assert!(o.note_dirty(), "it still counts as unsaved");
+
+        // A new note that fails goes back too, still new.
+        let nb = o.id.clone();
+        app.open = None;
+        app.open_offline("notebook:gone");
+        app.open.as_mut().unwrap().new_note(String::new(), "Draft text".into(), false);
+        app.save_note();
+        settle(&mut app, |a| a.open.as_ref().unwrap().note.is_some());
+        let draft = app.open.as_ref().unwrap().note.as_ref().expect("the new draft is back");
+        assert!(draft.id.is_none());
+        assert_eq!(draft.content.text, "Draft text");
+        assert!(app.backend.clone().unwrap().list_notes(&nb).unwrap().is_empty());
     }
 }
