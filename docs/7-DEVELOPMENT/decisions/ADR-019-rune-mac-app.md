@@ -1,6 +1,6 @@
 # ADR-019: The on-device Mac app is drawn with Rune; iOS stays on Tauri
 
-- **Status**: Accepted
+- **Status**: Accepted; point 3 superseded by [ADR-020](ADR-020-rune-iphone-app.md)
 - **Date**: 2026-11
 - **Related**: [ADR-002](ADR-002-external-libraries.md), [ADR-011](ADR-011-design-token-system.md)
 
