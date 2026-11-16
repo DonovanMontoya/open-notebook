@@ -86,7 +86,14 @@ impl Provider for OpenAi {
 
     fn chat(&self, mut request: ChatRequest<'_>) -> Result<String> {
         let mut messages = vec![json!({ "role": "system", "content": request.system })];
-        messages.extend(request.messages.iter().map(|m| json!({ "role": m.role.as_str(), "content": m.content })));
+        messages.extend(request.messages.iter().map(|m| {
+            if m.images.is_empty() {
+                return json!({ "role": m.role.as_str(), "content": m.content });
+            }
+            let mut content = vec![json!({"type":"text", "text":m.content})];
+            content.extend(m.images.iter().map(|i| json!({"type":"image_url", "image_url":{"url":format!("data:{};base64,{}", i.mime, i.base64)}})));
+            json!({"role":m.role.as_str(), "content":content})
+        }));
         let body = json!({ "model": request.model, "stream": true, "messages": messages });
         let mut response = send(&self.http, self.kind, self.request("POST", "/chat/completions").json(&body), &request.cancel)?;
         let mut text = String::new();

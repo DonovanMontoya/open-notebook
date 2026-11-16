@@ -68,7 +68,18 @@ impl Provider for Anthropic {
 
     fn chat(&self, mut request: ChatRequest<'_>) -> Result<String> {
         let fallback = FALLBACK_MODELS.contains(&request.model.as_str());
-        let messages: Vec<Value> = request.messages.iter().map(|m| json!({ "role": m.role.as_str(), "content": m.content })).collect();
+        let messages: Vec<Value> = request
+            .messages
+            .iter()
+            .map(|m| {
+                if m.images.is_empty() {
+                    return json!({"role":m.role.as_str(), "content":m.content});
+                }
+                let mut content = vec![json!({"type":"text", "text":m.content})];
+                content.extend(m.images.iter().map(|i| json!({"type":"image", "source":{"type":"base64", "media_type":i.mime, "data":i.base64}})));
+                json!({"role":m.role.as_str(), "content":content})
+            })
+            .collect();
         let mut body = json!({
             "model": request.model,
             "max_tokens": request.max_tokens.unwrap_or(64_000),

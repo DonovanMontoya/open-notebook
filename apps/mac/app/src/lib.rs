@@ -4,6 +4,7 @@
 //! `cargo run -p open-notebook-mac` opens the window. Headless:
 //! `cargo run -p open-notebook-mac -- --snap notebook.png --scene notebook --size 1280x800`.
 
+mod configuration;
 mod format;
 #[cfg(target_os = "ios")]
 pub mod ios;
@@ -11,6 +12,8 @@ mod listen;
 mod live;
 mod nowplaying;
 mod pages;
+mod pdf;
+mod reading;
 mod scenes;
 mod server;
 mod state;
@@ -19,12 +22,14 @@ mod study;
 mod tests;
 mod theme;
 mod ui;
+mod visualization;
 
 use rune::{AppSpec, Chrome, KeyEvent, Tx};
 use state::App;
 
 fn poll(s: &mut App, now: f64, tx: &mut Tx) -> bool {
     let mut changed = s.drain();
+    changed |= reading::poll(s, tx);
     changed |= ui::poll_toast(s, tx, now);
     changed |= live::poll(s, tx);
     // Sources being read: check again every two seconds until they finish.

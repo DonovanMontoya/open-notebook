@@ -256,6 +256,9 @@ fn open_note(s: &mut App, notebook: Option<String>) {
 pub fn library(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let Some(p) = &s.library else { return col() };
+    if p.reading.is_some() || p.opening.is_some() || p.reader_error.is_some() {
+        return super::reader::view(s, p, l);
+    }
     let filter = TextInput::new(&p.filter)
         .width(None)
         .placeholder("Filter by title")
@@ -277,13 +280,36 @@ pub fn library(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
         list = list.child(text(if p.sources.is_empty() { "No sources yet" } else { "No titles match" }).font(k.ty.ui).color(l.text3));
     }
     for src in shown {
-        list = list.child(library_row(s, src, p.add_open.as_deref() == Some(src.id.as_str()), l, layer));
+        list = list.child(if p.managing {
+            material_management_row(s, src, p.add_open.as_deref() == Some(src.id.as_str()), l, layer)
+        } else {
+            library_row(s, src, false, l, layer)
+        });
     }
     page(
         "library",
-        "Library",
-        "Every source, in every notebook. A source can be in more than one notebook; removing it from one keeps it here.",
-        col().w_full().gap(14.0).child(filter).child(list),
+        if p.managing { "Manage materials" } else { "Library" },
+        if p.managing {
+            "Organize materials across notebooks. Open a notebook for findings, conversations and tools."
+        } else {
+            "Your materials, ready to read. Open a notebook when you want to explore them further."
+        },
+        col()
+            .w_full()
+            .gap(14.0)
+            .child(
+                Button::new(if p.managing { "Back to Library" } else { "Manage materials" })
+                    .variant(ButtonVariant::Ghost)
+                    .on_press(|s: &mut App| {
+                        if let Some(p) = s.library.as_mut() {
+                            p.managing = !p.managing;
+                        }
+                    })
+                    .build(k)
+                    .min_h(44.0),
+            )
+            .child(filter)
+            .child(list),
         l,
     )
 }
@@ -303,7 +329,39 @@ pub fn source_details(src: &SourceSummary) -> String {
     parts.join(", ")
 }
 
-fn library_row(s: &App, src: &SourceSummary, add_open: bool, l: &Look, layer: &mut Vec<El>) -> El {
+fn library_row(s: &App, src: &SourceSummary, _add_open: bool, l: &Look, _layer: &mut Vec<El>) -> El {
+    let id = src.id.clone();
+    let title = src.title.clone().unwrap_or_else(|| "Untitled source".into());
+    let notebooks = src.notebooks.iter().filter_map(|id| s.notebooks.iter().find(|n| &n.id == id).map(|n| n.name.as_str())).collect::<Vec<_>>().join(", ");
+    let mut info = col()
+        .grow(1.0)
+        .min_w(0.0)
+        .gap(6.0)
+        .child(text(title).font(theme::READ_HEADING).color(l.text).wrap())
+        .child(text(super::reader::metadata(src)).font(l.k.ty.small).color(l.text3));
+    if !notebooks.is_empty() {
+        info = info.child(text(notebooks).font(l.k.ty.small).color(l.text3).wrap());
+    }
+    l.k.interactive(
+        row()
+            .key(format!("lib-{}", src.id))
+            .w_full()
+            .py(18.0)
+            .px(12.0)
+            .gap(16.0)
+            .center_y()
+            .role("button")
+            .label("Read material")
+            .child(rune::icon(&icons::DOC, 22.0).color(l.text3))
+            .child(info)
+            .child(rune::icon(&rune_kit::glyphs::CARET_RIGHT, 16.0).color(l.text3))
+            .border(1.0, l.line)
+            .radius(8.0),
+    )
+    .on_press(move |s: &mut App| s.read_library_source(id.clone()))
+}
+
+fn material_management_row(s: &App, src: &SourceSummary, add_open: bool, l: &Look, layer: &mut Vec<El>) -> El {
     let k = &l.k;
     let title = src.title.clone().unwrap_or_else(|| "Untitled source".into());
     let (id, first) = (src.id.clone(), src.notebooks.first().cloned());

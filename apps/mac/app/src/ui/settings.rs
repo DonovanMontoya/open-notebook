@@ -17,24 +17,24 @@ fn form(s: &mut App) -> &mut SettingsForm {
 /// What each provider's key is good for.
 fn key_hint(kind: ProviderKind) -> &'static str {
     match kind {
-        ProviderKind::Anthropic => "Claude models for answers. Anthropic has no embeddings, so pair it with another provider for search.",
-        ProviderKind::OpenAi | ProviderKind::Gemini => "Answers and embeddings from one key.",
-        ProviderKind::OpenAiCompatible => "OpenRouter, Groq, or a model running on this Mac in LM Studio or Ollama. The key is optional for local servers.",
+        ProviderKind::Anthropic => "Questions, figures and insights. Add OpenAI or Gemini for search.",
+        ProviderKind::OpenAi | ProviderKind::Gemini => "Questions, figures, search and transcription.",
+        ProviderKind::OpenAiCompatible => "OpenRouter or a local model server. Local servers may not need a key.",
     }
 }
 
 fn role_label(role: &str) -> &'static str {
     match role {
-        "chat" => "Chat model",
-        "transformation" => "Transformation model",
-        "embedding" => "Embedding model",
-        _ => "Speech to text",
+        "chat" => "Questions and figures",
+        "transformation" => "Insights and study decks",
+        "embedding" => "Search",
+        _ => "Audio and video",
     }
 }
 
 fn role_help(role: &str) -> Option<&'static str> {
     match role {
-        "embedding" => Some("Without one, search matches words instead of meaning. Changing it re-indexes new sources only."),
+        "embedding" => Some("Finds related passages by meaning. Without one, search matches words."),
         "transformation" => Some("Writes insights and study decks. Leave empty to use the chat model."),
         "transcription" => Some("Turns audio and video sources into text. Up to 25 MB with OpenAI, 19 MB with Gemini."),
         _ => None,
@@ -42,102 +42,250 @@ fn role_help(role: &str) -> Option<&'static str> {
 }
 
 pub fn view(s: &App, l: &Look, layer: &mut Vec<El>) -> El {
+    use crate::configuration::SettingsTab;
     let k = &l.k;
     let Some(f) = &s.form else { return col() };
-    let local = s.settings.mode == Mode::Local;
-    let mode = super::pages::choices(
-        &[if cfg!(target_os = "ios") { "On this iPhone" } else { "On this Mac" }, if l.phone() { "Server" } else { "Open Notebook server" }],
-        Some(if local { 0 } else { 1 }),
-        "Where notebooks live",
-        l,
-        |s: &mut App, i, _: &mut Tx| {
-            s.settings.mode = if i == 0 { Mode::Local } else { Mode::Remote };
-            s.save_settings();
-        },
-    )
-    .key("mode");
-    let mut c = col()
-        .key("settings-body")
+    let tabs = if l.phone() { ["Connect", "Keys", "Models", "General"] } else { SettingsTab::ALL.map(SettingsTab::label) };
+    let navigation = super::pages::choices(&tabs, SettingsTab::ALL.iter().position(|t| *t == f.tab), "Settings sections", l, |s: &mut App, i, _: &mut Tx| {
+        form(s).tab = SettingsTab::ALL[i]
+    })
+    .key("settings-tabs");
+    let active = if s.settings.mode == Mode::Local { format!("Notebooks on {}", theme::THIS_DEVICE) } else { format!("Server: {}", s.settings.server_url) };
+    let header = col()
         .w_full()
-        .max_w(560.0)
-        .gap(if l.phone() { 32.0 } else { 18.0 })
+        .max_w(760.0)
         .px(l.pad())
         .pt(l.pad_top())
-        .pb(l.pad_top() + l.inset_bottom)
+        .pb(18.0)
+        .gap(10.0)
         .child(text("Settings").font(theme::READ_TITLE).color(l.text))
-        .child(
-            section("Notebooks", l).child(row().w_full().child(mode)).child(
-                text(if local {
-                    format!("Everything stays on {}. Questions go to the AI provider you pick, with your own key.", theme::THIS_DEVICE)
-                } else {
-                    "Notebooks live on your server, which can use local models.".to_owned()
-                })
-                .font(k.ty.ui)
-                .color(l.text2)
-                .wrap(),
-            ),
-        );
-    if local {
-        let mut models = section("Models", l).child(
-            text("Answers use the chat model. The embedding model indexes sources so questions find the right passages.")
-                .font(k.ty.small)
-                .color(l.text3)
-                .wrap(),
-        );
-        for role in crate::state::MODEL_ROLES {
-            models = models.child(model_row(f, role, l, layer));
-        }
-        models = models.child(rebuild_row(f, l)).child(
-            row()
-                .w_full()
-                .gap(10.0)
-                .center_y()
+        .child(text(active).font(k.ty.small).color(l.text2).wrap())
+        .child(navigation);
+    let mut body = col().w_full().max_w(760.0).px(l.pad()).pt(20.0).pb(40.0 + l.inset_bottom).gap(24.0);
+    let server_managed = s.settings.mode == Mode::Remote && matches!(f.tab, SettingsTab::Keys | SettingsTab::Models);
+    if server_managed {
+        body = body.child(
+            section("Managed by your server", l)
                 .child(
-                    Button::new("Save models")
-                        .variant(ButtonVariant::Contrast)
-                        .on_press(|s: &mut App| s.save_settings())
-                        .build(k)
-                        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-                        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-                        .key("save-settings"),
+                    text("Your server supplies the models and provider keys for its notebooks. Manage those settings on the Server page.")
+                        .font(k.ty.ui)
+                        .color(l.text2)
+                        .wrap(),
                 )
-                .child(text(if f.saved { "Saved" } else { "" }).font(k.ty.ui).color(l.text3)),
+                .child(
+                    row().child(
+                        Button::new("Open server settings")
+                            .variant(ButtonVariant::Contrast)
+                            .on_press(|s: &mut App| s.go(crate::state::Route::Server))
+                            .build(k)
+                            .min_h(44.0)
+                            .key("open-server-settings"),
+                    ),
+                ),
         );
-        c = c.child(models).child(podcasts(l));
-        let mut keys = section("API keys", l)
-            .child(
-                text("Keys are kept in a file only you can read, in this app's folder, and only sent to their provider. A saved key is never shown.")
+    }
+    match f.tab {
+        SettingsTab::Keys | SettingsTab::Models if server_managed => {}
+        SettingsTab::Connection => {
+            let mode = super::pages::choices(
+                &[if cfg!(target_os = "ios") { "On this iPhone" } else { "On this Mac" }, "Server"],
+                Some(if f.mode == Mode::Local { 0 } else { 1 }),
+                "Where notebooks live",
+                l,
+                |s: &mut App, i, _: &mut Tx| {
+                    let f = form(s);
+                    f.connection_edited();
+                    f.mode = if i == 0 { Mode::Local } else { Mode::Remote };
+                },
+            )
+            .key("mode");
+            body = body.child(
+                section("Where notebooks live", l)
+                    .child(text("Use notebooks stored on this device or connect to your own Open Notebook server.").font(k.ty.ui).color(l.text2).wrap())
+                    .child(mode),
+            );
+            if f.mode == Mode::Local {
+                body = body.child(
+                    section("On-device notebooks", l)
+                        .child(
+                            text("Materials and conversations are stored here. Questions go to the provider you choose, using your saved key.")
+                                .font(k.ty.ui)
+                                .color(l.text2)
+                                .wrap(),
+                        )
+                        .child(if s.settings.mode == Mode::Local {
+                            text("On-device mode is active").font(k.ty.ui_medium).color(l.ok)
+                        } else {
+                            Button::new(if cfg!(target_os = "ios") { "Use this iPhone" } else { "Use this Mac" })
+                                .variant(ButtonVariant::Contrast)
+                                .on_press(App::use_local_mode)
+                                .build(k)
+                                .min_h(44.0)
+                                .key("use-local")
+                        })
+                        .child(
+                            row()
+                                .w_full()
+                                .gap(8.0)
+                                .flex_wrap()
+                                .child(
+                                    Button::new("Manage API keys")
+                                        .on_press(|s: &mut App| form(s).tab = SettingsTab::Keys)
+                                        .build(k)
+                                        .min_h(44.0)
+                                        .key("settings-open-keys"),
+                                )
+                                .child(
+                                    Button::new("Choose models")
+                                        .on_press(|s: &mut App| form(s).tab = SettingsTab::Models)
+                                        .build(k)
+                                        .min_h(44.0)
+                                        .key("settings-open-models"),
+                                ),
+                        ),
+                );
+                body = body.child(save_feedback(f, l));
+            } else {
+                body = body.child(server_section(s, f, l));
+            }
+        }
+        SettingsTab::Keys => {
+            let saved = f.saved_keys.iter().filter(|n| n.starts_with("provider:")).count();
+            let busy = f.checks.values().any(|c| *c == Check::Checking);
+            body = body.child(
+                section("Provider access", l)
+                    .child(
+                        text(format!(
+                            "{saved} {} saved. Keys stay hidden; leave a field empty to keep its saved key.",
+                            if saved == 1 { "key" } else { "keys" }
+                        ))
+                        .font(k.ty.ui)
+                        .color(l.text2)
+                        .wrap(),
+                    )
+                    .child(
+                        text("Checks confirm access to the provider’s model list. Availability and billing can vary by model.")
+                            .font(k.ty.small)
+                            .color(l.text3)
+                            .wrap(),
+                    )
+                    .child(
+                        row().child(
+                            Button::new(if busy { "Checking keys…" } else { "Check saved keys" })
+                                .disabled(saved == 0 || busy)
+                                .on_press(App::check_saved_keys)
+                                .build(k)
+                                .min_h(44.0)
+                                .key("check-saved-keys"),
+                        ),
+                    ),
+            );
+            for (i, (kind, edit)) in f.keys.iter().enumerate() {
+                body = body.child(provider_key(s, f, i, *kind, edit, l));
+            }
+            body = body.child(elevenlabs_key(f, l));
+        }
+        SettingsTab::Models => {
+            let busy = f.recommendation == Some(Check::Checking);
+            let mut setup = col().w_full().padding(20.0).gap(12.0).radius(8.0).fill(l.raised)
+                .child(text("Recommended setup").font(theme::READ_HEADING).color(l.text))
+                .child(text("Choose balanced models for questions, figures, insights, search and transcription from providers with saved keys. This replaces and saves supported selections.").font(k.ty.ui).color(l.text2).wrap())
+                .child(row().w_full().gap(10.0).center_y().flex_wrap()
+                    .child(Button::new(if busy { "Choosing models…" } else { "Recommended models" }).variant(ButtonVariant::Contrast).disabled(busy).on_press(App::recommend_models).build(k).min_h(44.0).key("recommend-models"))
+                    .child(Button::new("Manage API keys").variant(ButtonVariant::Ghost).on_press(|s: &mut App| form(s).tab = SettingsTab::Keys).build(k).min_h(44.0)));
+            if let Some(check) = &f.recommendation {
+                setup = setup.child(operation_feedback(check, "Checking available models with your providers…", l).key("recommendation-feedback"));
+            }
+            body = body.child(setup);
+            let mut models = section("Models for each task", l).child(
+                text("Choose a provider and model, or type a model name. Figure questions need a model that accepts images.")
                     .font(k.ty.small)
                     .color(l.text3)
                     .wrap(),
-            )
-            .child(sync_row(s, f, l));
-        for (i, (kind, edit)) in f.keys.iter().enumerate() {
-            keys = keys.child(provider_key(s, f, i, *kind, edit, l));
-        }
-        c = c.child(keys.child(elevenlabs_key(f, l)));
-    } else {
-        c = c.child(server_section(s, f, l)).child(podcasts(l));
-    }
-    let appearance = ["system", "light", "dark"];
-    c = c.child(
-        section("Appearance", l).child(
-            row().w_full().child(
-                super::pages::choices(
-                    &["System", "Light", "Dark"],
-                    appearance.iter().position(|a| *a == s.settings.appearance),
-                    "Appearance",
-                    l,
-                    move |s: &mut App, i, _: &mut Tx| {
-                        s.settings.appearance = appearance[i].into();
-                        s.save_settings();
-                    },
+            );
+            for role in crate::state::MODEL_ROLES {
+                models = models.child(model_row(f, role, l, layer));
+            }
+            body = body
+                .child(models)
+                .child(
+                    row().child(
+                        Button::new("Save changes")
+                            .variant(ButtonVariant::Contrast)
+                            .disabled(busy)
+                            .on_press(App::save_settings)
+                            .build(k)
+                            .min_h(44.0)
+                            .key("save-settings"),
+                    ),
                 )
-                .key("appearance"),
-            ),
-        ),
-    );
-    col().key("settings").w_full().items_center().child(c).scroll(ScrollSpec { stick_bottom: false }).grow(1.0).min_h(0.0)
+                .child(save_feedback(f, l))
+                .child(super::notebook::rule(l))
+                .child(
+                    section("Search index", l)
+                        .child(
+                            text("Changing an embedding model affects new materials. Rebuild to bring existing materials onto the same model.")
+                                .font(k.ty.small)
+                                .color(l.text3)
+                                .wrap(),
+                        )
+                        .child(rebuild_row(f, l)),
+                );
+        }
+        SettingsTab::Preferences => {
+            let appearance = ["system", "light", "dark"];
+            body = body
+                .child(
+                    section("Appearance", l).child(
+                        super::pages::choices(
+                            &["System", "Light", "Dark"],
+                            appearance.iter().position(|a| *a == s.settings.appearance),
+                            "Appearance",
+                            l,
+                            move |s: &mut App, i, _: &mut Tx| {
+                                s.settings.appearance = appearance[i].into();
+                                s.save_settings();
+                            },
+                        )
+                        .key("appearance"),
+                    ),
+                )
+                .child(save_feedback(f, l))
+                .child(
+                    section("Key storage", l)
+                        .child(text("Keys are stored privately on this device and sent only to their provider.").font(k.ty.small).color(l.text3).wrap())
+                        .child(sync_row(s, f, l)),
+                )
+                .child(podcasts(l));
+        }
+    }
+    col().key("settings").w_full().h_full().min_h(0.0).items_center().child(header).child(super::notebook::rule(l)).child(
+        col()
+            .key(format!("settings-scroll-{}", f.tab.label()))
+            .w_full()
+            .grow(1.0)
+            .min_h(0.0)
+            .items_center()
+            .child(body)
+            .scroll(ScrollSpec { stick_bottom: false }),
+    )
+}
+
+fn operation_feedback(check: &Check, progress: &str, l: &Look) -> El {
+    match check {
+        Check::Checking => row()
+            .w_full()
+            .gap(8.0)
+            .center_y()
+            .child(Spinner::new().size(16.0).build(&l.k))
+            .child(text(progress.to_owned()).font(l.k.ty.small).color(l.text2).wrap().min_w(0.0).grow(1.0)),
+        Check::Working(message) => text(message.clone()).font(l.k.ty.small_medium).color(l.ok).wrap(),
+        Check::Failed(error) => text(error.clone()).font(l.k.ty.small).color(l.danger).wrap(),
+    }
+}
+
+fn save_feedback(f: &SettingsForm, l: &Look) -> El {
+    f.save.as_ref().map(|c| operation_feedback(c, "Saving changes…", l).key("settings-save-feedback")).unwrap_or_else(el)
 }
 
 fn section(title: &str, l: &Look) -> El {
@@ -150,13 +298,13 @@ fn field_row(label: &str, field: El, l: &Look) -> El {
 
 /// A check's status: a spinner, "Working, …" or "Not working".
 fn status(check: Option<&Check>, saved: bool, l: &Look) -> El {
-    let k = &l.k;
     match check {
-        Some(Check::Checking) => Spinner::new().size(14.0).build(k),
-        Some(Check::Working(what)) => text(what.clone()).font(k.ty.small).color(l.text2),
-        Some(Check::Failed(_)) => text("Not working").font(k.ty.small).color(l.danger),
-        None if saved => text("Key saved").font(k.ty.small).color(l.text2),
-        None => el(),
+        Some(Check::Checking) => {
+            row().gap(6.0).center_y().child(Spinner::new().size(14.0).build(&l.k)).child(text("Checking…").font(l.k.ty.small).color(l.text2))
+        }
+        Some(Check::Working(message)) => text(message.clone()).font(l.k.ty.small_medium).color(l.ok).wrap(),
+        Some(Check::Failed(_)) => text(if saved { "Saved · check failed" } else { "Connection failed" }).font(l.k.ty.small_medium).color(l.danger),
+        None => text(if saved { "Saved · not checked" } else { "Not added" }).font(l.k.ty.small).color(l.text3),
     }
 }
 
@@ -225,7 +373,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
         choices.push(kind);
     }
     if choices.is_empty() {
-        return field_row(label, text("Save an API key below first").font(k.ty.small).color(l.text3), l);
+        return field_row(label, text("Add an API key on the API keys tab first").font(k.ty.small).color(l.text3), l);
     }
     if !choices.contains(&kind) {
         kind = choices[0];
@@ -245,6 +393,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
             let f = form(s);
             f.open_select = None;
             if let Some(p) = ProviderKind::ALL.into_iter().find(|p| p.label() == name) {
+                f.edited();
                 f.choose_provider(role, p);
                 if !matches!(f.models.get(&p), Some(ModelList::Ready(_))) {
                     s.load_models(p, false);
@@ -286,6 +435,7 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
             .empty_message("No models; type a name")
             .width(if l.phone() { (l.width - 2.0 * l.pad()).max(200.0) } else { 320.0 })
             .on_choose(move |s: &mut App, id: &str, _: &mut Tx| {
+                form(s).edited();
                 *form(s).slot(role).1 = rune::TextEdit::new(id);
                 s.save_settings();
             })
@@ -299,8 +449,8 @@ fn model_row(f: &SettingsForm, role: &'static str, l: &Look, layer: &mut Vec<El>
         row().w_full().gap(8.0).center_y().child(select).child(col().grow(1.0).min_w(0.0).child(picker))
     };
     let mut c = field_row(label, pair, l);
-    if let Some(ModelList::Failed(e)) = list {
-        c = c.child(text(format!("Could not list models: {e}")).font(k.ty.small).color(l.danger).wrap());
+    if let Some(ModelList::Failed(_)) = list {
+        c = c.child(text("Couldn’t load models. Check this provider on the API keys tab, or type a model name.").font(k.ty.small).color(l.danger).wrap());
     } else if let Some(help) = role_help(role) {
         c = c.child(text(help).font(k.ty.small).color(l.text3).wrap());
     }
@@ -347,6 +497,7 @@ fn model_sheet(
                 )
                 .child(rune::icon(&rune_kit::glyphs::CHECK, 18.0).color(l.amber).opacity(if option.id == current { 1.0 } else { 0.0 }));
             list = list.child(l.k.interactive(item).on_press_tx(move |s: &mut App, tx: &mut Tx| {
+                form(s).edited();
                 *form(s).slot(role).1 = rune::TextEdit::new(id.clone());
                 form(s).pickers.entry(role).or_default().close();
                 tx.blur();
@@ -431,7 +582,7 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
         .w_full()
         .gap(8.0)
         .padding(14.0)
-        .radius(12.0)
+        .radius(8.0)
         .border(1.0, l.line)
         .child(row().w_full().justify_between().center_y().child(text(kind.label()).font(k.ty.ui_medium).color(l.text)).child(status(check, saved, l)));
     if kind == ProviderKind::OpenAiCompatible {
@@ -441,6 +592,11 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
                 .label("Base URL")
                 .placeholder("https://openrouter.ai/api/v1")
                 .on_edit(|s: &mut App| &mut form(s).compatible_base_url)
+                .on_change(|s: &mut App, _: &mut Tx| {
+                    let f = form(s);
+                    f.edited();
+                    f.invalidate_check(ProviderKind::OpenAiCompatible.as_str());
+                })
                 .build(k)
                 .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
                 .key("compatible-url"),
@@ -451,9 +607,14 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
             TextInput::new(edit)
                 .label(format!("{} API key", kind.label()))
                 .width(None)
-                .placeholder(if saved { "Saved. Paste a new key to replace it" } else { "Paste API key" })
+                .placeholder(if saved { "Replace saved key" } else { "Paste API key" })
                 .secure()
                 .on_edit(move |s: &mut App| &mut form(s).keys[i].1)
+                .on_change(move |s: &mut App, _: &mut Tx| {
+                    let f = form(s);
+                    f.edited();
+                    f.invalidate_check(kind.as_str());
+                })
                 .on_submit(move |s: &mut App, _: &mut Tx| s.save_and_check_key(kind))
                 .build(k)
                 .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
@@ -461,16 +622,25 @@ fn provider_key(s: &App, f: &SettingsForm, i: usize, kind: ProviderKind, edit: &
         ),
     );
     field = field.child(
-        Button::new(if pasted || url_changed { "Save" } else { "Check" })
-            .disabled(!(pasted || url_changed || saved || kind == ProviderKind::OpenAiCompatible) || check == Some(&Check::Checking))
-            .on_press(move |s: &mut App| s.save_and_check_key(kind))
-            .build(k)
-            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-            .key(format!("check-{}", kind.as_str())),
+        Button::new(if check == Some(&Check::Checking) {
+            "Checking…"
+        } else if pasted || url_changed {
+            "Save & check"
+        } else {
+            "Check key"
+        })
+        .disabled(!(pasted || url_changed || saved || kind == ProviderKind::OpenAiCompatible) || check == Some(&Check::Checking))
+        .on_press(move |s: &mut App| s.save_and_check_key(kind))
+        .build(k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .key(format!("check-{}", kind.as_str())),
     );
     if saved {
         field = field.child(remove_button(engine_settings::provider_secret(kind.as_str()), l));
+    }
+    if pasted {
+        c = c.child(text("New key not saved yet").font(k.ty.small).color(l.text2));
     }
     c = c.child(field).child(text(key_hint(kind)).font(k.ty.small).color(l.text3).wrap());
     if let Some(e) = error_of(check) {
@@ -502,9 +672,14 @@ fn elevenlabs_key(f: &SettingsForm, l: &Look) -> El {
             TextInput::new(&f.elevenlabs)
                 .label("ElevenLabs API key")
                 .width(None)
-                .placeholder(if saved { "Saved. Paste a new key to replace it" } else { "Paste API key" })
+                .placeholder(if saved { "Replace saved key" } else { "Paste API key" })
                 .secure()
                 .on_edit(|s: &mut App| &mut form(s).elevenlabs)
+                .on_change(|s: &mut App, _: &mut Tx| {
+                    let f = form(s);
+                    f.edited();
+                    f.invalidate_check("elevenlabs");
+                })
                 .on_submit(|s: &mut App, _: &mut Tx| s.save_and_check_elevenlabs())
                 .build(k)
                 .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
@@ -512,13 +687,19 @@ fn elevenlabs_key(f: &SettingsForm, l: &Look) -> El {
         ),
     );
     field = field.child(
-        Button::new(if pasted { "Save" } else { "Check" })
-            .disabled(!(pasted || saved) || check == Some(&Check::Checking))
-            .on_press(|s: &mut App| s.save_and_check_elevenlabs())
-            .build(k)
-            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-            .key("check-elevenlabs"),
+        Button::new(if check == Some(&Check::Checking) {
+            "Checking…"
+        } else if pasted {
+            "Save & check"
+        } else {
+            "Check key"
+        })
+        .disabled(!(pasted || saved) || check == Some(&Check::Checking))
+        .on_press(|s: &mut App| s.save_and_check_elevenlabs())
+        .build(k)
+        .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+        .key("check-elevenlabs"),
     );
     if saved {
         field = field.child(remove_button(name, l));
@@ -528,7 +709,7 @@ fn elevenlabs_key(f: &SettingsForm, l: &Look) -> El {
         .w_full()
         .gap(8.0)
         .padding(14.0)
-        .radius(12.0)
+        .radius(8.0)
         .border(1.0, l.line)
         .child(row().w_full().justify_between().center_y().child(text("ElevenLabs").font(k.ty.ui_medium).color(l.text)).child(status(check, saved, l)))
         .child(field)
@@ -543,69 +724,70 @@ fn server_section(s: &App, f: &SettingsForm, l: &Look) -> El {
     let k = &l.k;
     let has_password = f.has_key(engine_settings::SERVER_PASSWORD);
     let check = f.checks.get("server");
-    let mut actions = row().w_full().gap(8.0).center_y().child(
-        Button::new("Save and connect")
+    let busy = check == Some(&Check::Checking);
+    let mut c = section("Connect to a server", l)
+        .child(
+            text("Enter the address you use to open Open Notebook. Your current notebooks stay active until the connection succeeds.")
+                .font(k.ty.ui)
+                .color(l.text2)
+                .wrap(),
+        )
+        .child(field_row(
+            "Server address",
+            TextInput::new(&f.server_url)
+                .width(None)
+                .placeholder("https://notebook.example.ts.net:8502")
+                .on_edit(|s: &mut App| &mut form(s).server_url)
+                .on_change(|s: &mut App, _: &mut Tx| form(s).connection_edited())
+                .on_submit(|s: &mut App, _: &mut Tx| s.save_and_test_server())
+                .build(k)
+                .min_h(44.0)
+                .key("server-url"),
+            l,
+        ))
+        .child(field_row(
+            "Server password",
+            TextInput::new(&f.server_password)
+                .width(None)
+                .secure()
+                .placeholder(if has_password { "Password saved. Leave empty to keep it" } else { "Only if your server requires one" })
+                .on_edit(|s: &mut App| &mut form(s).server_password)
+                .on_change(|s: &mut App, _: &mut Tx| form(s).connection_edited())
+                .on_submit(|s: &mut App, _: &mut Tx| s.save_and_test_server())
+                .build(k)
+                .min_h(44.0)
+                .key("server-password"),
+            l,
+        ));
+    if has_password {
+        c = c.child(text("Password saved on this device").font(k.ty.small).color(l.text2));
+    }
+    let mut actions = row().w_full().gap(8.0).center_y().flex_wrap().child(
+        Button::new(if busy { "Connecting…" } else { "Save and connect" })
             .variant(ButtonVariant::Contrast)
-            .disabled(f.server_url.text.trim().is_empty() || check == Some(&Check::Checking))
-            .on_press(|s: &mut App| s.save_and_test_server())
+            .disabled(f.server_url.text.trim().is_empty() || busy)
+            .on_press(App::save_and_test_server)
             .build(k)
-            .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-            .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+            .min_h(44.0)
             .key("save-connect"),
     );
     if has_password {
         actions = actions.child(
             Button::new("Forget password")
                 .variant(ButtonVariant::Ghost)
-                .on_press(|s: &mut App| s.forget_server_password())
+                .disabled(busy)
+                .on_press(App::forget_server_password)
                 .build(k)
-                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-                .min_w(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
+                .min_h(44.0)
                 .key("forget-password"),
         );
     }
-    actions = actions.child(el().grow(1.0));
-    match check {
-        Some(Check::Checking) => actions = actions.child(Spinner::new().size(14.0).build(k)),
-        Some(Check::Working(what)) => actions = actions.child(text(what.clone()).font(k.ty.small).color(l.text2)),
-        _ => {}
+    c = c.child(actions);
+    if let Some(check) = check {
+        c = c.child(operation_feedback(check, "Connecting and checking access to your notebooks…", l).key("server-feedback"));
     }
-    let mut c = section("Server", l)
-        .child(text("The address you open Open Notebook at, for example its Tailscale address.").font(k.ty.small).color(l.text3).wrap())
-        .child(field_row(
-            "Address",
-            TextInput::new(&f.server_url)
-                .width(None)
-                .placeholder("https://notebook.example.ts.net:8502")
-                .on_edit(|s: &mut App| &mut form(s).server_url)
-                .build(k)
-                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-                .key("server-url"),
-            l,
-        ))
-        .child(field_row(
-            "Password",
-            TextInput::new(&f.server_password)
-                .width(None)
-                .secure()
-                .placeholder(if has_password {
-                    if cfg!(target_os = "ios") { "Saved on this iPhone" } else { "Saved on this Mac" }
-                } else {
-                    "Only if the server has one"
-                })
-                .on_edit(|s: &mut App| &mut form(s).server_password)
-                .on_submit(|s: &mut App, _: &mut Tx| s.save_and_test_server())
-                .build(k)
-                .min_h(if l.size != theme::Size::Desk { 44.0 } else { 0.0 })
-                .key("server-password"),
-            l,
-        ))
-        .child(actions);
-    if let Some(e) = error_of(check) {
-        c = c.child(text(e.to_owned()).font(k.ty.small).color(l.danger).wrap());
-    }
-    if let Some(e) = &s.backend_error {
-        c = c.child(text(e.clone()).font(k.ty.small).color(l.danger).wrap());
+    if s.settings.mode == Mode::Remote && matches!(check, Some(Check::Working(_))) {
+        c = c.child(text("Models and provider keys for server notebooks are managed on the Server page.").font(k.ty.small).color(l.text3).wrap());
     }
     c
 }

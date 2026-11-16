@@ -100,17 +100,24 @@ impl Role {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatImage {
+    pub mime: String,
+    pub base64: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChatTurn {
+    pub images: Vec<ChatImage>,
     pub role: Role,
     pub content: String,
 }
 
 impl ChatTurn {
     pub fn user(content: impl Into<String>) -> Self {
-        ChatTurn { role: Role::User, content: content.into() }
+        ChatTurn { images: Vec::new(), role: Role::User, content: content.into() }
     }
     pub fn assistant(content: impl Into<String>) -> Self {
-        ChatTurn { role: Role::Assistant, content: content.into() }
+        ChatTurn { images: Vec::new(), role: Role::Assistant, content: content.into() }
     }
 }
 

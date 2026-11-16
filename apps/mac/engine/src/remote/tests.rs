@@ -295,6 +295,7 @@ fn source_chat_streams_server_sent_events() {
     let mut on_text = |t: &str| chunks.push(t.to_string());
     let out = backend(&f, None)
         .send_source_chat_message(SendSourceChat {
+            images: Vec::new(),
             source_id: "source:1".into(),
             session_id: Some("s1".into()),
             message: "q".into(),
@@ -313,6 +314,7 @@ fn source_chat_error_events_become_errors() {
     let f = fake(|_| Ok(Response::new(200, "data: {\"type\":\"error\",\"message\":\"No model\"}\n\n")));
     let err = backend(&f, None)
         .send_source_chat_message(SendSourceChat {
+            images: Vec::new(),
             source_id: "s".into(),
             session_id: Some("x".into()),
             message: "q".into(),

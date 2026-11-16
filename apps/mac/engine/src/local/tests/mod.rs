@@ -216,7 +216,15 @@ pub fn chat<'a>(notebook_id: &str, message: &str) -> SendChat<'a> {
 }
 
 pub fn source_chat<'a>(source_id: &str, message: &str) -> SendSourceChat<'a> {
-    SendSourceChat { source_id: source_id.into(), session_id: None, message: message.into(), model_override: None, on_text: None, cancel: Cancel::new() }
+    SendSourceChat {
+        images: Vec::new(),
+        source_id: source_id.into(),
+        session_id: None,
+        message: message.into(),
+        model_override: None,
+        on_text: None,
+        cancel: Cancel::new(),
+    }
 }
 
 pub fn count(env: &Env, table: &str) -> i64 {

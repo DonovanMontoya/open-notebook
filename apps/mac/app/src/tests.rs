@@ -16,8 +16,11 @@ use crate::state::{App, Route};
 
 /// An Anthropic stream that answers with a citation of the source.
 fn fake_anthropic(req: Request) -> Result<Response, Transport> {
+    fake_anthropic_reply(req, &["Spindles help ", "memory [Spindle notes]."])
+}
+
+fn fake_anthropic_reply(req: Request, chunks: &[&str]) -> Result<Response, Transport> {
     assert!(req.url.contains("anthropic.com"), "unexpected request to {}", req.url);
-    let chunks = ["Spindles help ", "memory [Spindle notes]."];
     let mut body = String::from("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\n");
     for c in chunks {
         body += &format!(
@@ -361,4 +364,149 @@ fn a_notebook_left_while_loading_does_not_open_its_chat_in_the_next() {
     assert_eq!(o.id, b);
     assert!(o.session.is_none() && o.sessions.is_empty(), "{:?}", o.session.as_ref().map(|s| &s.session));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn library_reader_keeps_materials_separate_from_the_workspace() {
+    for (width, height) in [(393.0, 852.0), (951.0, 669.0), (1280.0, 800.0)] {
+        let mut app = App::offline();
+        crate::scenes::SCENES.iter().find(|(name, _)| *name == "library-reader").unwrap().1(&mut app);
+        let mut rt = Runtime::new(app, crate::ui::view, (width, height), Env::new(false, 1.0));
+        for frame in 0..3 {
+            rt.frame(frame as f64 / 60.0);
+        }
+        assert!(rt.find("library-reader").is_some());
+        assert!(rt.find("insights").is_none());
+        assert!(rt.find("draft").is_none());
+        for key in ["reader-back", "reader-find", "reader-workspace"] {
+            let [x, y, w, h] = rt.presented(key).expect(key).0;
+            assert!(x >= 0.0 && x + w <= width + 0.5 && y >= 0.0 && y + h <= height + 0.5, "{key} at {width}: {x} {y} {w} {h}");
+        }
+        let (x, y) = rt.find("reader-back").unwrap();
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0);
+        assert!(rt.find("library-filter").is_some());
+        assert!(rt.state.library.as_ref().unwrap().reading.is_none());
+        assert!(matches!(rt.state.route, Route::Library));
+    }
+}
+
+#[test]
+fn reader_questions_send_selected_context_and_image_then_reload_the_conversation() {
+    let dir = std::env::temp_dir().join(format!("on-reader-chat-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    AppSettings { chat: Some(ModelSetting { provider: "anthropic".into(), model: "vision-test".into() }), ..Default::default() }.save(&dir).unwrap();
+    Secrets::new(&dir).set(&provider_secret("anthropic"), "sk-test").unwrap();
+    let sent = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let captured = sent.clone();
+    let http = move |req: Request| {
+        captured.lock().unwrap().push(serde_json::from_slice(req.body.as_ref().unwrap()).unwrap());
+        fake_anthropic_reply(req, &["Here is the figure.\n```html\n<html><button>Play</button></html>\n```"])
+    };
+    let backend: Arc<dyn Backend> = Arc::new(LocalBackend::open_with(&dir, LocalOptions { http: Some(Arc::new(http)), ..Default::default() }).unwrap());
+    let nb = backend.create_notebook("Paper", "").unwrap();
+    let source = backend
+        .add_source(
+            &nb.id,
+            notebook_engine::types::NewSource {
+                input: notebook_engine::types::SourceInput::Text { content: "The paper's findings.".into(), title: Some("Paper".into()) },
+                transformations: Vec::new(),
+            },
+        )
+        .unwrap();
+    let mut app = App::with_backend(dir.clone(), backend.clone());
+    wait(&mut app, "source processing", |_| backend.get_source(&source.id).unwrap().summary.status.as_deref() == Some("completed"));
+    app.go(Route::Library);
+    app.read_library_source(source.id.clone());
+    wait(&mut app, "the reading conversation", |a| a.library.as_ref().is_some_and(|p| p.reading.is_some() && !p.chat.loading));
+    let chat = &mut app.library.as_mut().unwrap().chat;
+    chat.context = Some(crate::reading::ReadingContext {
+        kind: "figure".into(),
+        label: "Figure 2".into(),
+        page: 7,
+        text: "Association maps".into(),
+        png: Some("cGFnZQ==".into()),
+        references: vec![crate::reading::ReadingReference { page: 6, text: "The paragraph discussing Figure 2.".into() }],
+    });
+    chat.draft = TextEdit::new("What do the axes mean?");
+    app.send_reading_question();
+    assert_eq!(app.library.as_ref().unwrap().chat.pending.as_ref().unwrap().0, "What do the axes mean?");
+    wait(&mut app, "the reading answer", |a| a.library.as_ref().unwrap().chat.sending.is_none());
+    let chat = &app.library.as_ref().unwrap().chat;
+    assert!(chat.error.is_none(), "{:?}", chat.error);
+    assert!(chat.pending.is_none());
+    let session_id = chat.session.as_ref().unwrap().session.id.clone();
+    assert!(chat.showing_visualization);
+    assert_eq!(chat.visualization.as_ref().unwrap().document.html, "<html><button>Play</button></html>");
+    let requests = sent.lock().unwrap();
+    let blocks = requests.last().unwrap()["messages"].as_array().unwrap().last().unwrap()["content"].as_array().unwrap();
+    assert!(blocks.iter().any(|b| b["type"] == "image" && b["source"]["data"] == "cGFnZQ=="));
+    let question = blocks.iter().find(|b| b["type"] == "text").unwrap()["text"].as_str().unwrap();
+    for part in ["What do the axes mean?", "PDF page 7", "Association maps", "The paragraph discussing Figure 2."] {
+        assert!(question.contains(part), "{part}");
+    }
+    drop(requests);
+    app.read_library_source(source.id.clone());
+    wait(&mut app, "the saved reading conversation", |a| a.library.as_ref().is_some_and(|p| p.reading.is_some() && !p.chat.loading));
+    let session = app.library.as_ref().unwrap().chat.session.as_ref().unwrap();
+    assert_eq!(session.session.id, session_id);
+    assert_eq!(session.messages.len(), 2);
+    assert!(app.library.as_ref().unwrap().chat.visualization.is_some(), "the saved visualization can be opened again");
+    assert!(!app.library.as_ref().unwrap().chat.showing_visualization, "reopening starts with the original material");
+    assert!(matches!(app.route, Route::Library));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn settings_sections_and_actions_fit_compact_and_desktop_windows() {
+    for (width, height) in [(393.0, 852.0), (951.0, 669.0), (1280.0, 800.0)] {
+        for scene in ["settings", "settings-keys", "settings-models", "settings-server"] {
+            let mut app = App::offline();
+            crate::scenes::SCENES.iter().find(|(name, _)| *name == scene).unwrap().1(&mut app);
+            let mut rt = Runtime::new(app, crate::ui::view, (width, height), Env::new(false, 1.0));
+            for frame in 0..3 {
+                rt.frame(frame as f64 / 60.0);
+            }
+            for key in ["settings-tabs", "recommend-models", "save-settings", "check-saved-keys", "check-openai", "check-anthropic", "save-connect"] {
+                if let Some((rect, _)) = rt.presented(key) {
+                    let [x, _, w, _] = rect;
+                    assert!(x >= -0.5 && x + w <= width + 0.5, "{scene} {width} {key}: {rect:?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn settings_connection_shortcuts_open_the_relevant_section() {
+    let mut app = App::offline();
+    crate::scenes::SCENES.iter().find(|(name, _)| *name == "settings").unwrap().1(&mut app);
+    let mut rt = Runtime::new(app, crate::ui::view, (1280.0, 800.0), Env::new(false, 1.0));
+    rt.frame(0.0);
+    let (x, y) = rt.find("settings-open-models").unwrap();
+    rt.pointer_down(x, y);
+    rt.pointer_up(x, y);
+    rt.frame(0.1);
+    assert!(rt.find("recommend-models").is_some());
+    assert_eq!(rt.state.form.as_ref().unwrap().tab, crate::configuration::SettingsTab::Models);
+}
+
+#[test]
+fn rendering_settings_keeps_in_flight_checks_alive() {
+    for scene in ["settings-keys", "settings-server"] {
+        let mut app = App::offline();
+        crate::scenes::SCENES.iter().find(|(name, _)| *name == scene).unwrap().1(&mut app);
+        let form = app.form.as_mut().unwrap();
+        let operation = if scene == "settings-keys" { "openai" } else { "server" };
+        let ticket = form.begin(operation);
+        form.checks.insert(operation.into(), crate::state::Check::Checking);
+        let mut rt = Runtime::new(app, crate::ui::view, (1280.0, 800.0), Env::new(false, 1.0));
+        for frame in 0..3 {
+            rt.frame(frame as f64 / 60.0);
+        }
+        let form = rt.state.form.as_ref().unwrap();
+        assert!(form.owns(operation, &ticket));
+        assert_eq!(form.checks.get(operation), Some(&crate::state::Check::Checking));
+    }
 }

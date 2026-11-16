@@ -77,7 +77,11 @@ impl Provider for Gemini {
         let contents: Vec<Value> = request
             .messages
             .iter()
-            .map(|m| json!({ "role": if m.role == Role::Assistant { "model" } else { "user" }, "parts": [{ "text": m.content }] }))
+            .map(|m| {
+                let mut parts = vec![json!({"text":m.content})];
+                parts.extend(m.images.iter().map(|i| json!({"inlineData":{"mimeType":i.mime,"data":i.base64}})));
+                json!({"role":if m.role == Role::Assistant { "model" } else { "user" },"parts":parts})
+            })
             .collect();
         let mut body = json!({ "systemInstruction": { "parts": [{ "text": request.system }] }, "contents": contents });
         if let Some(max) = request.max_tokens {

@@ -20,6 +20,9 @@ pub const SCENES: &[Scene] = &[
     ("settings", settings),
     ("ask", ask),
     ("library", library),
+    ("library-reader", library_reader),
+    ("library-formatted", library_formatted),
+    ("library-manage", library_manage),
     ("transformations", transformations),
     ("usage", usage),
     ("study", study),
@@ -37,6 +40,7 @@ pub const SCENES: &[Scene] = &[
     ("speaker-editor", speaker_editor),
     ("settings-keys", settings_keys),
     ("settings-picker", settings_picker),
+    ("settings-models", settings_models),
     ("settings-server", settings_server),
     ("usage-price", usage_price),
     ("transformations-try", transformations_try),
@@ -565,6 +569,7 @@ fn settings_keys(s: &mut App) {
     use notebook_engine::providers::{Capability, ModelInfo, ProviderKind};
     settings(s);
     let f = s.form.as_mut().unwrap();
+    f.tab = crate::configuration::SettingsTab::Keys;
     for kind in ["anthropic", "openai", "gemini"] {
         f.saved_keys.insert(notebook_engine::settings::provider_secret(kind));
     }
@@ -589,7 +594,18 @@ fn settings_keys(s: &mut App) {
 fn settings_picker(s: &mut App) {
     settings_keys(s);
     let f = s.form.as_mut().unwrap();
+    f.tab = crate::configuration::SettingsTab::Models;
     f.pickers.entry("chat").or_default().open = true;
+}
+
+fn settings_models(s: &mut App) {
+    settings_keys(s);
+    let f = s.form.as_mut().unwrap();
+    f.tab = crate::configuration::SettingsTab::Models;
+    f.checks.clear();
+    f.models.remove(&notebook_engine::providers::ProviderKind::OpenAi);
+    f.recommendation = Some(crate::state::Check::Working("Recommended models selected and saved.".into()));
+    f.save = Some(crate::state::Check::Working("Changes saved".into()));
 }
 
 /// Server mode after Save and connect.
@@ -885,4 +901,21 @@ fn sources_tab(s: &mut App) {
 fn fold(s: &mut App) {
     notebook(s);
     s.fold = Some([400.0, 0.0, 24.0, 2000.0]);
+}
+
+fn library_reader(s: &mut App) {
+    reader(s);
+    let detail = s.open.as_ref().unwrap().reading.as_ref().unwrap().0.clone();
+    library(s);
+    s.library.as_mut().unwrap().reading = Some(detail);
+}
+
+fn library_manage(s: &mut App) {
+    library(s);
+    s.library.as_mut().unwrap().managing = true;
+}
+
+fn library_formatted(s: &mut App) {
+    library_reader(s);
+    s.library.as_mut().unwrap().reading.as_mut().unwrap().full_text = "## Sleep and learning\n\nSleep supports **memory consolidation**, especially after *new learning*. See the [study](https://example.com/study).\n\n### What the evidence suggests\n\n- Spindles support recall.\n- Deep sleep supports declarative memory.\n\n> Learning continues while we sleep.\n\n| Stage | Role |\n| --- | --- |\n| N2 | Sleep spindles |\n| N3 | Slow-wave sleep |\n\nUse `sleep_duration` to record time asleep.\n\n```text\nnight: 8 hours\nrecall: improved\n```".into();
 }

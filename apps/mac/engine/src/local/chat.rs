@@ -50,6 +50,7 @@ fn to_message(r: &Row<'_>) -> rusqlite::Result<ChatMessage> {
 
 /// What one conversation turn needs; shared by notebook and source chat.
 struct Turn<'a> {
+    images: Vec<crate::providers::ChatImage>,
     notebook_id: String,
     source_id: Option<String>,
     session_id: Option<String>,
@@ -112,6 +113,7 @@ impl Engine {
         let selection = args.context.clone();
         let (notebook_id, message, cancel) = (args.notebook_id.clone(), args.message.clone(), args.cancel.clone());
         let turn = Turn {
+            images: Vec::new(),
             notebook_id: args.notebook_id,
             source_id: None,
             session_id: args.session_id,
@@ -138,6 +140,7 @@ impl Engine {
         let notebook = self.get_notebook(&notebook_id)?;
         let (source_id, message, cancel) = (args.source_id.clone(), args.message.clone(), args.cancel.clone());
         let turn = Turn {
+            images: args.images,
             notebook_id: notebook_id.clone(),
             source_id: Some(args.source_id),
             session_id: args.session_id,
@@ -203,7 +206,9 @@ impl Engine {
                 messages.push(if m.kind == MessageKind::Human { ChatTurn::user(m.content) } else { ChatTurn::assistant(m.content) });
             }
         }
-        messages.push(ChatTurn::user(turn.message.clone()));
+        let mut user = ChatTurn::user(turn.message.clone());
+        user.images = turn.images;
+        messages.push(user);
 
         let system = system(&config)?;
         let request = ChatRequest::new(&chat.model, &system, messages).cancel(&turn.cancel).on_text(turn.on_text);

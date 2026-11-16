@@ -12,7 +12,7 @@ pub fn read_html(html: &str, url: Option<&str>) -> HtmlText {
     let page = dom_query::Document::from(html);
     let fallback_title = page.select("title").first().text().trim().to_string();
 
-    let config = dom_smoothie::Config { text_mode: dom_smoothie::TextMode::Formatted, ..Default::default() };
+    let config = dom_smoothie::Config { text_mode: dom_smoothie::TextMode::Markdown, ..Default::default() };
     let article = std::panic::catch_unwind(|| {
         let mut r = dom_smoothie::Readability::new(html, url, Some(config.clone()))
             .or_else(|_| dom_smoothie::Readability::new(html, None, Some(config.clone())))
@@ -23,7 +23,7 @@ pub fn read_html(html: &str, url: Option<&str>) -> HtmlText {
     .flatten();
     if let Some(a) = article.filter(|a| !a.text_content.trim().is_empty()) {
         let title = a.title.trim();
-        return HtmlText { title: if title.is_empty() { fallback_title } else { title.to_string() }, text: tidy(&a.text_content) };
+        return HtmlText { title: if title.is_empty() { fallback_title } else { title.to_string() }, text: a.text_content.trim().replace('\u{a0}', " ") };
     }
 
     page.select("script, style, noscript, nav, footer, header, svg").remove();
@@ -75,6 +75,22 @@ mod tests {
         assert_eq!(out.title, "Tiny");
         assert!(out.text.contains("Just a line"), "{}", out.text);
         assert!(!out.text.contains("x()") && !out.text.contains("p{}"), "{}", out.text);
+    }
+
+    #[test]
+    fn article_preserves_document_structure() {
+        let para =
+            "This is a substantial paragraph about reading research materials, retaining their structure and following the supporting evidence. ".repeat(5);
+        let html = format!(
+            "<html><body><article><h1>Research</h1><p>{para}</p><h2>Findings</h2><p><strong>Strong evidence</strong> and <em>careful analysis</em> with <a href='https://example.com/study'>a study</a>.</p><ul><li>First result</li><li>Second result</li></ul><pre><code>if ready:\n    read()</code></pre><p>{para}</p></article></body></html>"
+        );
+        let out = read_html(&html, Some("https://example.com"));
+        assert!(out.text.contains("## Findings"), "{}", out.text);
+        assert!(out.text.contains("**Strong evidence**"), "{}", out.text);
+        assert!(out.text.contains("*careful analysis*"), "{}", out.text);
+        assert!(out.text.contains("[a study](https://example.com/study)"), "{}", out.text);
+        assert!(out.text.contains("- First result") || out.text.contains("* First result"), "{}", out.text);
+        assert!(out.text.contains("    read()"), "{}", out.text);
     }
 
     #[test]

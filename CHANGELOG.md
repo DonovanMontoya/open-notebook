@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Resizable Library discussion with a remembered width, and interactive HTML figure explanations with Visualize and Animate actions. Generated visualizations open beside the chat, support controls and page links, and can be restarted or switched back to the original paper.
+- Mac Library PDF discussions beside the original pages: selected passages become question context, Highlight & ask marks the passage, and a figure index pairs captions with page images and links to the text discussing them. On-device figure questions send the image to the chosen vision-capable chat model; page citations open inside the reader.
+
 - macOS app drawn with Rune (`apps/mac`), replacing the Tauri shell on the Mac: notebooks, sources (links, text and files read on device), cited chat that opens the passage, notes, insights, transformations, Ask and Search, study decks, Usage and Settings, on device with your own keys or against an Open Notebook server. It opens the Tauri app's data folder, so existing notebooks, keys and files carry over. iOS stays on Tauri ([ADR-019](docs/7-DEVELOPMENT/decisions/ADR-019-rune-mac-app.md)).
 - The Rune Mac app's engine writes and voices podcasts on device (OpenAI speech, OpenAI Live, Gemini and ElevenLabs), with the quote-verified claim check, effort levels and the server's default profiles, and transcribes audio and video sources with the speech to text model from Settings. Episodes are saved in the Tauri app's `podcasts/` folder, so either app plays them.
 - The Rune Mac app now does everything the Tauri desktop app does except volume control and live talk against a server. It adds notebook rename, archive, search and drop-to-add; batch adds with per-item results; per-source and per-note chat context; a per-conversation model picker; note preview; key checks and real model lists in Settings; iCloud Keychain sync for keys (signed builds only); custom model prices; Library add-to and remove-from; the Transformations Try it panel; the server Processing settings; flashcard Again and Got it; a full podcast player with seeking, resume, sleep timer, media keys and Now Playing; episode download; and Live talk on device, through OpenAI's websocket with echo-cancelled microphone input.
@@ -23,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rune Settings groups connection, API keys, models and preferences into separate tabs. Saved keys show verification status, model recommendations select and save supported choices from available providers, and save and server connection actions show progress, success or a useful error. Server connections switch notebooks only after access succeeds.
+- Rune Library opens materials in a dedicated reader with adjustable text size, selectable text and find controls. Notebook conversations and findings stay in the notebook workspace; organization controls have a separate Manage materials view.
+
 - Rune on iPhone: compact notebook navigation, larger reading type, touch picker sheets, scrollable forms, a native Files picker and keyboard dismissal. The open Duo keeps sources and conversation on facing pages, clear of the fold.
 - The Rune Mac app's home lists your notebooks, newest first, with what each is for and its counts. The sidebar groups the notebooks under their own heading with a + button. Amber now marks only cited and checked text.
 - **Documentation rewritten against the code.** Every page under `docs/` was checked against v1.15.0 and rewritten where it described an older or imagined product (#1458, #1459, #1460, #1461):
@@ -32,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Development:** `architecture.md`, `testing.md`, `api-reference.md` and `code-standards.md` are rewritten from the code. A new playbook covers adding an AI provider. Dev setup lives on one page. The AGENTS files agree with the docs. Contributor conventions (Conventional Commits, CHANGELOG sections, pre-PR checks that match CI) are documented
 
 ### Fixed
+
+- Open original PDFs from the Mac Library inside the Library content area with page thumbnails, zoom, document search and text selection, preserving page layout and figures.
+
+- Preserve headings, emphasis, lists, tables, links and code in the Rune Library reader. New web imports retain document formatting, and reader search matches visible text across formatting.
 
 - Keep Settings, Ask and the other app destinations reachable on the Rune mobile home screen when notebooks are empty, archived, loading or unavailable.
 

@@ -224,3 +224,27 @@ fn a_cancelled_request_stops_with_cancelled() {
     assert!(matches!(err, Error::Cancelled));
     assert!(calls.lock().unwrap().is_empty());
 }
+
+#[test]
+fn figure_images_reach_each_provider_as_images() {
+    for kind in [ProviderKind::OpenAi, ProviderKind::OpenAiCompatible, ProviderKind::Anthropic, ProviderKind::Gemini] {
+        let (http, calls) = fake(|_| Response::new(200, Vec::new()));
+        let provider = create_provider(&ProviderConfig::with_key(kind, "test-key"), http);
+        let mut turn = ChatTurn::user("Explain Figure 1 on PDF page 6");
+        turn.images.push(ChatImage { mime: "image/png".into(), base64: "cGFnZQ==".into() });
+        provider.chat(ChatRequest::new("vision-model", "Use the figure and caption", vec![turn])).unwrap();
+        let calls = calls.lock().unwrap();
+        let payload = body(&calls[0]);
+        match kind {
+            ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => {
+                assert_eq!(payload["messages"][1]["content"][1]["type"], "image_url");
+                assert_eq!(payload["messages"][1]["content"][1]["image_url"]["url"], "data:image/png;base64,cGFnZQ==");
+            }
+            ProviderKind::Anthropic => {
+                assert_eq!(payload["messages"][0]["content"][1]["type"], "image");
+                assert_eq!(payload["messages"][0]["content"][1]["source"]["data"], "cGFnZQ==");
+            }
+            ProviderKind::Gemini => assert_eq!(payload["contents"][0]["parts"][1]["inlineData"]["data"], "cGFnZQ=="),
+        }
+    }
+}

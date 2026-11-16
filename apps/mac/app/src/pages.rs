@@ -33,6 +33,18 @@ pub const MIN_SEARCH_CHARS: usize = 2;
 
 #[derive(Default)]
 pub struct LibraryPage {
+    pub split: crate::visualization::ReaderSplit,
+    pub chat: crate::reading::ReadingChat,
+    #[cfg(target_os = "macos")]
+    pub original_pdf: Option<crate::pdf::OriginalPdf>,
+    pub managing: bool,
+    pub reader_jump: bool,
+    pub reading: Option<SourceDetail>,
+    pub opening: Option<String>,
+    pub reader_error: Option<String>,
+    pub reader_query: TextEdit,
+    pub reader_size: usize,
+    pub reader_match: usize,
     pub sources: Vec<SourceSummary>,
     pub filter: TextEdit,
     pub loaded: bool,
@@ -432,6 +444,65 @@ impl App {
     }
 
     // Library
+
+    pub fn read_library_source(&mut self, source_id: String) {
+        let width = self.prefs.get::<f32>("reader.chat-width").filter(|w| w.is_finite()).unwrap_or(380.0);
+        let p = self.library.get_or_insert_with(LibraryPage::default);
+        p.split.preferred = width;
+        if let Some(cancel) = &p.chat.sending {
+            cancel.cancel();
+        }
+        p.chat = crate::reading::ReadingChat::default();
+        p.reading = None;
+        #[cfg(target_os = "macos")]
+        {
+            p.original_pdf = None;
+        }
+        p.reader_error = None;
+        p.reader_query = TextEdit::default();
+        p.reader_match = 0;
+        p.opening = Some(source_id.clone());
+        let requested = source_id.clone();
+        self.run(
+            move |b| {
+                let detail = b.get_source(&source_id)?;
+                #[cfg(target_os = "macos")]
+                {
+                    let original = if detail.summary.file_available {
+                        let file = b.download_source(&source_id)?;
+                        match file.filter(crate::pdf::is_pdf) {
+                            Some(file) => Some(crate::pdf::OriginalPdf::prepare(&file)?),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+                    Ok((detail, original))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Ok(detail)
+                }
+            },
+            move |app, result| {
+                let Some(p) = app.library.as_mut().filter(|p| p.opening.as_ref() == Some(&requested)) else { return };
+                p.opening = None;
+                match result {
+                    #[cfg(target_os = "macos")]
+                    Ok((detail, original)) => {
+                        p.original_pdf = original;
+                        p.reading = Some(detail);
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    Ok(detail) => p.reading = Some(detail),
+                    Err(e) => p.reader_error = Some(e.to_string()),
+                }
+                if p.reading.is_some() {
+                    app.load_reading_chat();
+                }
+            },
+        );
+    }
 
     pub fn load_library(&mut self) {
         self.library.get_or_insert_with(LibraryPage::default);

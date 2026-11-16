@@ -52,6 +52,7 @@ pub struct SendChat<'a> {
 }
 
 pub struct SendSourceChat<'a> {
+    pub images: Vec<crate::providers::ChatImage>,
     pub source_id: String,
     pub session_id: Option<String>,
     pub message: String,

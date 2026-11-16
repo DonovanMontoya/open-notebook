@@ -27,6 +27,26 @@ scripts/iphone.sh                         # builds, signs, installs and launches
 
 For the simulator, build `--target aarch64-apple-ios-sim` and run `ios/OpenNotebook.xcodeproj`. The app installs as "Notebook (Rune)" and keeps its data in its sandbox.
 
+### PDF reading on Mac
+
+Library embeds original PDF pages in its main content area, using PDFKit for page thumbnails, selection, search and zoom. Swift is required when building the Mac app; Cargo compiles and embeds the native renderer automatically. Distributed builds need no compiler or separate reader app.
+
+The Discussion panel asks questions about the open material. Selecting text adds it to the question context; **Highlight & ask** also marks it on the page. **Figures** detects numbered figure captions and pairs each one with the original page image and passages mentioning its number. Related-text links select the passage in the PDF; page links in answers navigate inside the reader.
+
+Drag the divider beside Discussion to resize it; double-click resets the width. The width is remembered across materials and launches. Choose **Visualize** or **Animate** on a selected figure, or ask for an interactive explanation in chat. Completed HTML answers appear as an **Open interactive figure** action and open in the Library's Visualization tab. Original paper returns to the PDF; Restart resets the visualization. The model is instructed to provide play, pause, step and reset controls for animations and to identify schematic interpretations. Generated code is saved with the conversation, so it can be opened again later.
+
+HTML runs in a sandboxed frame inside a private WebKit view. It has no host-app access or external network resources. Its only supported host message is a validated PDF page link. Hiding the view unloads the document and stops its scripts. Incomplete and oversized HTML answers display a recovery message rather than executing.
+
+Choose a chat model in Settings before asking. Figure images require on-device mode and a model that accepts images; server mode supports text questions. The full figure page is sent so charts are not cut off by a guessed crop. Caption detection needs selectable text and does not detect unlabeled illustrations or scanned pages. Highlights and the pinned selection last while the material is open; conversation text is saved through source chat, which requires notebook membership. Page images are attached to questions while pinned and are not stored in conversation history.
+
+### Settings
+
+Settings has four sections: Connection, API keys, Models and Preferences. A saved key is shown separately from a successful access check. Key checks list models (or ElevenLabs voices) without generating content. Verification lasts for the open Settings session; returning to Settings checks saved model-provider keys again.
+
+**Recommended models** checks providers with saved keys and selects supported models from their returned catalogs. It favors a balanced chat model, a smaller embedding model and a supported transcription model. Preview and experimental models are excluded. Supported selections are saved immediately; roles without a recommended option keep their current selection. A checked local model endpoint can also be used without a key. Existing materials need a search-index rebuild after an embedding-model change.
+
+**Save and connect** verifies server access before saving the address and switching notebooks. A failed connection keeps the current backend active. Editing the address cancels the pending result, so an old check cannot activate a different server. Server model and provider administration remains on the Server page.
+
 ## Check
 
 ```sh

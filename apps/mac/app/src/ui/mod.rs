@@ -8,6 +8,7 @@ mod live;
 mod mobile;
 mod notebook;
 mod pages;
+mod reader;
 mod select;
 mod server;
 mod settings;
@@ -30,6 +31,14 @@ pub fn look(cx: &Cx<App>, s: &App) -> Look {
 }
 
 pub fn view(s: &App, cx: &mut Cx<App>) -> El {
+    #[cfg(target_os = "macos")]
+    if !matches!(s.route, Route::Library)
+        || s.library.as_ref().is_none_or(|p| p.original_pdf.is_none() || p.reading.is_none())
+        || s.confirm.is_some()
+        || s.new_notebook.is_some()
+    {
+        crate::pdf::hide();
+    }
     select::begin_layers();
     // The window's own width picks the layout; until the first layout, guess by platform.
     let width = cx.layout_with("app-root", |r| r[2]).unwrap_or(if cfg!(target_os = "ios") { 400.0 } else { 1280.0 });

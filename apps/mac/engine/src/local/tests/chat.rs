@@ -251,3 +251,22 @@ fn ask_without_a_chat_model_explains_what_to_do() {
     let err = env.backend.ask("q", None, &mut |_| {}, &Cancel::new()).unwrap_err();
     assert!(err.to_string().contains("Choose a chat model"));
 }
+
+#[test]
+fn source_questions_send_figure_image_with_the_selected_context() {
+    let env = setup_with(AppSettings { chat: model("vision"), ..Default::default() });
+    let nb = env.backend.create_notebook("Paper", "").unwrap();
+    let source = env.backend.add_source(&nb.id, text("The paper explains the figure's findings.", "Paper")).unwrap();
+    env.backend.idle();
+    let image = crate::providers::ChatImage { mime: "image/png".into(), base64: "cGFnZQ==".into() };
+    env.backend
+        .send_source_chat_message(SendSourceChat {
+            images: vec![image.clone()],
+            ..source_chat(&source.id, "Explain Figure 1, page 6: caption and related passage")
+        })
+        .unwrap();
+    let call = env.fake.last();
+    assert_eq!(call.messages.last().unwrap().images, [image]);
+    assert!(call.messages.last().unwrap().content.contains("page 6"));
+    assert!(call.system.contains("paper explains"));
+}

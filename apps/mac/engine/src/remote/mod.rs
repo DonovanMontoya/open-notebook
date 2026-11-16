@@ -214,6 +214,11 @@ impl Backend for RemoteBackend {
 
     /// Source chat streams: each chunk of the server's event stream goes to `on_text` as it arrives.
     fn send_source_chat_message(&self, mut args: SendSourceChat<'_>) -> Result<SendChatResult> {
+        if !args.images.is_empty() {
+            return Err(crate::Error::Setup(
+                "Figure images need on-device mode with a vision-capable chat model; this server endpoint accepts text only.".into(),
+            ));
+        }
         let c = &self.client;
         args.cancel.check()?;
         let session_id = match args.session_id.take() {

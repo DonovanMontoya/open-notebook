@@ -532,6 +532,8 @@ pub fn is_failed(status: Option<&str>) -> bool {
 /// The settings screen's fields. Key fields start empty: a saved key is never shown, and
 /// pasting a new one replaces it.
 pub struct SettingsForm {
+    pub tab: crate::configuration::SettingsTab,
+    pub mode: Mode,
     pub server_url: TextEdit,
     pub server_password: TextEdit,
     pub keys: Vec<(ProviderKind, TextEdit)>,
@@ -544,7 +546,9 @@ pub struct SettingsForm {
     pub transcription_provider: ProviderKind,
     /// ElevenLabs voices for podcasts; not a chat provider.
     pub elevenlabs: TextEdit,
-    pub saved: bool,
+    pub save: Option<Check>,
+    pub recommendation: Option<Check>,
+    pub operations: BTreeMap<String, Cancel>,
     pub open_select: Option<&'static str>,
     /// Transformations, insights and study decks; empty uses the chat model.
     pub transformation_model: TextEdit,
@@ -568,6 +572,8 @@ impl SettingsForm {
         let provider = |m: &Option<settings::ModelSetting>, d| m.as_ref().and_then(|m| ProviderKind::parse(&m.provider)).unwrap_or(d);
         let saved_keys = settings::all_secret_names().into_iter().filter(|n| secrets.get(n).ok().flatten().is_some()).collect();
         let mut f = SettingsForm {
+            tab: crate::configuration::SettingsTab::Connection,
+            mode: settings.mode,
             server_url: TextEdit::new(settings.server_url.clone()),
             server_password: TextEdit::new(""),
             keys: ProviderKind::ALL.iter().map(|&p| (p, TextEdit::new(""))).collect(),
@@ -579,7 +585,9 @@ impl SettingsForm {
             transcription_model: TextEdit::new(model(&settings.transcription)),
             transcription_provider: provider(&settings.transcription, ProviderKind::OpenAi),
             elevenlabs: TextEdit::new(""),
-            saved: false,
+            save: None,
+            recommendation: None,
+            operations: BTreeMap::new(),
             open_select: None,
             transformation_model: TextEdit::new(model(&settings.transformation)),
             transformation_provider: provider(&settings.transformation, ProviderKind::Anthropic),
@@ -597,6 +605,41 @@ impl SettingsForm {
 
     pub fn has_key(&self, name: &str) -> bool {
         self.saved_keys.contains(name)
+    }
+
+    pub fn begin(&mut self, operation: &str) -> Cancel {
+        let ticket = Cancel::new();
+        if let Some(previous) = self.operations.insert(operation.into(), ticket.clone()) {
+            previous.cancel();
+        }
+        ticket
+    }
+
+    pub fn owns(&self, operation: &str, ticket: &Cancel) -> bool {
+        !ticket.is_cancelled() && self.operations.get(operation).is_some_and(|t| t.same(ticket))
+    }
+
+    pub fn edited(&mut self) {
+        self.save = None;
+        if let Some(ticket) = self.operations.remove("recommendations") {
+            ticket.cancel();
+        }
+        self.recommendation = None;
+    }
+
+    pub fn connection_edited(&mut self) {
+        self.edited();
+        self.invalidate_check("server");
+    }
+
+    pub fn invalidate_check(&mut self, name: &str) {
+        if let Some(ticket) = self.operations.remove(name) {
+            ticket.cancel();
+        }
+        self.checks.remove(name);
+        if let Some(kind) = ProviderKind::parse(name) {
+            self.models.remove(&kind);
+        }
     }
 
     pub fn has_provider_key(&self, kind: ProviderKind) -> bool {
@@ -849,16 +892,22 @@ impl App {
     // Notebooks
 
     pub fn refresh_notebooks(&self) {
+        let requested = self.backend.clone();
         self.run(
             |b| b.list_notebooks(),
-            |app, r| match r {
-                Ok(list) => {
-                    app.notebooks = list;
-                    app.loaded = true;
+            move |app, result| {
+                if !app.backend.as_ref().zip(requested.as_ref()).is_some_and(|(active, asked)| Arc::ptr_eq(active, asked)) {
+                    return;
                 }
-                Err(e) => {
-                    app.loaded = true;
-                    app.fail(e);
+                match result {
+                    Ok(list) => {
+                        app.notebooks = list;
+                        app.loaded = true;
+                    }
+                    Err(e) => {
+                        app.loaded = true;
+                        app.fail(e);
+                    }
                 }
             },
         );
@@ -1066,6 +1115,7 @@ impl App {
                 };
                 match scope {
                     Some(source_id) => b.send_source_chat_message(notebook_engine::backend::SendSourceChat {
+                        images: Vec::new(),
                         source_id,
                         session_id,
                         message,
@@ -1646,62 +1696,33 @@ impl App {
         self.load_slot_models();
     }
 
-    /// Saves the mode, server address, base URL and models, and any key or password pasted
-    /// into a field (empty fields keep what is saved), then reconnects.
     pub fn save_settings(&mut self) {
-        let sync = self.settings.sync_keys;
-        let Some(form) = self.form.as_mut() else { return };
-        let mut s = self.settings.clone();
-        s.server_url = form.server_url.text.trim().to_owned();
-        s.compatible_base_url = form.compatible_base_url.text.trim().to_owned();
+        self.persist_model_settings();
+    }
+
+    pub(crate) fn persist_model_settings(&mut self) -> bool {
+        let Some(form) = self.form.as_mut() else { return false };
+        let mut next = self.settings.clone();
         let model = |provider: ProviderKind, edit: &TextEdit| {
-            let m = edit.text.trim();
-            (!m.is_empty()).then(|| settings::ModelSetting { provider: provider.as_str().into(), model: m.into() })
+            let name = edit.text.trim();
+            (!name.is_empty()).then(|| settings::ModelSetting { provider: provider.as_str().into(), model: name.into() })
         };
-        s.chat = model(form.chat_provider, &form.chat_model);
-        s.embedding = model(form.embedding_provider, &form.embedding_model);
-        s.transcription = model(form.transcription_provider, &form.transcription_model);
-        s.transformation = model(form.transformation_provider, &form.transformation_model);
-        let mut errors = Vec::new();
-        let mut pasted: Vec<(String, &mut TextEdit)> = form.keys.iter_mut().map(|(id, edit)| (settings::provider_secret(id.as_str()), edit)).collect();
-        pasted.push((settings::provider_secret("elevenlabs"), &mut form.elevenlabs));
-        pasted.push((settings::SERVER_PASSWORD.into(), &mut form.server_password));
-        for (name, edit) in pasted {
-            if edit.text.trim().is_empty() {
-                continue;
-            }
-            match self.secrets.put(&name, &edit.text, sync) {
-                Ok(()) => {
-                    *edit = TextEdit::new("");
-                    form.saved_keys.insert(name);
-                }
-                Err(e) => errors.push(e.to_string()),
-            }
+        next.chat = model(form.chat_provider, &form.chat_model);
+        next.embedding = model(form.embedding_provider, &form.embedding_model);
+        next.transformation = model(form.transformation_provider, &form.transformation_model);
+        next.transcription = model(form.transcription_provider, &form.transcription_model);
+        if let Err(error) = next.save(&self.data_dir) {
+            form.save = Some(Check::Failed(error.to_string()));
+            return false;
         }
-        form.fix_providers();
-        if let Err(e) = s.save(&self.data_dir) {
-            errors.push(e.to_string());
-        }
-        form.saved = errors.is_empty();
-        let mode_changed = s.mode != self.settings.mode || s.server_url != self.settings.server_url;
-        self.settings = s;
-        if let Some(e) = errors.first() {
-            self.fail(e);
-        }
-        if mode_changed {
-            self.open = None;
-            self.notebooks.clear();
-            self.route = Route::Settings;
-        }
-        // On device with the same mode, the running engine re-reads settings.json in place, so
-        // sources and episodes being made keep going. Keys are read on every call. Anything else
-        // (a mode or server change) reconnects.
-        if !mode_changed && let Some(local) = self.backend.as_ref().and_then(|b| b.local()) {
+        self.settings = next;
+        form.save = Some(Check::Working("Changes saved".into()));
+        if let Some(local) = self.backend.as_ref().and_then(|b| b.local()) {
             local.reload_settings();
-            self.refresh_notebooks();
-        } else {
-            self.connect();
         }
+        self.toast = Some("Settings saved".into());
+        self.toast_since = None;
+        true
     }
 }
 
@@ -1773,7 +1794,7 @@ fn with_open<T: Send + 'static>(id: &str, f: impl FnOnce(&mut Open, T) + Send + 
 
 // Settings: key checks, model lists, key sync, the server test and the index rebuild.
 impl App {
-    fn provider_config(&self, kind: ProviderKind) -> notebook_engine::providers::ProviderConfig {
+    pub(crate) fn provider_config(&self, kind: ProviderKind) -> notebook_engine::providers::ProviderConfig {
         let base_url = self.form.as_ref().map_or_else(|| self.settings.compatible_base_url.clone(), |f| f.compatible_base_url.text.trim().to_owned());
         notebook_engine::providers::ProviderConfig {
             kind,
@@ -1783,36 +1804,37 @@ impl App {
     }
 
     /// Lists a provider's models off the UI thread, for the pickers and its key check.
-    pub fn load_models(&mut self, kind: ProviderKind, check: bool) {
+    pub fn load_models(&mut self, kind: ProviderKind, _check: bool) {
         let Some(f) = self.form.as_mut() else { return };
+        let ticket = f.begin(kind.as_str());
         f.models.insert(kind, ModelList::Loading);
-        if check {
-            f.checks.insert(kind.as_str().into(), Check::Checking);
-        }
+        f.checks.insert(kind.as_str().into(), Check::Checking);
         let config = self.provider_config(kind);
-        self.run(
-            move |_| notebook_engine::providers::create_provider(&config, notebook_engine::net::UreqHttp::shared()).list_models(),
-            move |app, r| {
-                let Some(f) = app.form.as_mut() else { return };
-                let (list, status) = match r {
-                    Ok(models) => (ModelList::Ready(models.clone()), Check::Working(format!("Working, {} models", models.len()))),
+        self.run_settings(
+            move || notebook_engine::providers::create_provider(&config, notebook_engine::net::UreqHttp::shared()).list_models(),
+            move |app, result| {
+                let Some(f) = app.form.as_mut().filter(|f| f.owns(kind.as_str(), &ticket)) else { return };
+                let (list, status) = match result {
+                    Ok(models) => {
+                        let status = Check::Working(format!("Verified · {} models available", models.len()));
+                        (ModelList::Ready(models), status)
+                    }
                     Err(e) => (ModelList::Failed(e.to_string()), Check::Failed(e.to_string())),
                 };
                 f.models.insert(kind, list);
-                if check || f.checks.contains_key(kind.as_str()) {
-                    f.checks.insert(kind.as_str().into(), status);
-                }
+                f.checks.insert(kind.as_str().into(), status);
             },
         );
     }
 
-    /// Loads the model lists of the providers the jobs use.
     pub fn load_slot_models(&mut self) {
+        if self.settings.mode != Mode::Local {
+            return;
+        }
         let Some(f) = self.form.as_ref() else { return };
-        let kinds: BTreeSet<ProviderKind> =
-            MODEL_ROLES.iter().map(|r| f.provider_of(r)).filter(|&k| f.has_provider_key(k) || k == ProviderKind::OpenAiCompatible).collect();
+        let kinds: Vec<_> = ProviderKind::ALL.into_iter().filter(|&k| f.has_provider_key(k)).collect();
         for kind in kinds {
-            self.load_models(kind, false);
+            self.load_models(kind, true);
         }
     }
 
@@ -1821,6 +1843,7 @@ impl App {
     pub fn save_and_check_key(&mut self, kind: ProviderKind) {
         let sync = self.settings.sync_keys;
         let Some(f) = self.form.as_mut() else { return };
+        f.edited();
         let name = settings::provider_secret(kind.as_str());
         let Some(edit) = f.keys.iter_mut().find(|(k, _)| *k == kind).map(|(_, e)| e) else { return };
         if !edit.text.trim().is_empty() {
@@ -1834,9 +1857,15 @@ impl App {
         }
         let url = f.compatible_base_url.text.trim().to_owned();
         if kind == ProviderKind::OpenAiCompatible && url != self.settings.compatible_base_url {
-            self.settings.compatible_base_url = url;
-            if let Err(e) = self.settings.save(&self.data_dir) {
-                self.fail(e);
+            let mut next = self.settings.clone();
+            next.compatible_base_url = url;
+            if let Err(e) = next.save(&self.data_dir) {
+                f.checks.insert(kind.as_str().into(), Check::Failed(e.to_string()));
+                return;
+            }
+            self.settings = next;
+            if let Some(local) = self.backend.as_ref().and_then(|b| b.local()) {
+                local.reload_settings();
             }
         }
         self.load_models(kind, true);
@@ -1849,10 +1878,20 @@ impl App {
             return;
         }
         if let Some(f) = self.form.as_mut() {
+            f.edited();
             f.saved_keys.remove(&name);
-            f.checks.remove(name.strip_prefix("provider:").unwrap_or(&name));
+            let provider = name.strip_prefix("provider:").unwrap_or(&name);
+            if let Some(ticket) = f.operations.remove(provider) {
+                ticket.cancel();
+            }
+            if let Some(kind) = ProviderKind::parse(provider) {
+                f.models.remove(&kind);
+            }
+            f.checks.remove(provider);
             f.fix_providers();
         }
+        self.toast = Some("Saved key removed".into());
+        self.toast_since = None;
     }
 
     /// Saves a pasted ElevenLabs key, then checks it by listing its voices.
@@ -1860,6 +1899,7 @@ impl App {
         use notebook_engine::podcast::voices::{VoiceConfig, VoiceKind, create_voice_provider};
         let sync = self.settings.sync_keys;
         let Some(f) = self.form.as_mut() else { return };
+        f.edited();
         let name = settings::provider_secret("elevenlabs");
         if !f.elevenlabs.text.trim().is_empty() {
             if let Err(e) = self.secrets.put(&name, &f.elevenlabs.text, sync) {
@@ -1869,6 +1909,7 @@ impl App {
             f.elevenlabs = TextEdit::new("");
             f.saved_keys.insert(name.clone());
         }
+        let ticket = f.begin("elevenlabs");
         f.checks.insert("elevenlabs".into(), Check::Checking);
         let config = VoiceConfig {
             kind: VoiceKind::ElevenLabs,
@@ -1877,10 +1918,10 @@ impl App {
             voices: Vec::new(),
             hosts: Vec::new(),
         };
-        self.run(
-            move |_| create_voice_provider(&config, notebook_engine::net::UreqHttp::shared(), None).list_voices(),
-            |app, r| {
-                if let Some(f) = app.form.as_mut() {
+        self.run_settings(
+            move || create_voice_provider(&config, notebook_engine::net::UreqHttp::shared(), None).list_voices(),
+            move |app, r| {
+                if let Some(f) = app.form.as_mut().filter(|f| f.owns("elevenlabs", &ticket)) {
                     let status = match r {
                         Ok(v) => Check::Working(format!("Working, {} voices", v.len())),
                         Err(e) => Check::Failed(e.to_string()),
@@ -1919,40 +1960,17 @@ impl App {
         });
     }
 
-    /// Server mode: saves the address and any pasted password, reconnects, then checks the
-    /// server by signing in and listing its notebooks.
-    pub fn save_and_test_server(&mut self) {
-        self.save_settings();
-        let Some(remote) = self.remote() else { return };
-        if let Some(f) = self.form.as_mut() {
-            f.checks.insert("server".into(), Check::Checking);
-        }
-        self.run(
-            move |_| {
-                remote.client().auth_status()?;
-                Ok(remote.client().list_notebooks(None)?.len())
-            },
-            |app, r| {
-                if let Some(f) = app.form.as_mut() {
-                    let status = match r {
-                        Ok(1) => Check::Working("Connected, 1 notebook".into()),
-                        Ok(n) => Check::Working(format!("Connected, {n} notebooks")),
-                        Err(e) => Check::Failed(e.to_string()),
-                    };
-                    f.checks.insert("server".into(), status);
-                }
-            },
-        );
-    }
-
     pub fn forget_server_password(&mut self) {
         if let Err(e) = self.secrets.delete(settings::SERVER_PASSWORD) {
             self.fail(e);
             return;
         }
         if let Some(f) = self.form.as_mut() {
+            f.connection_edited();
             f.saved_keys.remove(settings::SERVER_PASSWORD);
         }
+        self.toast = Some("Saved server password removed".into());
+        self.toast_since = None;
     }
 
     /// On device: reads and indexes every source again with the current embedding model.
