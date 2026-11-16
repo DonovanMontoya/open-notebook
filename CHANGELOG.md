@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Integrate pending dependency updates with matching Next.js lint and Vitest packages, and refresh runtime coverage for full-text source context, current-reply streaming and scoped Ask searches.
+
 - Open original PDFs from the Mac Library inside the Library content area with page thumbnails, zoom, document search and text selection, preserving page layout and figures.
 
 - Preserve headings, emphasis, lists, tables, links and code in the Rune Library reader. New web imports retain document formatting, and reader search matches visible text across formatting.

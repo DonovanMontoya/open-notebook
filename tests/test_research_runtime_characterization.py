@@ -2,20 +2,25 @@
 
 These tests deliberately exercise runtime boundaries with database access and
 language models mocked. They document behavior; they are not a redesign suite.
-The one strict xfail records the future Source Chat contract from issue #1224.
+Source Chat coverage verifies the corrected full-text contract from issue #1224.
 """
 
 import json
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 
 from api.routers.chat import ExecuteChatRequest, execute_chat
 from api.routers.search import stream_ask_response
 from api.routers.source_chat import stream_source_chat_response
+from open_notebook.ai.models import Model
+from open_notebook.graphs.ask import ThreadState as AskState
 from open_notebook.graphs.ask import graph as ask_graph
+from open_notebook.graphs.chat import ThreadState as ChatState
 from open_notebook.graphs.chat import call_model_with_messages
 from open_notebook.graphs.chat import graph as notebook_chat_graph
 from open_notebook.graphs.source_chat import (
@@ -91,11 +96,12 @@ def test_notebook_chat_prompt_model_selection_and_cleaned_output():
 
     with patch("open_notebook.graphs.chat.provision_langchain_model", new=provision):
         result = call_model_with_messages(
-            state, {"configurable": {"model_id": "model:request"}}
+            cast(ChatState, state), {"configurable": {"model_id": "model:request"}}
         )
 
     provision.assert_awaited_once()
     provision_args = provision.await_args
+    assert provision_args is not None
     assert provision_args.args[1:] == ("model:request", "chat")
     assert provision_args.kwargs == {"max_tokens": 8192}
 
@@ -172,8 +178,8 @@ async def test_notebook_chat_api_uses_mocked_db_checkpoint_and_session_model():
     ]
 
 
-def test_source_chat_current_prompt_has_secondary_character_truncation():
-    """Capture the pre-#1224 formatter behavior without endorsing it."""
+def test_source_chat_prompt_preserves_budgeted_text():
+    """The formatter preserves source text already selected by the token budget."""
     full_text = ("A" * 5_000) + "TAIL_NOT_IN_CURRENT_PROMPT"
     context_data = {
         "sources": [
@@ -223,13 +229,14 @@ def test_source_chat_current_prompt_has_secondary_character_truncation():
 
     build_context.assert_awaited_once_with(source_id="source:alpha", max_tokens=50_000)
     provision_args = provision.await_args
+    assert provision_args is not None
     assert provision_args.args[1:] == ("model:source", "chat")
     assert provision_args.kwargs == {"max_tokens": 8192}
 
     system_prompt = model.invoke.call_args.args[0][0].content
     assert "A" * 5_000 in system_prompt
-    assert "TAIL_NOT_IN_CURRENT_PROMPT" not in system_prompt
-    assert "[Content truncated]" in system_prompt
+    assert "TAIL_NOT_IN_CURRENT_PROMPT" in system_prompt
+    assert "[Content truncated]" not in system_prompt
     assert result["context_indicators"] == {
         "sources": ["source:alpha"],
         "insights": ["source_insight:one"],
@@ -238,11 +245,11 @@ def test_source_chat_current_prompt_has_secondary_character_truncation():
 
 
 @pytest.mark.asyncio
-async def test_source_chat_current_builder_requests_short_context_without_full_text():
-    """Capture the database-backed context gap described by issue #1224."""
+async def test_source_chat_builder_requests_full_text():
+    """The database-backed context includes the full source when it fits."""
     source = SimpleNamespace(id="source:alpha")
 
-    async def get_context(*, context_size):
+    async def get_context(*, context_size, insights):
         if context_size == "long":
             return {
                 "id": "source:alpha",
@@ -261,27 +268,25 @@ async def test_source_chat_current_builder_requests_short_context_without_full_t
         context_data = await build_source_context("alpha", max_tokens=50_000)
 
     get_source.assert_awaited_once_with("source:alpha")
-    source.get_context.assert_awaited_once_with(context_size="short")
+    source.get_context.assert_awaited_once_with(context_size="long", insights=[])
     assert context_data["sources"] == [
-        {"id": "source:alpha", "title": "Current baseline"}
+        {
+            "id": "source:alpha",
+            "title": "Current baseline",
+            "full_text": "Substantive source text",
+            "insights": [],
+        }
     ]
-    assert "full_text" not in context_data["sources"][0]
+    assert context_data["sources"][0]["full_text"] == "Substantive source text"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Future Source Chat baseline from issue #1224: use full source text "
-        "and one token budget, with no second formatter truncation"
-    ),
-)
 @pytest.mark.asyncio
-async def test_source_chat_issue_1224_future_baseline_includes_fitting_text_once():
-    """Executable future contract; expected to xfail until #1224 is implemented."""
+async def test_source_chat_includes_fitting_text_once():
+    """Full source text reaches the formatter without a second truncation."""
     full_text = ("B" * 6_000) + "END_OF_SOURCE"
     source = SimpleNamespace(id="source:alpha")
 
-    async def get_context(*, context_size):
+    async def get_context(*, context_size, insights):
         if context_size == "long":
             return {
                 "id": "source:alpha",
@@ -299,7 +304,7 @@ async def test_source_chat_issue_1224_future_baseline_includes_fitting_text_once
     ):
         context_data = await build_source_context("source:alpha", max_tokens=50_000)
 
-    source.get_context.assert_awaited_once_with(context_size="long")
+    source.get_context.assert_awaited_once_with(context_size="long", insights=[])
     assert context_data["sources"][0]["full_text"] == full_text
     formatted = _format_source_context(context_data)
     assert "END_OF_SOURCE" in formatted
@@ -307,8 +312,8 @@ async def test_source_chat_issue_1224_future_baseline_includes_fitting_text_once
 
 
 @pytest.mark.asyncio
-async def test_source_chat_sse_event_order_and_accumulated_ai_replay():
-    """Source Chat emits the user event, all AI messages, indicators, then complete."""
+async def test_source_chat_sse_event_order_and_new_answer():
+    """Source Chat emits only the current answer before indicators and completion."""
     graph = MagicMock()
     graph.get_state.return_value = SimpleNamespace(
         values={"messages": [AIMessage(content="Earlier answer")]}
@@ -341,14 +346,10 @@ async def test_source_chat_sse_event_order_and_accumulated_ai_replay():
     assert [payload["type"] for payload in payloads] == [
         "user_message",
         "ai_message",
-        "ai_message",
         "context_indicators",
         "complete",
     ]
-    assert [payloads[1]["content"], payloads[2]["content"]] == [
-        "Earlier answer",
-        "New answer",
-    ]
+    assert payloads[1]["content"] == "New answer"
     assert graph.invoke.call_args.kwargs["config"]["configurable"] == {
         "thread_id": "chat_session:session",
         "model_id": "model:source",
@@ -393,28 +394,33 @@ async def test_ask_graph_fanout_search_and_three_mocked_models():
         patch("open_notebook.graphs.ask.vector_search", new=vector_search),
     ):
         result = await ask_graph.ainvoke(
-            {"question": "How is runtime state stored?"},
-            config={
-                "configurable": {
-                    "strategy_model": "model:strategy",
-                    "answer_model": "model:answer",
-                    "final_answer_model": "model:final",
-                }
-            },
+            cast(AskState, {"question": "How is runtime state stored?"}),  # type: ignore[arg-type]
+            config=cast(
+                RunnableConfig,
+                {
+                    "configurable": {
+                        "strategy_model": "model:strategy",
+                        "answer_model": "model:answer",
+                        "final_answer_model": "model:final",
+                    }
+                },
+            ),
         )
 
-    vector_search.assert_awaited_once_with("runtime baseline", 10, True, True)
+    vector_search.assert_awaited_once_with(
+        "runtime baseline", 10, True, True, notebook_ids=None
+    )
     assert [item.args[1:3] for item in provision.await_args_list] == [
         ("model:strategy", "tools"),
         ("model:answer", "tools"),
         ("model:final", "tools"),
     ]
     assert provision.await_args_list[0].kwargs == {
-        "max_tokens": 2000,
+        "max_tokens": 8192,
         "structured": {"type": "json"},
     }
-    assert provision.await_args_list[1].kwargs == {"max_tokens": 2000}
-    assert provision.await_args_list[2].kwargs == {"max_tokens": 2000}
+    assert provision.await_args_list[1].kwargs == {"max_tokens": 8192}
+    assert provision.await_args_list[2].kwargs == {"max_tokens": 8192}
     assert result["strategy"].reasoning == "Find the runtime baseline"
     assert result["answers"] == ["The state is checkpointed [note:one]."]
     assert result["final_answer"] == "Final synthesis [note:one]."
@@ -456,7 +462,13 @@ async def test_ask_sse_event_contract():
     with patch("api.routers.search.ask_graph", new=graph):
         events = [
             event
-            async for event in stream_ask_response("What is checkpointing?", *models)
+            async for event in stream_ask_response(
+                "What is checkpointing?",
+                cast(Model, models[0]),
+                cast(Model, models[1]),
+                cast(Model, models[2]),
+                [],
+            )
         ]
 
     payloads = _sse_payloads(events)
@@ -468,7 +480,7 @@ async def test_ask_sse_event_contract():
     ]
     assert payloads[-1]["final_answer"] == "Complete [note:one]."
     assert graph.kwargs == {
-        "input": {"question": "What is checkpointing?"},
+        "input": {"question": "What is checkpointing?", "notebook_ids": []},
         "config": {
             "configurable": {
                 "strategy_model": "model:strategy",
