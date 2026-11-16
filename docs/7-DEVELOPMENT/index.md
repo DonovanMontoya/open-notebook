@@ -16,6 +16,7 @@ The normative rules for coding agents (and humans in a hurry) are in the `AGENTS
 |---|---|
 | [Architecture](architecture.md) | Processes, code layout, data model, workflows, model calls, background jobs |
 | [Credentials](credentials.md) | Provider credentials, encryption, provider registry, provisioning |
+| [Research Runtime Baseline](research-runtime-baseline.md) | Notebook Chat, Source Chat and Ask behavior |
 | [Content Processing](content-processing.md) | Chunking, embedding, context building, encryption utility |
 | [Podcasts](podcasts.md) | Episode and speaker profiles, model resolution, job lifecycle |
 | [Prompts](prompts.md) | Prompt templates and `Prompter` |
